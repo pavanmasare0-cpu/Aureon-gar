@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<title>Aureon AI</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ===== SPLASH / STARTING ANIMATION ===== -->
+  <section id="screen-splash" class="screen active splash-screen">
+    <div class="splash-glow-ring"></div>
+    <div class="splash-glow-ring ring-2"></div>
+    <div class="splash-core">
+      <span class="splash-mark">✦</span>
+    </div>
+    <div class="splash-brand">Aureon</div>
+    <div class="splash-tagline">AI, refined.</div>
+    <div class="splash-loader"><span></span><span></span><span></span></div>
+  </section>
+
+  <!-- ===== HOME / DASHBOARD SCREEN ===== -->
+  <section id="screen-home" class="screen">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">✦</span>
+        <span class="brand-name">Aureon</span>
+      </div>
+      <button class="icon-btn" id="btn-settings" aria-label="Settings">⚙</button>
+    </header>
+
+    <div class="home-body">
+      <div class="hero">
+        <span class="hero-mark">✦</span>
+        <h1>What can I help with today?</h1>
+      </div>
+
+      <div class="quick-grid">
+        <button class="quick-card" data-prompt="ask">
+          <span class="qc-icon">💡</span><span>Ask AI</span>
+        </button>
+        <button class="quick-card" data-prompt="file">
+          <span class="qc-icon">📄</span><span>Analyze File</span>
+        </button>
+        <button class="quick-card" data-prompt="image">
+          <span class="qc-icon">🖼</span><span>Analyze Image</span>
+        </button>
+        <button class="quick-card" data-prompt="code">
+          <span class="qc-icon">💻</span><span>Code</span>
+        </button>
+        <button class="quick-card" data-prompt="search">
+          <span class="qc-icon">🌐</span><span>Web Search</span>
+        </button>
+        <button class="quick-card" data-prompt="write">
+          <span class="qc-icon">✍️</span><span>Writing</span>
+        </button>
+      </div>
+
+      <div class="recent-section">
+        <div class="section-label">Recent chats</div>
+        <div id="recent-list" class="recent-list">
+          <div class="empty-hint">No chats yet — start one below.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer-dock">
+      <button class="icon-btn subtle" id="btn-attach" aria-label="Attach file">📎</button>
+      <input id="home-input" type="text" placeholder="Ask anything..." autocomplete="off" />
+      <button class="icon-btn subtle" id="btn-mic" aria-label="Voice input">🎤</button>
+      <button class="icon-btn send" id="btn-send-home" aria-label="Send">➤</button>
+    </div>
+  </section>
+
+  <!-- ===== CHAT SCREEN ===== -->
+  <section id="screen-chat" class="screen">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-back" aria-label="Back">←</button>
+      <div class="chat-title">
+        <span id="chat-title-text">New chat</span>
+        <span class="model-pill" id="model-pill">Fast</span>
+      </div>
+      <button class="icon-btn" id="btn-model-switch" aria-label="Switch model">🤖</button>
+    </header>
+
+    <div id="messages" class="messages"></div>
+
+    <div id="typing-indicator" class="typing-indicator hidden">
+      <span></span><span></span><span></span>
+    </div>
+
+    <div class="composer-dock">
+      <button class="icon-btn subtle" id="btn-attach-2" aria-label="Attach file">📎</button>
+      <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
+      <button class="icon-btn subtle" id="btn-mic-2" aria-label="Voice input">🎤</button>
+      <button class="icon-btn send" id="btn-send-chat" aria-label="Send">➤</button>
+    </div>
+  </section>
+
+  <!-- ===== MODEL PICKER SHEET ===== -->
+  <div id="sheet-model" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-handle"></div>
+      <div class="section-label">AI Model</div>
+      <button class="sheet-option" data-model="openai">⚡ OpenAI — Fast</button>
+      <button class="sheet-option" data-model="claude">🧠 Claude — Smart</button>
+      <button class="sheet-option" data-model="gemini">🔬 Gemini — Research</button>
+      <button class="sheet-option" data-model="local">🔒 Local — Private</button>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS SHEET ===== -->
+  <div id="sheet-settings" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-handle"></div>
+      <div class="section-label">Settings</div>
+
+      <div class="setting-row">
+        <span>Response streaming</span>
+        <label class="switch"><input type="checkbox" id="toggle-stream" checked><span class="slider"></span></label>
+      </div>
+      <div class="setting-row">
+        <span>Auto language detect</span>
+        <label class="switch"><input type="checkbox" id="toggle-lang" checked><span class="slider"></span></label>
+      </div>
+      <div class="setting-row">
+        <span>Backend URL</span>
+      </div>
+      <input id="backend-url-input" class="text-input" type="text" placeholder="https://your-backend.example.com" />
+      <button class="primary-btn" id="btn-save-settings">Save</button>
+    </div>
+  </div>
+
+  <script src="capacitor-shim.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

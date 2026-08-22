@@ -1,0 +1,9 @@
+{
+  "appId": "com.aureon.ai",
+  "appName": "Aureon AI",
+  "webDir": "www",
+  "backgroundColor": "#FFFFFF",
+  "android": {
+    "backgroundColor": "#FFFFFF"
+  }
+}
