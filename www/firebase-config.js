@@ -1,16 +1,11 @@
 // ===== Firebase configuration =====
-// Get these values from: Firebase Console → Project Settings → General
-// → "Your apps" → Web app (</>) → SDK setup and configuration → Config
-//
-// Replace every "REPLACE_ME" below with your actual project values.
-
 const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME"
+  apiKey: "AIzaSyDgdikKYrHhRwj9TsMR8nfwTsbFYkV0-eQ",
+  authDomain: "aureon-fc92c.firebaseapp.com",
+  projectId: "aureon-fc92c",
+  storageBucket: "aureon-fc92c.firebasestorage.app",
+  messagingSenderId: "240783796334",
+  appId: "1:240783796334:web:f20665bac17b7bf1865e7f"
 };
 
 firebase.initializeApp(firebaseConfig);
