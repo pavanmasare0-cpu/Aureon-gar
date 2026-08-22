@@ -22,6 +22,64 @@
     <div class="splash-loader"><span></span><span></span><span></span></div>
   </section>
 
+  <!-- ===== LOGIN SCREEN ===== -->
+  <section id="screen-login" class="screen auth-screen">
+    <div class="auth-body">
+      <span class="hero-mark">✦</span>
+      <h1 class="auth-title">Welcome back</h1>
+      <p class="auth-sub">Log in to sync your chats</p>
+
+      <div id="login-error" class="auth-error hidden"></div>
+
+      <input id="login-email" class="text-input" type="email" placeholder="Email" autocomplete="email" />
+      <input id="login-password" class="text-input" type="password" placeholder="Password" autocomplete="current-password" />
+      <button class="primary-btn" id="btn-login">Log In</button>
+      <button class="link-btn" id="btn-goto-forgot">Forgot password?</button>
+      <div class="auth-switch">New here? <span id="btn-goto-signup" class="link-inline">Create an account</span></div>
+    </div>
+  </section>
+
+  <!-- ===== SIGNUP SCREEN ===== -->
+  <section id="screen-signup" class="screen auth-screen">
+    <div class="auth-body">
+      <span class="hero-mark">✦</span>
+      <h1 class="auth-title">Create account</h1>
+      <p class="auth-sub">We'll send a verification link to your email</p>
+
+      <div id="signup-error" class="auth-error hidden"></div>
+
+      <input id="signup-email" class="text-input" type="email" placeholder="Email" autocomplete="email" />
+      <input id="signup-password" class="text-input" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" />
+      <button class="primary-btn" id="btn-signup">Sign Up</button>
+      <div class="auth-switch">Already have an account? <span id="btn-goto-login" class="link-inline">Log in</span></div>
+    </div>
+  </section>
+
+  <!-- ===== VERIFY EMAIL NOTICE SCREEN ===== -->
+  <section id="screen-verify" class="screen auth-screen">
+    <div class="auth-body">
+      <span class="hero-mark">✉️</span>
+      <h1 class="auth-title">Verify your email</h1>
+      <p class="auth-sub">We sent a verification link to <span id="verify-email-addr">your email</span>. Open it, then tap below.</p>
+      <button class="primary-btn" id="btn-ive-verified">I've verified — Continue</button>
+      <button class="link-btn" id="btn-resend-verify">Resend email</button>
+      <button class="link-btn" id="btn-verify-logout">Use a different account</button>
+    </div>
+  </section>
+
+  <!-- ===== FORGOT PASSWORD SCREEN ===== -->
+  <section id="screen-forgot" class="screen auth-screen">
+    <div class="auth-body">
+      <span class="hero-mark">🔑</span>
+      <h1 class="auth-title">Reset password</h1>
+      <p class="auth-sub">Enter your email — we'll send a reset link</p>
+      <div id="forgot-error" class="auth-error hidden"></div>
+      <input id="forgot-email" class="text-input" type="email" placeholder="Email" autocomplete="email" />
+      <button class="primary-btn" id="btn-send-reset">Send Reset Link</button>
+      <button class="link-btn" id="btn-goto-login-2">Back to login</button>
+    </div>
+  </section>
+
   <!-- ===== HOME / DASHBOARD SCREEN ===== -->
   <section id="screen-home" class="screen">
     <header class="topbar">
@@ -133,9 +191,20 @@
       </div>
       <input id="backend-url-input" class="text-input" type="text" placeholder="https://your-backend.example.com" />
       <button class="primary-btn" id="btn-save-settings">Save</button>
+
+      <div class="section-label" style="margin-top:20px;">Account</div>
+      <div class="setting-row">
+        <span id="account-email-display">Not logged in</span>
+      </div>
+      <button class="primary-btn danger-btn" id="btn-logout">Log Out</button>
     </div>
   </div>
 
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="capacitor-shim.js"></script>
   <script src="app.js"></script>
 </body>
