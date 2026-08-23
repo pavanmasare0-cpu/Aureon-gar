@@ -79,6 +79,7 @@
   <!-- ===== HOME / DASHBOARD SCREEN ===== -->
   <section id="screen-home" class="screen">
     <header class="topbar">
+      <button class="icon-btn" id="btn-menu" aria-label="Menu">☰</button>
       <div class="brand">
         <span class="brand-mark">✦</span>
         <span class="brand-name">Aureon</span>
@@ -92,42 +93,50 @@
         <h1>What can I help with today?</h1>
       </div>
 
-      <div class="quick-grid">
-        <button class="quick-card" data-prompt="ask">
+      <div class="quick-list">
+        <button class="quick-row" data-prompt="ask">
           <span class="qc-icon">💡</span><span>Ask AI</span>
         </button>
-        <button class="quick-card" data-prompt="file">
+        <button class="quick-row" data-prompt="file">
           <span class="qc-icon">📄</span><span>Analyze File</span>
         </button>
-        <button class="quick-card" data-prompt="image">
+        <button class="quick-row" data-prompt="image">
           <span class="qc-icon">🖼</span><span>Analyze Image</span>
         </button>
-        <button class="quick-card" data-prompt="code">
+        <button class="quick-row" data-prompt="code">
           <span class="qc-icon">💻</span><span>Code</span>
         </button>
-        <button class="quick-card" data-prompt="search">
+        <button class="quick-row" data-prompt="search">
           <span class="qc-icon">🌐</span><span>Web Search</span>
         </button>
-        <button class="quick-card" data-prompt="write">
+        <button class="quick-row" data-prompt="write">
           <span class="qc-icon">✍️</span><span>Writing</span>
         </button>
-      </div>
-
-      <div class="recent-section">
-        <div class="section-label">Recent chats</div>
-        <div id="recent-list" class="recent-list">
-          <div class="empty-hint">No chats yet — start one below.</div>
-        </div>
       </div>
     </div>
 
     <div class="composer-dock">
-      <button class="icon-btn subtle" id="btn-attach" aria-label="Attach file">📎</button>
+      <button class="icon-btn subtle sq" id="btn-attach" aria-label="Attach file">📎</button>
       <input id="home-input" type="text" placeholder="Ask anything..." autocomplete="off" />
-      <button class="icon-btn subtle" id="btn-mic" aria-label="Voice input">🎤</button>
-      <button class="icon-btn send" id="btn-send-home" aria-label="Send">➤</button>
+      <button class="icon-btn subtle sq" id="btn-mic" aria-label="Voice input">🎤</button>
+      <button class="icon-btn send sq" id="btn-send-home" aria-label="Send">➤</button>
     </div>
   </section>
+
+  <!-- ===== SIDE DRAWER (☰ menu) ===== -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-backdrop"></div>
+    <div class="drawer-body">
+      <button class="primary-btn" id="btn-new-chat">+ New Chat</button>
+      <div class="section-label" style="margin-top:18px;">Recent chats</div>
+      <div id="drawer-recent-list" class="recent-list">
+        <div class="empty-hint">No chats yet — start one below.</div>
+      </div>
+      <div class="drawer-footer">
+        <button class="drawer-link" id="btn-drawer-settings">⚙ Settings</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== CHAT SCREEN ===== -->
   <section id="screen-chat" class="screen">
@@ -147,10 +156,10 @@
     </div>
 
     <div class="composer-dock">
-      <button class="icon-btn subtle" id="btn-attach-2" aria-label="Attach file">📎</button>
+      <button class="icon-btn subtle sq" id="btn-attach-2" aria-label="Attach file">📎</button>
       <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
-      <button class="icon-btn subtle" id="btn-mic-2" aria-label="Voice input">🎤</button>
-      <button class="icon-btn send" id="btn-send-chat" aria-label="Send">➤</button>
+      <button class="icon-btn subtle sq" id="btn-mic-2" aria-label="Voice input">🎤</button>
+      <button class="icon-btn send sq" id="btn-send-chat" aria-label="Send">➤</button>
     </div>
   </section>
 

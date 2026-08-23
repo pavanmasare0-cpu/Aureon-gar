@@ -24,10 +24,16 @@ function closeSheet(id) { $(id).classList.add('hidden'); }
 
 // ---------- Home ----------
 $('btn-settings').onclick = () => openSheet('sheet-settings');
-$('btn-send-home').onclick = () => startChatFrom($('home-input').value);
-$('home-input').addEventListener('keydown', e => { if (e.key === 'Enter') startChatFrom(e.target.value); });
+$('btn-drawer-settings').onclick = () => { closeDrawer(); openSheet('sheet-settings'); };
 
-document.querySelectorAll('.quick-card').forEach(card => {
+// ---------- Side drawer (☰ menu) ----------
+function openDrawer() { $('drawer').classList.remove('hidden'); }
+function closeDrawer() { $('drawer').classList.add('hidden'); }
+$('btn-menu').onclick = openDrawer;
+document.querySelector('#drawer .drawer-backdrop').onclick = closeDrawer;
+$('btn-new-chat').onclick = () => { closeDrawer(); startChatFrom(''); };
+
+document.querySelectorAll('.quick-row').forEach(card => {
   card.onclick = () => {
     const prompts = {
       ask: '', file: 'Analyze this file: ', image: 'Analyze this image: ',
@@ -36,6 +42,9 @@ document.querySelectorAll('.quick-card').forEach(card => {
     startChatFrom(prompts[card.dataset.prompt] || '');
   };
 });
+
+$('btn-send-home').onclick = () => startChatFrom($('home-input').value);
+$('home-input').addEventListener('keydown', e => { if (e.key === 'Enter') startChatFrom(e.target.value); });
 
 function startChatFrom(text) {
   state.currentMessages = [];
@@ -136,7 +145,7 @@ function saveChatSnapshot() {
 }
 
 function renderRecent() {
-  const list = $('recent-list');
+  const list = $('drawer-recent-list');
   if (state.chats.length === 0) {
     list.innerHTML = '<div class="empty-hint">No chats yet — start one below.</div>';
     return;
@@ -147,6 +156,7 @@ function renderRecent() {
     item.className = 'recent-item';
     item.textContent = chat.title;
     item.onclick = () => {
+      closeDrawer();
       state.currentMessages = chat.messages;
       state.activeChatId = chat.id;
       $('messages').innerHTML = '';
