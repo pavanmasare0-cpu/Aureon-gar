@@ -298,7 +298,7 @@ async function loadChatsFromCloud() {
     renderRecent();
   } catch (err) {
     console.error('Failed to load chats from cloud:', err);
-    renderRecent();
+    renderRecent(); // fall back to whatever's cached locally
   }
 }
 
@@ -321,7 +321,7 @@ function wireMic(btnId, targetInputId) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert('Voice input not supported on this device/browser.'); return; }
     const rec = new SR();
-    rec.lang = 'en-IN';
+    rec.lang = 'en-IN'; // auto language system: swap based on Settings later
     rec.onresult = (e) => { $(targetInputId).value = e.results[0][0].transcript; };
     rec.start();
   };
@@ -332,11 +332,23 @@ wireMic('btn-mic-2', 'chat-input');
 // ---------- Splash / starting animation ----------
 function runSplash() {
   const splash = $('screen-splash');
+  const brand = 'Aureon';
+  const wordmark = $('splash-wordmark');
+  wordmark.innerHTML = '';
+  brand.split('').forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'ltr';
+    span.textContent = ch;
+    span.style.animationDelay = `${0.9 + i * 0.09}s`;
+    wordmark.appendChild(span);
+  });
+  // CSS handles the glow/flare/fade timing; JS just swaps the active screen
+  // once the splash has had its moment (matches the 3.2s CSS fade-out delay).
   setTimeout(() => {
     splash.classList.remove('active');
     state.splashDone = true;
     routeForUser(state.pendingUser || auth.currentUser);
-  }, 2500);
+  }, 3300);
 }
 
 // ---------- Init ----------
