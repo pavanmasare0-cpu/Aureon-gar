@@ -257,6 +257,19 @@ html, body {
     transform: scale(1.08);
   }
 }
+.hero-centered {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.hero-centered .hero-mark { font-size: 40px; margin-bottom: 18px; }
+.topbar-minimal {
+  border-bottom: none;
+  justify-content: flex-start;
+}
 .hero h1 {
   font-family: 'Fraunces', serif;
   font-weight: 500;
@@ -358,7 +371,7 @@ html, body {
   align-items: center;
   gap: 8px;
   padding: 10px 14px calc(12px + var(--safe-bottom));
-  border-top: 1px solid var(--border-gold);
+  border-top: none;
   background: var(--white);
   flex-shrink: 0;
 }

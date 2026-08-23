@@ -23,7 +23,7 @@ function openSheet(id) { $(id).classList.remove('hidden'); }
 function closeSheet(id) { $(id).classList.add('hidden'); }
 
 // ---------- Home ----------
-$('btn-settings').onclick = () => openSheet('sheet-settings');
+// Settings is now only reachable via the ☰ drawer (see btn-drawer-settings below).
 $('btn-drawer-settings').onclick = () => { closeDrawer(); openSheet('sheet-settings'); };
 
 // ---------- Side drawer (☰ menu) ----------
