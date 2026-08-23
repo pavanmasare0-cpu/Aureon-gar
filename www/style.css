@@ -241,24 +241,11 @@ html, body {
 }
 .hero-mark {
   display: inline-block;
-  font-size: 30px;
+  font-size: 34px;
   color: var(--gold);
-  margin-bottom: 10px;
-  filter: drop-shadow(0 0 8px rgba(184,145,47,0.6));
-  animation: markGlow 2.6s ease-in-out infinite;
-}
-.hero-centered {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.hero-centered .hero-mark {
-  font-size: 40px;
-  filter: drop-shadow(0 0 14px rgba(212,175,55,0.85)) drop-shadow(0 0 30px rgba(212,175,55,0.5));
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 10px rgba(212,175,55,0.7)) drop-shadow(0 0 22px rgba(212,175,55,0.4));
   animation: heroStarGlow 2.2s ease-in-out infinite;
-  margin-bottom: 18px;
 }
 @keyframes heroStarGlow {
   0%, 100% {
@@ -304,31 +291,39 @@ html, body {
 .quick-card:active { background: var(--gold-soft); box-shadow: 0 0 14px 1px rgba(184,145,47,0.45); border-color: var(--gold); }
 .qc-icon { font-size: 18px; }
 
-/* Left-aligned list version (Gemini-style, replaces the grid) */
+/* Pill-shaped 3-column grid (matches Gemini-style reference) */
 .quick-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 26px;
 }
 .quick-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  padding: 15px 16px;
-  border-radius: 14px;
+  padding: 14px 6px;
+  border-radius: 18px;
   border: 1px solid var(--border-gold);
   background: var(--cream);
   font-family: 'Manrope', sans-serif;
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: 12px;
   color: var(--charcoal);
   cursor: pointer;
-  text-align: left;
+  text-align: center;
   transition: box-shadow 0.2s, background 0.2s;
 }
+.quick-row .qc-icon { font-size: 20px; }
+.quick-row span:last-child { white-space: normal; line-height: 1.2; }
 .quick-row:active { background: var(--gold-soft); box-shadow: 0 0 14px 1px rgba(212,175,55,0.35); border-color: var(--gold); }
+
+@media (max-width: 340px) {
+  .quick-list { grid-template-columns: repeat(2, 1fr); }
+}
 
 .section-label {
   font-size: 12px;
