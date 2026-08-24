@@ -78,7 +78,7 @@ const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, 
 // ---- Routes ----
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, model = 'openai' } = req.body;
+    const { messages, model = 'gemini' } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages array is required' });
     }
