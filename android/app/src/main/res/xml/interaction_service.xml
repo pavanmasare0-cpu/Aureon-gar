@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Config for AureonVoiceInteractionService.
+  recognitionService must point to a speech-recognition service installed on
+  the device. Google's is used here as the common default — most Android
+  phones ship with it. If it's missing on a test device, swap this for
+  whatever recognition service is available, or your own once you build one.
+-->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.aureon.ai.AureonVoiceInteractionSessionService"
+    android:recognitionService="com.google.android.googlequicksearchbox/com.google.android.voicesearch.serviceapi.GoogleRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true" />
