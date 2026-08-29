@@ -47,16 +47,12 @@ async function callClaude(messages) {
 }
 
 // ---- Gemini: self-healing model selection ----
-// We don't hardcode a model name (Google retires/restricts them over time).
-// Instead:
-//  1. Prefer "gemini-flash-latest" — an alias Google itself keeps pointed at
-//     whatever their current recommended flash model is.
-//  2. If that's unavailable, ask ListModels and pick the highest-numbered
-//     flash model that supports generateContent.
-//  3. If a chosen model fails at call-time (retired, or blocked for this
-//     account even though ListModels still shows it), blacklist it in
-//     memory for this process and pick the next best candidate — no manual
-//     fix ever needed.
+// Two kinds of failures get handled automatically, with no manual fix ever
+// needed:
+//  1. PERMANENT unavailability (model retired/deprecated/restricted) —
+//     the model gets blacklisted in memory so it's never picked again.
+//  2. TEMPORARY overload ("high demand") — we just try a different model
+//     for this one request, without blacklisting, since it may recover.
 
 let cachedGeminiModel = null;
 let cachedAt = 0;
@@ -81,35 +77,27 @@ async function fetchCandidateModels() {
     .filter(name => !blacklistedModels.has(name));
 }
 
-async function resolveGeminiModel(forceRefresh = false) {
-  const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
-  if (cachedGeminiModel && isFresh && !forceRefresh && !blacklistedModels.has(cachedGeminiModel)) {
-    return cachedGeminiModel;
-  }
-
-  const candidates = await fetchCandidateModels();
-
-  // 1. Prefer the "latest" alias if it's present and not blacklisted.
-  const latestAlias = candidates.find(name => /^gemini-flash-latest$/i.test(name));
-  if (latestAlias) {
-    cachedGeminiModel = latestAlias;
-    cachedAt = Date.now();
-    return cachedGeminiModel;
-  }
-
-  // 2. Otherwise, pick a stable flash model, preferring the highest version
-  //    number and excluding preview/experimental/thinking/live/translate variants.
+function rankCandidates(candidates) {
+  // "latest" alias first (Google keeps it pointed at their current pick),
+  // then stable flash models sorted newest-first, then anything else flash,
+  // then whatever's left.
+  const latestAlias = candidates.filter(name => /^gemini-flash-latest$/i.test(name));
   const stableFlash = candidates
-    .filter(name => /flash/i.test(name) && !/preview|exp|thinking|live|translate/i.test(name))
+    .filter(name => /flash/i.test(name) && !/preview|exp|thinking|live|translate/i.test(name) && !/^gemini-flash-latest$/i.test(name))
     .sort((a, b) => extractVersion(b) - extractVersion(a));
+  const otherFlash = candidates.filter(name => /flash/i.test(name) && !latestAlias.includes(name) && !stableFlash.includes(name));
+  const rest = candidates.filter(name => !latestAlias.includes(name) && !stableFlash.includes(name) && !otherFlash.includes(name));
 
-  const fallbackFlash = candidates.filter(name => /flash/i.test(name));
+  return [...latestAlias, ...stableFlash, ...otherFlash, ...rest];
+}
 
-  const chosen = stableFlash[0] || fallbackFlash[0] || candidates[0];
-
-  if (!chosen) throw new Error('No usable Gemini model found for this API key.');
-
-  cachedGeminiModel = chosen;
+async function resolveModelList(forceRefresh = false) {
+  const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
+  if (cachedGeminiModel && isFresh && !forceRefresh) {
+    return cachedGeminiModel;
+  }
+  const candidates = await fetchCandidateModels();
+  cachedGeminiModel = rankCandidates(candidates);
   cachedAt = Date.now();
   return cachedGeminiModel;
 }
@@ -137,27 +125,39 @@ async function callGeminiWithModel(modelName, messages) {
 async function callGemini(messages) {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
 
-  let model = await resolveGeminiModel();
+  let ranked = await resolveModelList();
   let lastErr;
+  const triedThisCall = new Set();
 
-  // Try up to 3 distinct models before giving up, blacklisting each failure
-  // that looks like a model-availability problem (not a real request error).
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const model = ranked.find(name => !triedThisCall.has(name));
+    if (!model) break;
+    triedThisCall.add(model);
+
     try {
       return await callGeminiWithModel(model, messages);
     } catch (err) {
       lastErr = err;
-      const looksLikeModelIssue =
-        /not found|no longer available|unsupported|deprecated|is not supported/i.test(err.message || '');
-      if (!looksLikeModelIssue) throw err;
+      const msg = err.message || '';
 
-      console.warn(`Gemini model "${model}" unavailable, blacklisting and retrying:`, err.message);
-      blacklistedModels.add(model);
-      model = await resolveGeminiModel(true);
+      const isPermanentIssue = /not found|no longer available|unsupported|deprecated|is not supported/i.test(msg);
+      const isTemporaryOverload = /high demand|overloaded|try again later|quota|rate limit/i.test(msg);
+
+      if (isPermanentIssue) {
+        console.warn(`Gemini model "${model}" permanently unavailable, blacklisting:`, msg);
+        blacklistedModels.add(model);
+        ranked = await resolveModelList(true);
+      } else if (isTemporaryOverload) {
+        console.warn(`Gemini model "${model}" temporarily overloaded, trying next candidate:`, msg);
+        // don't blacklist — just move on to the next candidate this call
+      } else {
+        // Unrelated error (bad request, auth issue, etc.) — don't keep retrying.
+        throw err;
+      }
     }
   }
 
-  throw lastErr;
+  throw lastErr || new Error('All Gemini models failed.');
 }
 
 function callLocal(messages) {
