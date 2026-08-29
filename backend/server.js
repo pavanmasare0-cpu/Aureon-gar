@@ -7,44 +7,22 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '5mb' }));
 
 const PORT = process.env.PORT || 3000;
 
-// ---- Attachment helper ----
-// The app sends images as a data URL (e.g. "data:image/png;base64,AAAA...").
-// Split that into the mime type + raw base64 payload each provider expects.
-function parseDataUrl(dataUrl) {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || '');
-  if (!match) return null;
-  return { mimeType: match[1], base64: match[2] };
-}
-
 // ---- Provider adapters ----
 // Each adapter takes the chat history and returns a plain string reply.
-// A message may optionally carry `image: { mimeType, dataUrl }` for vision requests.
 
 async function callOpenAI(messages) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
-  const formatted = messages.map(m => {
-    if (m.image) {
-      return {
-        role: m.role,
-        content: [
-          { type: 'text', text: m.content || '' },
-          { type: 'image_url', image_url: { url: m.image.dataUrl } }
-        ]
-      };
-    }
-    return { role: m.role, content: m.content };
-  });
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
     },
-    body: JSON.stringify({ model: 'gpt-4o-mini', messages: formatted })
+    body: JSON.stringify({ model: 'gpt-4o-mini', messages })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'OpenAI request failed');
@@ -53,18 +31,6 @@ async function callOpenAI(messages) {
 
 async function callClaude(messages) {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set in backend/.env');
-  const formatted = messages.map(m => {
-    const role = m.role === 'assistant' ? 'assistant' : 'user';
-    if (m.image) {
-      const parsed = parseDataUrl(m.image.dataUrl);
-      const content = [{ type: 'text', text: m.content || '' }];
-      if (parsed) {
-        content.push({ type: 'image', source: { type: 'base64', media_type: parsed.mimeType, data: parsed.base64 } });
-      }
-      return { role, content };
-    }
-    return { role, content: m.content };
-  });
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -75,7 +41,7 @@ async function callClaude(messages) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      messages: formatted
+      messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
     })
   });
   const data = await res.json();
@@ -83,55 +49,100 @@ async function callClaude(messages) {
   return data.content.map(c => c.text || '').join('');
 }
 
-async function callGemini(messages) {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
-  const contents = messages.map(m => {
-    const role = m.role === 'assistant' ? 'model' : 'user';
-    const parts = [{ text: m.content || '' }];
-    if (m.image) {
-      const parsed = parseDataUrl(m.image.dataUrl);
-      if (parsed) parts.push({ inline_data: { mime_type: parsed.mimeType, data: parsed.base64 } });
-    }
-    return { role, parts };
-  });
+// ---- Gemini: self-healing model selection ----
+// Instead of a hardcoded model name that Google can retire at any time, we
+// ask Gemini's own ListModels endpoint which models are currently available
+// and pick a suitable one. Cached for an hour so we're not calling it on
+// every message; if a request ever fails because the cached model got
+// retired mid-cache, we refresh the list and retry once automatically.
+
+let cachedGeminiModel = null;
+let cachedAt = 0;
+const MODEL_CACHE_MS = 60 * 60 * 1000; // 1 hour
+
+async function resolveGeminiModel(forceRefresh = false) {
+  const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
+  if (cachedGeminiModel && isFresh && !forceRefresh) {
+    return cachedGeminiModel;
+  }
+
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || 'Could not list Gemini models');
+
+  const models = (data.models || []).filter(m =>
+    (m.supportedGenerationMethods || []).includes('generateContent')
+  );
+
+  // Prefer a "flash" model that isn't a preview/experimental/thinking variant
+  // (those tend to be less stable / higher latency / not meant for general use).
+  const preferred = models.find(m =>
+    /flash/i.test(m.name) &&
+    !/preview|exp|thinking|live|translate/i.test(m.name)
+  );
+
+  const chosen = preferred || models.find(m => /flash/i.test(m.name)) || models[0];
+
+  if (!chosen) throw new Error('No usable Gemini model found for this API key.');
+
+  // m.name looks like "models/gemini-3.6-flash" — strip the "models/" prefix.
+  cachedGeminiModel = chosen.name.replace(/^models\//, '');
+  cachedAt = Date.now();
+  return cachedGeminiModel;
+}
+
+async function callGeminiWithModel(modelName, messages) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents })
+      body: JSON.stringify({
+        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+      })
     }
   );
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Gemini request failed');
+  if (!res.ok) {
+    const err = new Error(data.error?.message || 'Gemini request failed');
+    err.status = res.status;
+    throw err;
+  }
   return data.candidates[0].content.parts[0].text;
+}
+
+async function callGemini(messages) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
+
+  const model = await resolveGeminiModel();
+
+  try {
+    return await callGeminiWithModel(model, messages);
+  } catch (err) {
+    // If the cached model just got retired/renamed, refresh the list and
+    // retry once with whatever's newly available — no manual fix needed.
+    const looksLikeModelIssue =
+      /not found|no longer available|unsupported|deprecated/i.test(err.message || '');
+    if (looksLikeModelIssue) {
+      const freshModel = await resolveGeminiModel(true);
+      return await callGeminiWithModel(freshModel, messages);
+    }
+    throw err;
+  }
 }
 
 function callLocal(messages) {
   // Placeholder for a local/offline model (e.g. via Ollama running on your own server).
   // Wire this up when you add Local AI mode.
-  const last = messages[messages.length - 1];
-  const note = last?.image ? ' (image attachments aren\'t supported by the local model yet)' : '';
-  return Promise.resolve(`[local model placeholder] You said: ${last?.content || ''}${note}`);
+  const last = messages[messages.length - 1]?.content || '';
+  return Promise.resolve(`[local model placeholder] You said: ${last}`);
 }
 
 const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, local: callLocal };
 
 // ---- Routes ----
-// Keep only the most recent image attachment in the conversation — older ones
-// are replaced with a text note so payload size and token usage don't balloon
-// as a chat grows.
-function pruneOldImages(messages) {
-  const lastImageIdx = messages.reduce((acc, m, i) => (m.image ? i : acc), -1);
-  return messages.map((m, i) => {
-    if (m.image && i !== lastImageIdx) {
-      const { image, ...rest } = m;
-      return { ...rest, content: `${m.content || ''} [an earlier image attachment, omitted here]`.trim() };
-    }
-    return m;
-  });
-}
-
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, model = 'gemini' } = req.body;
@@ -139,7 +150,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'messages array is required' });
     }
     const provider = PROVIDERS[model] || PROVIDERS.openai;
-    const reply = await provider(pruneOldImages(messages));
+    const reply = await provider(messages);
     res.json({ reply });
   } catch (err) {
     console.error(err);

@@ -3,7 +3,8 @@
 // Auth + data storage handled by Firebase (see firebase-config.js).
 
 const state = {
-  backendUrl: localStorage.getItem('aureon_backend_url') || '',
+  // Fixed backend — no longer user-editable, so it can never get cleared or mistyped.
+  backendUrl: 'https://aureone.onrender.com',
   model: localStorage.getItem('aureon_model') || 'openai',
   chats: JSON.parse(localStorage.getItem('aureon_chats') || '[]'),
   currentMessages: [],
@@ -170,8 +171,6 @@ function renderRecent() {
 
 // ---------- Settings ----------
 $('btn-save-settings').onclick = () => {
-  state.backendUrl = $('backend-url-input').value.trim();
-  localStorage.setItem('aureon_backend_url', state.backendUrl);
   closeSheet('sheet-settings');
 };
 
@@ -363,6 +362,5 @@ function runSplash() {
 
 // ---------- Init ----------
 $('model-pill').textContent = MODEL_LABELS[state.model];
-$('backend-url-input').value = state.backendUrl;
 renderRecent();
 runSplash();
