@@ -11,9 +11,6 @@ app.use(express.json({ limit: '5mb' }));
 
 const PORT = process.env.PORT || 3000;
 
-// ---- Provider adapters ----
-// Each adapter takes the chat history and returns a plain string reply.
-
 async function callOpenAI(messages) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -50,45 +47,69 @@ async function callClaude(messages) {
 }
 
 // ---- Gemini: self-healing model selection ----
-// Instead of a hardcoded model name that Google can retire at any time, we
-// ask Gemini's own ListModels endpoint which models are currently available
-// and pick a suitable one. Cached for an hour so we're not calling it on
-// every message; if a request ever fails because the cached model got
-// retired mid-cache, we refresh the list and retry once automatically.
+// We don't hardcode a model name (Google retires/restricts them over time).
+// Instead:
+//  1. Prefer "gemini-flash-latest" — an alias Google itself keeps pointed at
+//     whatever their current recommended flash model is.
+//  2. If that's unavailable, ask ListModels and pick the highest-numbered
+//     flash model that supports generateContent.
+//  3. If a chosen model fails at call-time (retired, or blocked for this
+//     account even though ListModels still shows it), blacklist it in
+//     memory for this process and pick the next best candidate — no manual
+//     fix ever needed.
 
 let cachedGeminiModel = null;
 let cachedAt = 0;
 const MODEL_CACHE_MS = 60 * 60 * 1000; // 1 hour
+const blacklistedModels = new Set();
 
-async function resolveGeminiModel(forceRefresh = false) {
-  const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
-  if (cachedGeminiModel && isFresh && !forceRefresh) {
-    return cachedGeminiModel;
-  }
+function extractVersion(name) {
+  const match = name.match(/gemini-(\d+(?:\.\d+)?)/i);
+  return match ? parseFloat(match[1]) : -1;
+}
 
+async function fetchCandidateModels() {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Could not list Gemini models');
 
-  const models = (data.models || []).filter(m =>
-    (m.supportedGenerationMethods || []).includes('generateContent')
-  );
+  return (data.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => m.name.replace(/^models\//, ''))
+    .filter(name => !blacklistedModels.has(name));
+}
 
-  // Prefer a "flash" model that isn't a preview/experimental/thinking variant
-  // (those tend to be less stable / higher latency / not meant for general use).
-  const preferred = models.find(m =>
-    /flash/i.test(m.name) &&
-    !/preview|exp|thinking|live|translate/i.test(m.name)
-  );
+async function resolveGeminiModel(forceRefresh = false) {
+  const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
+  if (cachedGeminiModel && isFresh && !forceRefresh && !blacklistedModels.has(cachedGeminiModel)) {
+    return cachedGeminiModel;
+  }
 
-  const chosen = preferred || models.find(m => /flash/i.test(m.name)) || models[0];
+  const candidates = await fetchCandidateModels();
+
+  // 1. Prefer the "latest" alias if it's present and not blacklisted.
+  const latestAlias = candidates.find(name => /^gemini-flash-latest$/i.test(name));
+  if (latestAlias) {
+    cachedGeminiModel = latestAlias;
+    cachedAt = Date.now();
+    return cachedGeminiModel;
+  }
+
+  // 2. Otherwise, pick a stable flash model, preferring the highest version
+  //    number and excluding preview/experimental/thinking/live/translate variants.
+  const stableFlash = candidates
+    .filter(name => /flash/i.test(name) && !/preview|exp|thinking|live|translate/i.test(name))
+    .sort((a, b) => extractVersion(b) - extractVersion(a));
+
+  const fallbackFlash = candidates.filter(name => /flash/i.test(name));
+
+  const chosen = stableFlash[0] || fallbackFlash[0] || candidates[0];
 
   if (!chosen) throw new Error('No usable Gemini model found for this API key.');
 
-  // m.name looks like "models/gemini-3.6-flash" — strip the "models/" prefix.
-  cachedGeminiModel = chosen.name.replace(/^models\//, '');
+  cachedGeminiModel = chosen;
   cachedAt = Date.now();
   return cachedGeminiModel;
 }
@@ -116,33 +137,36 @@ async function callGeminiWithModel(modelName, messages) {
 async function callGemini(messages) {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
 
-  const model = await resolveGeminiModel();
+  let model = await resolveGeminiModel();
+  let lastErr;
 
-  try {
-    return await callGeminiWithModel(model, messages);
-  } catch (err) {
-    // If the cached model just got retired/renamed, refresh the list and
-    // retry once with whatever's newly available — no manual fix needed.
-    const looksLikeModelIssue =
-      /not found|no longer available|unsupported|deprecated/i.test(err.message || '');
-    if (looksLikeModelIssue) {
-      const freshModel = await resolveGeminiModel(true);
-      return await callGeminiWithModel(freshModel, messages);
+  // Try up to 3 distinct models before giving up, blacklisting each failure
+  // that looks like a model-availability problem (not a real request error).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await callGeminiWithModel(model, messages);
+    } catch (err) {
+      lastErr = err;
+      const looksLikeModelIssue =
+        /not found|no longer available|unsupported|deprecated|is not supported/i.test(err.message || '');
+      if (!looksLikeModelIssue) throw err;
+
+      console.warn(`Gemini model "${model}" unavailable, blacklisting and retrying:`, err.message);
+      blacklistedModels.add(model);
+      model = await resolveGeminiModel(true);
     }
-    throw err;
   }
+
+  throw lastErr;
 }
 
 function callLocal(messages) {
-  // Placeholder for a local/offline model (e.g. via Ollama running on your own server).
-  // Wire this up when you add Local AI mode.
   const last = messages[messages.length - 1]?.content || '';
   return Promise.resolve(`[local model placeholder] You said: ${last}`);
 }
 
 const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, local: callLocal };
 
-// ---- Routes ----
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, model = 'gemini' } = req.body;
