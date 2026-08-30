@@ -109,7 +109,13 @@ async function callGeminiWithModel(modelName, messages) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+        contents: messages.map(m => {
+          const parts = [{ text: m.content || '' }];
+          if (m.image && m.image.data && m.image.mimeType) {
+            parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
+          }
+          return { role: m.role === 'assistant' ? 'model' : 'user', parts };
+        })
       })
     }
   );

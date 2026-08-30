@@ -669,3 +669,5 @@ html, body {
   padding: 10px 4px;
   cursor: pointer;
 }
+
+#image-preview-bar.hidden { display: none; }

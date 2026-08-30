@@ -136,6 +136,12 @@
       <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
       <div class="composer-actions">
         <button class="icon-btn plain" id="btn-attach-2" aria-label="Attach file">➕</button>
+      <input id="image-input" type="file" accept="image/*" capture="environment" style="display:none" />
+      <div id="image-preview-bar" class="hidden" style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+        <img id="image-preview-thumb" style="width:36px;height:36px;object-fit:cover;border-radius:6px;" />
+        <span style="font-size:12px;opacity:0.8;">Image attached</span>
+        <button id="btn-remove-image" class="icon-btn plain" aria-label="Remove image">✕</button>
+      </div>
         <div class="composer-spacer"></div>
         <button class="icon-btn circle" id="btn-mic-2" aria-label="Voice input">🎤</button>
         <button class="icon-btn circle send" id="btn-send-chat" aria-label="Send">➤</button>

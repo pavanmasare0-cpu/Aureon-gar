@@ -89,18 +89,49 @@ function addMessage(role, text) {
   return div;
 }
 
+// ---------- Image attach (Vision) ----------
+state.pendingImage = null; // { mimeType, data } — data is base64 without prefix
+
+$('btn-attach-2')?.addEventListener('click', () => $('image-input').click());
+
+$('image-input')?.addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = reader.result; // "data:image/jpeg;base64,...."
+    const [prefix, data] = result.split(',');
+    const mimeType = prefix.match(/data:(.*);base64/)[1];
+    state.pendingImage = { mimeType, data };
+    $('image-preview-thumb').src = result;
+    $('image-preview-bar').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+$('btn-remove-image')?.addEventListener('click', () => {
+  state.pendingImage = null;
+  $('image-preview-bar').classList.add('hidden');
+});
+
 async function sendMessage() {
   const input = $('chat-input');
   const text = input.value.trim();
-  if (!text) return;
+  const image = state.pendingImage;
+  if (!text && !image) return;
   input.value = '';
+  state.pendingImage = null;
+  $('image-preview-bar').classList.add('hidden');
 
   if ($('chat-title-text').textContent === 'New chat') {
-    $('chat-title-text').textContent = text.slice(0, 28) + (text.length > 28 ? '…' : '');
+    $('chat-title-text').textContent = (text || 'Image').slice(0, 28) + (text.length > 28 ? '…' : '');
   }
 
-  addMessage('user', text);
-  state.currentMessages.push({ role: 'user', content: text });
+  addMessage('user', text || '(sent an image)');
+  const userMessage = { role: 'user', content: text };
+  if (image) userMessage.image = image;
+  state.currentMessages.push(userMessage);
   saveChatSnapshot();
 
   $('typing-indicator').classList.remove('hidden');
