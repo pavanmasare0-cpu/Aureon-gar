@@ -11,23 +11,32 @@ app.use(express.json({ limit: '5mb' }));
 
 const PORT = process.env.PORT || 3000;
 
-async function callOpenAI(messages) {
+async function callOpenAI(messages, systemPrompt) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
+  const chatMessages = systemPrompt
+    ? [{ role: 'system', content: systemPrompt }, ...messages]
+    : messages;
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
     },
-    body: JSON.stringify({ model: 'gpt-4o-mini', messages })
+    body: JSON.stringify({ model: 'gpt-4o-mini', messages: chatMessages })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'OpenAI request failed');
   return data.choices[0].message.content;
 }
 
-async function callClaude(messages) {
+async function callClaude(messages, systemPrompt) {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set in backend/.env');
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+  };
+  if (systemPrompt) body.system = systemPrompt;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -35,11 +44,7 @@ async function callClaude(messages) {
       'x-api-key': process.env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
-    })
+    body: JSON.stringify(body)
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Claude request failed');
@@ -78,9 +83,6 @@ async function fetchCandidateModels() {
 }
 
 function rankCandidates(candidates) {
-  // "latest" alias first (Google keeps it pointed at their current pick),
-  // then stable flash models sorted newest-first, then anything else flash,
-  // then whatever's left.
   const latestAlias = candidates.filter(name => /^gemini-flash-latest$/i.test(name));
   const stableFlash = candidates
     .filter(name => /flash/i.test(name) && !/preview|exp|thinking|live|translate/i.test(name) && !/^gemini-flash-latest$/i.test(name))
@@ -102,21 +104,26 @@ async function resolveModelList(forceRefresh = false) {
   return cachedGeminiModel;
 }
 
-async function callGeminiWithModel(modelName, messages) {
+async function callGeminiWithModel(modelName, messages, systemPrompt) {
+  const payload = {
+    contents: messages.map(m => {
+      const parts = [{ text: m.content || '' }];
+      if (m.image && m.image.data && m.image.mimeType) {
+        parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
+      }
+      return { role: m.role === 'assistant' ? 'model' : 'user', parts };
+    })
+  };
+  if (systemPrompt) {
+    payload.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: messages.map(m => {
-          const parts = [{ text: m.content || '' }];
-          if (m.image && m.image.data && m.image.mimeType) {
-            parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
-          }
-          return { role: m.role === 'assistant' ? 'model' : 'user', parts };
-        })
-      })
+      body: JSON.stringify(payload)
     }
   );
   const data = await res.json();
@@ -128,7 +135,7 @@ async function callGeminiWithModel(modelName, messages) {
   return data.candidates[0].content.parts[0].text;
 }
 
-async function callGemini(messages) {
+async function callGemini(messages, systemPrompt) {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
 
   let ranked = await resolveModelList();
@@ -141,7 +148,7 @@ async function callGemini(messages) {
     triedThisCall.add(model);
 
     try {
-      return await callGeminiWithModel(model, messages);
+      return await callGeminiWithModel(model, messages, systemPrompt);
     } catch (err) {
       lastErr = err;
       const msg = err.message || '';
@@ -155,9 +162,7 @@ async function callGemini(messages) {
         ranked = await resolveModelList(true);
       } else if (isTemporaryOverload) {
         console.warn(`Gemini model "${model}" temporarily overloaded, trying next candidate:`, msg);
-        // don't blacklist — just move on to the next candidate this call
       } else {
-        // Unrelated error (bad request, auth issue, etc.) — don't keep retrying.
         throw err;
       }
     }
@@ -175,12 +180,12 @@ const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, 
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, model = 'gemini' } = req.body;
+    const { messages, model = 'gemini', systemPrompt } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages array is required' });
     }
     const provider = PROVIDERS[model] || PROVIDERS.openai;
-    const reply = await provider(messages);
+    const reply = await provider(messages, systemPrompt);
     res.json({ reply });
   } catch (err) {
     console.error(err);

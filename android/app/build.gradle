@@ -40,6 +40,9 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // Wake-word engine: runs the openWakeWord / ViolaWake ONNX pipeline on-device.
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'
 }
 
 apply from: 'capacitor.build.gradle'

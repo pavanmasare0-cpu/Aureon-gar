@@ -133,15 +133,18 @@
     </div>
 
     <div class="composer-dock">
+      <div id="image-preview-bar" class="image-preview-bar hidden">
+        <div class="attach-card">
+          <img id="image-preview-thumb" class="image-preview-thumb hidden" />
+          <span id="file-preview-label" class="attach-file-icon hidden">📎</span>
+          <button id="btn-remove-image" class="attach-remove-btn" aria-label="Remove attachment">✕</button>
+        </div>
+        <span id="attach-name" class="attach-name"></span>
+      </div>
       <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
       <div class="composer-actions">
         <button class="icon-btn plain" id="btn-attach-2" aria-label="Attach file">➕</button>
-      <input id="image-input" type="file" accept="image/*" capture="environment" style="display:none" />
-      <div id="image-preview-bar" class="hidden" style="display:flex;align-items:center;gap:8px;padding:6px 0;">
-        <img id="image-preview-thumb" style="width:36px;height:36px;object-fit:cover;border-radius:6px;" />
-        <span style="font-size:12px;opacity:0.8;">Image attached</span>
-        <button id="btn-remove-image" class="icon-btn plain" aria-label="Remove image">✕</button>
-      </div>
+        <input id="image-input" type="file" accept="image/*,.pdf,.doc,.docx,.txt,application/pdf,text/plain" style="display:none" />
         <div class="composer-spacer"></div>
         <button class="icon-btn circle" id="btn-mic-2" aria-label="Voice input">🎤</button>
         <button class="icon-btn circle send" id="btn-send-chat" aria-label="Send">➤</button>
@@ -177,6 +180,11 @@
         <span>Auto language detect</span>
         <label class="switch"><input type="checkbox" id="toggle-lang" checked><span class="slider"></span></label>
       </div>
+
+      <div class="section-label" style="margin-top:16px;">Memory</div>
+      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Things Aureon should remember about you — e.g. "I prefer short answers", "Reply in Hinglish"</p>
+      <textarea id="memory-input" class="text-input" rows="4" placeholder="Add preferences, one per line…" style="width:100%;resize:vertical;font-family:inherit;"></textarea>
+
       <button class="primary-btn" id="btn-save-settings">Save</button>
 
       <div class="section-label" style="margin-top:20px;">Account</div>

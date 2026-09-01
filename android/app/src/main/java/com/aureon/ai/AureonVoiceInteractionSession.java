@@ -9,6 +9,8 @@ import android.service.voice.VoiceInteractionSession;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,21 +26,24 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Locale;
 
 /**
  * The floating overlay shown when Aureon is invoked as the system assistant.
- * Listens for speech, sends it to the Aureon backend, and shows the reply.
+ * Listens for speech, sends it to the Aureon backend, shows the reply, and
+ * now speaks it out loud too (Text-to-Speech).
  */
 public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private static final String TAG = "AureonVoiceSession";
-
-    // Change this if your backend URL ever changes.
     private static final String BACKEND_URL = "https://aureone.onrender.com/api/chat";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private SpeechRecognizer speechRecognizer;
+    private TextToSpeech textToSpeech;
+    private boolean ttsReady = false;
+    private String pendingSpeech = null;
     private TextView statusText;
     private TextView responseText;
 
@@ -54,9 +59,36 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         statusText = view.findViewById(R.id.aureon_status_text);
         responseText = view.findViewById(R.id.aureon_response_text);
 
+        initTextToSpeech();
         startListening();
 
         return view;
+    }
+
+    private void initTextToSpeech() {
+        textToSpeech = new TextToSpeech(getContext(), status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                int langResult = textToSpeech.setLanguage(Locale.US);
+                Log.d(TAG, "TTS language result: " + langResult);
+                ttsReady = true;
+                if (pendingSpeech != null) {
+                    speak(pendingSpeech);
+                    pendingSpeech = null;
+                }
+            } else {
+                Log.e(TAG, "TextToSpeech init failed, status: " + status);
+            }
+        });
+    }
+
+    private void speak(String text) {
+        if (text == null || text.isEmpty()) return;
+        if (!ttsReady || textToSpeech == null) {
+            pendingSpeech = text;
+            return;
+        }
+        int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_reply");
+        Log.d(TAG, "TTS speak() result: " + result);
     }
 
     private void startListening() {
@@ -83,7 +115,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
             @Override
             public void onEndOfSpeech() {
-                setStatus("Thinking…");
+                setStatus("Thinking… (first request can take up to a minute)");
             }
 
             @Override
@@ -137,8 +169,8 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(20000);
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(60000);
 
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(payload.toString().getBytes(StandardCharsets.UTF_8));
@@ -181,6 +213,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             responseText.setText(reply);
             responseText.setVisibility(View.VISIBLE);
         }
+        speak(reply);
     }
 
     @Override
@@ -189,6 +222,11 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
+        }
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
         }
     }
 }

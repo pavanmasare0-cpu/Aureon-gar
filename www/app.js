@@ -89,29 +89,60 @@ function addMessage(role, text) {
   return div;
 }
 
-// ---------- Image attach (Vision) ----------
-state.pendingImage = null; // { mimeType, data } — data is base64 without prefix
+// ---------- Attach (Vision + files) ----------
+state.pendingImage = null; // { mimeType, data } — for images sent to vision
+state.pendingFileText = null; // extracted text for txt files
+state.pendingFileName = null;
 
 $('btn-attach-2')?.addEventListener('click', () => $('image-input').click());
 
 $('image-input')?.addEventListener('change', (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const result = reader.result; // "data:image/jpeg;base64,...."
-    const [prefix, data] = result.split(',');
-    const mimeType = prefix.match(/data:(.*);base64/)[1];
-    state.pendingImage = { mimeType, data };
-    $('image-preview-thumb').src = result;
+
+  state.pendingImage = null;
+  state.pendingFileText = null;
+  state.pendingFileName = file.name;
+
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const [prefix, data] = result.split(',');
+      const mimeType = prefix.match(/data:(.*);base64/)[1];
+      state.pendingImage = { mimeType, data };
+      $('image-preview-thumb').src = result;
+      $('image-preview-thumb').classList.remove('hidden');
+      $('file-preview-label').classList.add('hidden');
+      $('attach-name').textContent = file.name;
+      $('image-preview-bar').classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+  } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.pendingFileText = reader.result;
+      $('image-preview-thumb').classList.add('hidden');
+      $('file-preview-label').classList.remove('hidden');
+      $('attach-name').textContent = file.name;
+      $('image-preview-bar').classList.remove('hidden');
+    };
+    reader.readAsText(file);
+  } else {
+    // PDF / doc / other — we can't extract text client-side yet, but still
+    // let the user attach it; they'll see a note that content wasn't read.
+    $('image-preview-thumb').classList.add('hidden');
+    $('file-preview-label').classList.remove('hidden');
+    $('attach-name').textContent = file.name;
     $('image-preview-bar').classList.remove('hidden');
-  };
-  reader.readAsDataURL(file);
+  }
   e.target.value = '';
 });
 
 $('btn-remove-image')?.addEventListener('click', () => {
   state.pendingImage = null;
+  state.pendingFileText = null;
+  state.pendingFileName = null;
   $('image-preview-bar').classList.add('hidden');
 });
 
@@ -119,17 +150,29 @@ async function sendMessage() {
   const input = $('chat-input');
   const text = input.value.trim();
   const image = state.pendingImage;
-  if (!text && !image) return;
+  const fileText = state.pendingFileText;
+  const fileName = state.pendingFileName;
+  if (!text && !image && !fileText && !fileName) return;
   input.value = '';
   state.pendingImage = null;
+  state.pendingFileText = null;
+  state.pendingFileName = null;
   $('image-preview-bar').classList.add('hidden');
 
-  if ($('chat-title-text').textContent === 'New chat') {
-    $('chat-title-text').textContent = (text || 'Image').slice(0, 28) + (text.length > 28 ? '…' : '');
+  let effectiveText = text;
+  if (fileText) {
+    effectiveText = `${text ? text + '\n\n' : ''}[Attached file: ${fileName}]\n${fileText}`;
+  } else if (fileName && !image) {
+    effectiveText = `${text ? text + '\n\n' : ''}[Attached file: ${fileName} — content could not be read]`;
   }
 
-  addMessage('user', text || '(sent an image)');
-  const userMessage = { role: 'user', content: text };
+  if ($('chat-title-text').textContent === 'New chat') {
+    const titleSource = text || fileName || 'Image';
+    $('chat-title-text').textContent = titleSource.slice(0, 28) + (titleSource.length > 28 ? '…' : '');
+  }
+
+  addMessage('user', text || (image ? '(sent an image)' : `(sent ${fileName})`));
+  const userMessage = { role: 'user', content: effectiveText };
   if (image) userMessage.image = image;
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
@@ -155,11 +198,22 @@ async function callBackend(messages, model) {
   const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model })
+    body: JSON.stringify({ messages, model, systemPrompt: buildSystemPrompt() })
   });
   if (!res.ok) throw new Error(`Server returned ${res.status}`);
   const data = await res.json();
   return data.reply || '(empty response)';
+}
+
+// ---------- Personality + Memory ----------
+const BASE_PERSONALITY = `You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. Keep responses warm, natural, and conversational (like ChatGPT's tone), never stiff or robotic. Match the user's language style — if they write in Hinglish or Hindi, respond that way naturally. Keep it concise unless they ask for detail.`;
+
+function buildSystemPrompt() {
+  const memory = localStorage.getItem('aureon_memory') || '';
+  if (memory.trim()) {
+    return `${BASE_PERSONALITY}\n\nThings to remember about this user (stated by them):\n${memory.trim()}`;
+  }
+  return BASE_PERSONALITY;
 }
 
 // ---------- Recent chats (local only, MVP) ----------
@@ -202,6 +256,7 @@ function renderRecent() {
 
 // ---------- Settings ----------
 $('btn-save-settings').onclick = () => {
+  localStorage.setItem('aureon_memory', $('memory-input').value);
   closeSheet('sheet-settings');
 };
 
@@ -393,5 +448,6 @@ function runSplash() {
 
 // ---------- Init ----------
 $('model-pill').textContent = MODEL_LABELS[state.model];
+if ($('memory-input')) $('memory-input').value = localStorage.getItem('aureon_memory') || '';
 renderRecent();
 runSplash();
