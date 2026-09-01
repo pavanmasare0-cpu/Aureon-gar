@@ -80,13 +80,13 @@ document.querySelectorAll('#sheet-model .sheet-option').forEach(opt => {
   };
 });
 
-function addMessage(role, text) {
+function addMessage(role, text, wantsPdf = false) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   div.textContent = text;
   $('messages').appendChild(div);
 
-  if (role === 'ai') {
+  if (role === 'ai' && wantsPdf) {
     const pdfBtn = document.createElement('button');
     pdfBtn.className = 'pdf-export-btn';
     pdfBtn.textContent = '📄 Save as PDF';
@@ -97,6 +97,13 @@ function addMessage(role, text) {
 
   $('messages').scrollTop = $('messages').scrollHeight;
   return div;
+}
+
+// Returns true only if the user's own message actually asked for a PDF
+// (e.g. "pdf banao", "save as pdf", "pdf chahiye"). Simple substring
+// check on the word "pdf" — case-insensitive — covers Hindi/Hinglish/English.
+function userAskedForPdf(text) {
+  return /\bpdf\b/i.test(text || '');
 }
 
 async function exportMessageAsPdf(content) {
@@ -209,10 +216,12 @@ async function sendMessage() {
 
   $('typing-indicator').classList.remove('hidden');
 
+  const wantsPdf = userAskedForPdf(text);
+
   try {
     const reply = await callBackend(state.currentMessages, state.model);
     $('typing-indicator').classList.add('hidden');
-    addMessage('ai', reply);
+    addMessage('ai', reply, wantsPdf);
     state.currentMessages.push({ role: 'assistant', content: reply });
     saveChatSnapshot();
   } catch (err) {
