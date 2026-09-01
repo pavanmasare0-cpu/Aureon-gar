@@ -115,12 +115,35 @@ async function exportMessageAsPdf(content) {
     });
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
     const data = await res.json();
-    const link = document.createElement('a');
-    link.href = `data:application/pdf;base64,${data.dataBase64}`;
-    link.download = data.filename || 'aureon-document.pdf';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const filename = data.filename || 'aureon-document.pdf';
+
+    const isNative = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+    if (isNative && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
+      const { Filesystem } = window.Capacitor.Plugins;
+      const writeResult = await Filesystem.writeFile({
+        path: filename,
+        data: data.dataBase64,
+        directory: 'CACHE',
+        recursive: true
+      });
+
+      if (window.Capacitor.Plugins.Share) {
+        await window.Capacitor.Plugins.Share.share({
+          title: filename,
+          url: writeResult.uri
+        });
+      } else {
+        alert(`PDF ban gayi: ${filename}`);
+      }
+    } else {
+      const link = document.createElement('a');
+      link.href = `data:application/pdf;base64,${data.dataBase64}`;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   } catch (err) {
     alert(`Could not create PDF: ${err.message}`);
   }
