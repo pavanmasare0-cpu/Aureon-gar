@@ -85,8 +85,38 @@ function addMessage(role, text) {
   div.className = `msg ${role}`;
   div.textContent = text;
   $('messages').appendChild(div);
+
+  if (role === 'ai') {
+    const pdfBtn = document.createElement('button');
+    pdfBtn.className = 'pdf-export-btn';
+    pdfBtn.textContent = '📄 Save as PDF';
+    pdfBtn.onclick = () => exportMessageAsPdf(text);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(pdfBtn);
+  }
+
   $('messages').scrollTop = $('messages').scrollHeight;
   return div;
+}
+
+async function exportMessageAsPdf(content) {
+  try {
+    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/generate-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Aureon Response', content })
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    const link = document.createElement('a');
+    link.href = `data:application/pdf;base64,${data.dataBase64}`;
+    link.download = data.filename || 'aureon-document.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (err) {
+    alert(`Could not create PDF: ${err.message}`);
+  }
 }
 
 // ---------- Attach (Vision + files) ----------
@@ -198,7 +228,13 @@ async function callBackend(messages, model) {
   const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model, systemPrompt: buildSystemPrompt() })
+    body: JSON.stringify({
+      messages,
+      model,
+      systemPrompt: buildSystemPrompt(),
+      uid: state.user ? state.user.uid : null,
+      useKnowledge: $('toggle-use-knowledge') ? $('toggle-use-knowledge').checked : false
+    })
   });
   if (!res.ok) throw new Error(`Server returned ${res.status}`);
   const data = await res.json();
@@ -451,3 +487,81 @@ $('model-pill').textContent = MODEL_LABELS[state.model];
 if ($('memory-input')) $('memory-input').value = localStorage.getItem('aureon_memory') || '';
 renderRecent();
 runSplash();
+
+// ---------- Knowledge Base (Phase 5 — RAG) ----------
+$('btn-drawer-knowledge').onclick = () => {
+  closeDrawer();
+  openSheet('sheet-knowledge');
+  loadKnowledgeList();
+};
+
+$('btn-upload-knowledge').onclick = () => $('knowledge-file-input').click();
+
+$('knowledge-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!state.user) { alert('Please log in first.'); return; }
+
+  const statusEl = $('knowledge-upload-status');
+  statusEl.classList.remove('hidden');
+  statusEl.textContent = `Reading "${file.name}"...`;
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1];
+    statusEl.textContent = `Uploading "${file.name}"... this can take a moment.`;
+    try {
+      const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/knowledge/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: state.user.uid,
+          filename: file.name,
+          mimeType: file.type,
+          dataBase64: base64
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      statusEl.textContent = `✓ "${file.name}" added (${data.chunkCount} sections indexed).`;
+      loadKnowledgeList();
+    } catch (err) {
+      statusEl.textContent = `Couldn't upload: ${err.message}`;
+    }
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+async function loadKnowledgeList() {
+  const list = $('knowledge-list');
+  if (!state.user) {
+    list.innerHTML = '<div class="empty-hint">Log in to manage your documents.</div>';
+    return;
+  }
+  list.innerHTML = '<div class="empty-hint">Loading...</div>';
+  try {
+    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/knowledge/list?uid=${state.user.uid}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load documents');
+    if (!data.files || data.files.length === 0) {
+      list.innerHTML = '<div class="empty-hint">No documents yet.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    data.files.forEach(file => {
+      const item = document.createElement('div');
+      item.className = 'recent-item knowledge-item';
+      item.innerHTML = `<span>${file.filename}</span><button class="knowledge-delete-btn" data-id="${file.id}">✕</button>`;
+      item.querySelector('.knowledge-delete-btn').onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(`Remove "${file.filename}"?`)) return;
+        await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/knowledge/${file.id}?uid=${state.user.uid}`, { method: 'DELETE' });
+        loadKnowledgeList();
+      };
+      list.appendChild(item);
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="empty-hint">Error: ${err.message}</div>`;
+  }
+}

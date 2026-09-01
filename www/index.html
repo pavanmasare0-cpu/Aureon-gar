@@ -110,7 +110,32 @@
         <div class="empty-hint">No chats yet — start one below.</div>
       </div>
       <div class="drawer-footer">
+        <button class="drawer-link" id="btn-drawer-knowledge">📚 My Documents</button>
         <button class="drawer-link" id="btn-drawer-settings">⚙ Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== KNOWLEDGE BASE SHEET (Phase 5 — RAG) ===== -->
+  <div id="sheet-knowledge" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-handle"></div>
+      <div class="section-label">My Documents</div>
+      <p class="setting-hint">Upload PDFs, Word docs, or text files — Aureon will read them and use them to answer your questions.</p>
+
+      <input type="file" id="knowledge-file-input" accept=".pdf,.docx,.txt" style="display:none;" />
+      <button class="primary-btn" id="btn-upload-knowledge">+ Upload Document</button>
+      <div id="knowledge-upload-status" class="setting-hint hidden"></div>
+
+      <div class="section-label" style="margin-top:18px;">Uploaded</div>
+      <div id="knowledge-list" class="recent-list">
+        <div class="empty-hint">No documents yet.</div>
+      </div>
+
+      <div class="setting-row" style="margin-top:14px;">
+        <span>Use my documents in chat</span>
+        <label class="switch"><input type="checkbox" id="toggle-use-knowledge"><span class="slider"></span></label>
       </div>
     </div>
   </div>
