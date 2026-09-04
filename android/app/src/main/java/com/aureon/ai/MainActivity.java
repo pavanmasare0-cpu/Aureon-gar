@@ -23,9 +23,15 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // Must be registered before super.onCreate() so the Capacitor bridge
-        // picks it up. Exposes native offline speech-to-text + on-device
-        // command execution to the chat screen's mic button.
+        // picks it up.
+        // - AureonSpeechPlugin: native offline speech-to-text + on-device
+        //   command execution, exposed to the chat screen's mic button.
+        // - AureonActionsPlugin: JS-callable bridge for agent actions
+        //   (open_app, get_battery, set_alarm, search_web, open_url,
+        //   play_music, and the new send-message flow) — see
+        //   AureonAgentActions.java.
         registerPlugin(AureonSpeechPlugin.class);
+        registerPlugin(AureonActionsPlugin.class);
 
         super.onCreate(savedInstanceState);
 
@@ -37,7 +43,7 @@ public class MainActivity extends BridgeActivity {
         }
 
         // Needed so voice commands like "message Pavan saying ..." can look
-        // up a contact's number and open WhatsApp/SMS with it.
+        // up a contact's number and open WhatsApp/SMS/Instagram with it.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.READ_CONTACTS);
@@ -64,7 +70,7 @@ public class MainActivity extends BridgeActivity {
     private void promptPhase6Setup() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("Aureon voice permissions")
-                .setMessage("For Phase 6 voice typing and phone actions, enable Aureon's Accessibility Service.\n\nFor system-wide \"Hey Aureon\", also set Aureon as your Default Digital Assistant.")
+                .setMessage("For voice typing and app actions (open apps, send messages with your confirmation), enable Aureon's Accessibility Service.\n\nFor system-wide \"Hey Aureon\", also set Aureon as your Default Digital Assistant.")
                 .setPositiveButton("Accessibility", (d, w) -> {
                     try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
                     catch (Exception e) { Toast.makeText(this, "Open Settings \u2192 Accessibility \u2192 Aureon", Toast.LENGTH_LONG).show(); }

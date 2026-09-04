@@ -340,7 +340,7 @@ async function callBackend(messages, model, tools) {
 // ---------- Phase 6: Agent (on-device actions) ----------
 // Actions the model may ask the app to run natively (see AureonActionsPlugin.java).
 // Calls and SMS always require the user to confirm before they happen.
-const SENSITIVE_AGENT_ACTIONS = new Set(['make_call', 'send_sms']);
+const SENSITIVE_AGENT_ACTIONS = new Set(['make_call', 'send_sms', 'send_instagram_message']);
 const AGENT_LOOP_LIMIT = 4; // safety cap so a confused model can't loop forever
 
 async function runAgentTurn(wantsPdf, depth = 0) {
@@ -388,9 +388,16 @@ async function runAgentTurn(wantsPdf, depth = 0) {
 }
 
 function confirmSensitiveAction(name, args) {
-  const label = name === 'make_call'
-    ? `call ${args.number}`
-    : `send an SMS to ${args.number}: "${args.message}"`;
+  let label;
+  if (name === 'make_call') {
+    label = `call ${args.number}`;
+  } else if (name === 'send_sms') {
+    label = `send an SMS to ${args.number}: "${args.message}"`;
+  } else if (name === 'send_instagram_message') {
+    label = `send this Instagram DM to ${args.contact_name}: "${args.message}"`;
+  } else {
+    label = `run ${name}`;
+  }
   return window.confirm(`Aureon wants to ${label}. Allow this?`);
 }
 
@@ -410,6 +417,7 @@ async function executeAgentAction(name, args) {
     case 'play_music': return await AureonActions.playMusic(args);
     case 'compose_email': return await AureonActions.composeEmail(args);
     case 'send_whatsapp_message': return await AureonActions.sendWhatsappMessage(args);
+    case 'send_instagram_message': return await AureonActions.sendInstagramMessage(args);
     default: throw new Error(`Unknown action: ${name}`);
   }
 }
@@ -433,7 +441,7 @@ function describeAgentAction(name, args, result) {
 // ---------- Personality + Memory ----------
 const BASE_PERSONALITY = `You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. Keep responses warm, natural, and conversational (like ChatGPT's tone), never stiff or robotic. Match the user's language style — if they write in Hinglish or Hindi, respond that way naturally. Keep it concise unless they ask for detail.`;
 
-const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, compose an email draft, or open a pre-filled WhatsApp message. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo" — call the matching tool instead of just explaining how. For calls and SMS the app always asks the user to confirm before it actually happens, so go ahead and call the tool for those too. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
+const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, compose an email draft, open a pre-filled WhatsApp message (by number or by saved contact name), or send an Instagram DM to a contact by name. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo", "Instagram mein Pavan ko message karo" — call the matching tool instead of just explaining how. For calls, SMS, and Instagram DMs the app always asks the user to confirm the exact message before it actually happens, so go ahead and call the tool for those too — don't ask the user to confirm yourself in chat, the app's own confirm dialog already handles that. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. send_instagram_message needs Aureon's Accessibility Service turned on (Settings inside the app will prompt for this) — if it fails because that's off, tell the user to enable it. IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
 
 function buildSystemPrompt() {
   const memory = localStorage.getItem('aureon_memory') || '';

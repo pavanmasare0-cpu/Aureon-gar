@@ -140,14 +140,27 @@ const AGENT_TOOLS = [
       },
       {
         name: 'send_whatsapp_message',
-        description: 'Open WhatsApp on a chat with the given phone number, with a message pre-filled. Does not send it automatically — the user still taps the Send button themselves.',
+        description: 'Open WhatsApp on a chat with the given phone number (or a saved contact name), with a message pre-filled. Does not send it automatically — the user still taps the Send button themselves.',
         parameters: {
           type: 'OBJECT',
           properties: {
-            number: { type: 'STRING', description: 'Phone number with country code, e.g. 91XXXXXXXXXX' },
+            number: { type: 'STRING', description: 'Phone number with country code, e.g. 91XXXXXXXXXX. Omit if giving contact_name instead.' },
+            contact_name: { type: 'STRING', description: 'Saved contact name to look up a number for, e.g. "Pavan". Omit if giving number directly.' },
             message: { type: 'STRING' }
           },
-          required: ['number', 'message']
+          required: ['message']
+        }
+      },
+      {
+        name: 'send_instagram_message',
+        description: 'Send an Instagram DM to a contact by name. Sensitive — the app will always ask the user to confirm the exact message before it actually sends. Requires the user to have enabled Aureon\'s Accessibility Service.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            contact_name: { type: 'STRING', description: 'Instagram username or display name to message, e.g. "Pavan"' },
+            message: { type: 'STRING' }
+          },
+          required: ['contact_name', 'message']
         }
       }
     ]

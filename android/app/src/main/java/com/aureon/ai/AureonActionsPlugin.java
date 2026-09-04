@@ -8,9 +8,13 @@ import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.AlarmClock;
+import android.provider.ContactsContract;
 import android.provider.MediaStore;
 import android.telephony.SmsManager;
 
@@ -36,10 +40,19 @@ import java.util.Locale;
     name = "AureonActions",
     permissions = {
         @Permission(strings = { Manifest.permission.CALL_PHONE }, alias = "call"),
-        @Permission(strings = { Manifest.permission.SEND_SMS }, alias = "sms")
+        @Permission(strings = { Manifest.permission.SEND_SMS }, alias = "sms"),
+        @Permission(strings = { Manifest.permission.READ_CONTACTS }, alias = "contacts")
     }
 )
 public class AureonActionsPlugin extends Plugin {
+
+    // Timings for cross-app UI automation below. Real devices/app versions
+    // vary, so these are generous defaults, not guarantees — if Instagram's
+    // UI changes its labels or gets slower to load, these steps may need
+    // retuning. Every step is verified before moving to the next; nothing
+    // here assumes success.
+    private static final int APP_LAUNCH_WAIT_MS = 1800;
+    private static final int SCREEN_STEP_TIMEOUT_MS = 4000;
 
     @PluginMethod
     public void getBattery(PluginCall call) {
@@ -66,48 +79,17 @@ public class AureonActionsPlugin extends Plugin {
             call.reject("app_name is required");
             return;
         }
-
-        PackageManager pm = getContext().getPackageManager();
         // queryIntentActivities against LAUNCHER, not getInstalledApplications —
         // Android 11+ hides most apps from the latter unless declared in
         // <queries>. Querying by the launcher intent (a wildcard <queries>
         // entry in the manifest) is the documented way to see every
-        // launchable app regardless.
-        Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
-        launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> apps = pm.queryIntentActivities(launcherIntent, 0);
-        String needle = appName.trim().toLowerCase(Locale.US);
-
-        ResolveInfo bestMatch = null;
-        for (ResolveInfo info : apps) {
-            String label = info.loadLabel(pm).toString();
-            String labelLower = label.toLowerCase(Locale.US);
-            if (labelLower.equals(needle)) {
-                bestMatch = info;
-                break; // exact match — stop looking
-            }
-            if (bestMatch == null && labelLower.contains(needle)) {
-                bestMatch = info;
-            }
+        // launchable app regardless. Shared with sendInstagramMessage() via
+        // openAppByName() below.
+        try {
+            call.resolve(openAppByName(appName.trim()));
+        } catch (ActionException e) {
+            call.reject(e.getMessage());
         }
-
-        if (bestMatch == null) {
-            call.reject("Could not find an app matching \"" + appName + "\"");
-            return;
-        }
-
-        String packageName = bestMatch.activityInfo.packageName;
-        Intent launchIntent = pm.getLaunchIntentForPackage(packageName);
-        if (launchIntent == null) {
-            call.reject("Found \"" + appName + "\" but it can't be launched directly");
-            return;
-        }
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getContext().startActivity(launchIntent);
-
-        JSObject ret = new JSObject();
-        ret.put("opened", bestMatch.loadLabel(pm).toString());
-        call.resolve(ret);
     }
 
     @PluginMethod
@@ -313,15 +295,35 @@ public class AureonActionsPlugin extends Plugin {
     @PluginMethod
     public void sendWhatsappMessage(PluginCall call) {
         String number = call.getString("number");
+        String contactName = call.getString("contact_name");
         String message = call.getString("message", "");
+
+        if ((number == null || number.trim().isEmpty()) && contactName != null && !contactName.trim().isEmpty()) {
+            if (getPermissionState("contacts") != PermissionState.GRANTED) {
+                requestPermissionForAlias("contacts", call, "whatsappContactsPermsCallback");
+                return;
+            }
+            number = resolveContactNumber(contactName);
+            if (number == null) {
+                call.reject("Could not find a phone number for \"" + contactName + "\" in your contacts.");
+                return;
+            }
+        }
+
         if (number == null || number.trim().isEmpty()) {
-            call.reject("number is required");
+            call.reject("number or contact_name is required");
             return;
         }
         // Strip anything but digits — wa.me needs a plain country-code number.
         String cleanNumber = number.replaceAll("[^0-9]", "");
 
         Intent intent = new Intent(Intent.ACTION_VIEW);
+        // Opens WhatsApp with the chat + message pre-filled. It does NOT
+        // send automatically — the user (or the confirmed accessibility
+        // step, if you wire that up) still has to tap WhatsApp's own Send
+        // button. Left this way deliberately: one extra manual/explicit
+        // tap inside WhatsApp itself is a cheap extra safety net on top of
+        // the confirm dialog already shown in the chat UI.
         intent.setData(Uri.parse("https://wa.me/" + cleanNumber + "?text=" + Uri.encode(message)));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
@@ -335,6 +337,164 @@ public class AureonActionsPlugin extends Plugin {
         ret.put("opened", true);
         ret.put("to", number);
         call.resolve(ret);
+    }
+
+    @PermissionCallback
+    private void whatsappContactsPermsCallback(PluginCall call) {
+        if (getPermissionState("contacts") == PermissionState.GRANTED) {
+            sendWhatsappMessage(call);
+        } else {
+            call.reject("Contacts permission was denied — can't look up that name. Try giving a phone number instead.");
+        }
+    }
+
+    /** Looks up a contact's first phone number by display name. Returns null if not found. */
+    private String resolveContactNumber(String name) {
+        Cursor cursor = getContext().getContentResolver().query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                new String[] { ContactsContract.CommonDataKinds.Phone.NUMBER },
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?",
+                new String[] { "%" + name.trim() + "%" },
+                null
+        );
+        if (cursor == null) return null;
+        String number = null;
+        try {
+            if (cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                if (idx >= 0) number = cursor.getString(idx);
+            }
+        } finally {
+            cursor.close();
+        }
+        return number;
+    }
+
+    // ---------------------------------------------------------------
+    // Instagram DM via Accessibility automation.
+    //
+    // There's no pre-fill deep-link for Instagram DMs like wa.me for
+    // WhatsApp, so this drives the actual UI: open Instagram, search the
+    // contact, open the chat, type the message, tap Send. This ONLY runs
+    // after the chat UI has already shown the user a confirm dialog (see
+    // SENSITIVE_AGENT_ACTIONS in www/app.js) — by the time this method is
+    // called, the user has already said yes to this exact message.
+    //
+    // Instagram's exact button labels/layout can change between app
+    // versions and aren't something we can verify without a live device,
+    // so every step is verified before moving to the next and the call
+    // fails loudly (with the step that failed) instead of pretending to
+    // succeed.
+    // ---------------------------------------------------------------
+    @PluginMethod
+    public void sendInstagramMessage(PluginCall call) {
+        String contactName = call.getString("contact_name");
+        String message = call.getString("message", "");
+        if (contactName == null || contactName.trim().isEmpty() || message.trim().isEmpty()) {
+            call.reject("contact_name and message are required");
+            return;
+        }
+
+        if (!AureonAccessibilityService.isEnabled()) {
+            call.reject("Aureon's Accessibility Service isn't turned on yet. Enable it in Settings \u2192 Accessibility \u2192 Aureon, then try again.");
+            return;
+        }
+
+        JSObject openResult;
+        try {
+            openResult = openAppByName("Instagram");
+        } catch (ActionException e) {
+            call.reject(e.getMessage());
+            return;
+        }
+
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(() -> runInstagramSendSteps(call, contactName.trim(), message), APP_LAUNCH_WAIT_MS);
+    }
+
+    private void runInstagramSendSteps(PluginCall call, String contactName, String message) {
+        JSObject status = new JSObject();
+        status.put("contact", contactName);
+
+        // Step 1: open the DM/search screen. Instagram's DM icon is usually
+        // labelled "Direct" or "Messages" depending on app version/locale.
+        boolean openedDm = AureonAccessibilityService.clickTextWithRetry("Direct", SCREEN_STEP_TIMEOUT_MS)
+                || AureonAccessibilityService.clickTextWithRetry("Messages", SCREEN_STEP_TIMEOUT_MS);
+        if (!openedDm) {
+            status.put("step_failed", "open_dm_list");
+            call.reject("Opened Instagram but couldn't find the Direct/Messages button. You'll need to open the chat manually this time.");
+            return;
+        }
+
+        // Step 2: search for the contact and type their name.
+        boolean searchOpened = AureonAccessibilityService.clickTextWithRetry("Search", SCREEN_STEP_TIMEOUT_MS);
+        boolean typed = searchOpened && AureonAccessibilityService.typeText(contactName);
+        if (!typed) {
+            status.put("step_failed", "search_contact");
+            call.reject("Couldn't search for \"" + contactName + "\" — you'll need to find the chat manually this time.");
+            return;
+        }
+
+        // Step 3: wait for search results, then open the matching chat.
+        boolean opened = AureonAccessibilityService.clickTextWithRetry(contactName, SCREEN_STEP_TIMEOUT_MS);
+        if (!opened) {
+            status.put("step_failed", "open_chat");
+            call.reject("Found search results but couldn't open \"" + contactName + "\"'s chat automatically.");
+            return;
+        }
+
+        // Step 4: type the message into the chat's text box.
+        boolean messageTyped = AureonAccessibilityService.waitForText("Message", SCREEN_STEP_TIMEOUT_MS)
+                && AureonAccessibilityService.typeText(message);
+        if (!messageTyped) {
+            status.put("step_failed", "type_message");
+            call.reject("Opened the chat but couldn't type the message — you'll need to send it manually this time.");
+            return;
+        }
+
+        // Step 5: tap Send. This is the only step that actually publishes
+        // anything — everything before this is just navigation/typing.
+        boolean sent = AureonAccessibilityService.clickTextWithRetry("Send", SCREEN_STEP_TIMEOUT_MS);
+        status.put("sent", sent);
+        if (!sent) {
+            status.put("step_failed", "tap_send");
+            call.reject("Typed the message but couldn't tap Send — it's sitting ready in the chat, you can send it yourself.");
+            return;
+        }
+
+        call.resolve(status);
+    }
+
+    /** Shared by openApp() and sendInstagramMessage() — launches an app by its display name. */
+    private JSObject openAppByName(String appName) throws ActionException {
+        PackageManager pm = getContext().getPackageManager();
+        Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
+        launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> apps = pm.queryIntentActivities(launcherIntent, 0);
+        String needle = appName.trim().toLowerCase(Locale.US);
+
+        ResolveInfo bestMatch = null;
+        for (ResolveInfo info : apps) {
+            String label = info.loadLabel(pm).toString().toLowerCase(Locale.US);
+            if (label.equals(needle)) { bestMatch = info; break; }
+            if (bestMatch == null && label.contains(needle)) bestMatch = info;
+        }
+        if (bestMatch == null) throw new ActionException("Couldn't find an app called \"" + appName + "\" on this phone.");
+
+        String packageName = bestMatch.activityInfo.packageName;
+        Intent launchIntent = pm.getLaunchIntentForPackage(packageName);
+        if (launchIntent == null) throw new ActionException("Found \"" + appName + "\" but it can't be launched directly");
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(launchIntent);
+
+        JSObject ret = new JSObject();
+        ret.put("opened", appName);
+        ret.put("package", packageName);
+        return ret;
+    }
+
+    private static class ActionException extends Exception {
+        ActionException(String message) { super(message); }
     }
 
     // Opens Android's keyboard-management settings so the user can switch on

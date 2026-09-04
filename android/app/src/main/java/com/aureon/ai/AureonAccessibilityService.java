@@ -102,6 +102,33 @@ public class AureonAccessibilityService extends AccessibilityService {
         return ok;
     }
 
+    /**
+     * Same as clickText(), but polls for up to timeoutMs — useful right
+     * after navigating to a new screen, where the target text may not be
+     * in the accessibility tree yet because the screen is still loading.
+     * Returns as soon as the click succeeds, or false after the timeout.
+     */
+    public static boolean clickTextWithRetry(String query, int timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (clickText(query)) return true;
+            try { Thread.sleep(300); } catch (InterruptedException ignored) { return false; }
+        }
+        return false;
+    }
+
+    /** Same idea as clickTextWithRetry, but just checks presence (no click). */
+    public static boolean waitForText(String query, int timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (instance != null && readScreen().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+            try { Thread.sleep(300); } catch (InterruptedException ignored) { return false; }
+        }
+        return false;
+    }
+
     public static boolean scroll(boolean forward) {
         if (instance == null) return false;
         AccessibilityNodeInfo root = instance.getRootInActiveWindow();

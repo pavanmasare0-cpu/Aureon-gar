@@ -1,17 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Required since Android 11 (API 30): without this, the system hides
-         almost every other app from PackageManager queries by default
-         ("package visibility"). This lets Aureon see any app with a
-         launcher icon, so open_app can find and open it by name. -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
-    </queries>
-
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -60,23 +48,36 @@
             android:exported="true"
         />
 
-        <!-- Voice-only keyboard (IME): user picks "Aureon Voice Typing" from
-             any app's keyboard switcher and taps the mic to dictate into
-             whatever field is focused there. Only runs when the user
-             explicitly switches to it and taps — it cannot read the screen
-             or act on its own. -->
+        <!-- Bridge for typing dictated text and performing UI actions (find
+             contact, type message, tap Send) inside other apps like
+             WhatsApp/Instagram. The user must explicitly enable it in
+             Android Accessibility settings — nothing runs until they do,
+             and every send still goes through the voice confirmation step
+             in AureonVoiceInteractionSession before anything is tapped. -->
         <service
-            android:name=".AureonVoiceKeyboardService"
-            android:permission="android.permission.BIND_INPUT_METHOD"
-            android:exported="true">
+            android:name=".AureonAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.view.InputMethod" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data
-                android:name="android.view.im"
-                android:resource="@xml/aureon_ime_method" />
+                android:name="android.accessibilityservice"
+                android:resource="@xml/aureon_accessibility_config" />
         </service>
     </application>
+
+    <!-- Required since Android 11 (API 30): without this, the system hides
+         almost every other app from PackageManager queries by default
+         ("package visibility"). This lets Aureon see any app with a
+         launcher icon, so open_app / send-message can find WhatsApp,
+         Instagram, etc. by name. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <!-- Permissions -->
 
@@ -84,10 +85,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.BIND_VOICE_INTERACTION" />
-
-    <!-- Phase 6 — Agent: only requested at runtime, right before the app
-         actually tries to place a call or send a text, and only after the
-         user has confirmed the action in-chat. -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 </manifest>
