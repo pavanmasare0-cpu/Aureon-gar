@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="aureon_accessibility_description">Allows Aureon to type dictated text and perform requested UI actions in apps when you explicitly enable the service.</string>
+</resources>

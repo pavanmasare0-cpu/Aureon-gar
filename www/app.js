@@ -237,23 +237,87 @@ async function sendMessage() {
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
 
+  // Offline-capable shortcut: battery / open app / set alarm never need the
+  // AI backend at all — if the message clearly asks for one of these, do it
+  // natively right away, with zero network involved.
+  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  const localIntent = (!image && !fileText && !fileName && agentOn) ? matchLocalIntent(text) : null;
+
+  if (localIntent) {
+    try {
+      const result = await executeAgentAction(localIntent.name, localIntent.args);
+      const desc = describeAgentAction(localIntent.name, localIntent.args, result);
+      addMessage('ai', desc);
+      state.currentMessages.push({ role: 'assistant', content: desc });
+      saveChatSnapshot();
+    } catch (err) {
+      addMessage('error', `Couldn't ${localIntent.name.replace(/_/g, ' ')}: ${err.message || err}`);
+    }
+    return;
+  }
+
   $('typing-indicator').classList.remove('hidden');
 
   const wantsPdf = userAskedForPdf(text);
 
   try {
-    const reply = await callBackend(state.currentMessages, state.model);
-    $('typing-indicator').classList.add('hidden');
-    addMessage('ai', reply, wantsPdf);
-    state.currentMessages.push({ role: 'assistant', content: reply });
-    saveChatSnapshot();
+    await runAgentTurn(wantsPdf);
   } catch (err) {
     $('typing-indicator').classList.add('hidden');
-    addMessage('error', `Couldn't reach the AI backend. ${err.message || ''}\n\nSet your backend URL in Settings (⚙) first.`);
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      addMessage('error', "You're offline — AI chat needs internet. Battery check, opening apps, and setting alarms still work without it though.");
+    } else {
+      addMessage('error', `Couldn't reach the AI backend. ${err.message || ''}\n\nSet your backend URL in Settings (⚙) first.`);
+    }
   }
 }
 
-async function callBackend(messages, model) {
+// ---------- Offline local-intent matching ----------
+// Deliberately simple keyword/regex matching, not AI — covers only the
+// three agent actions that need zero network access (battery, open app,
+// set alarm), so they keep working with no internet and no backend call.
+// Anything it doesn't confidently recognize falls through to normal AI chat.
+function matchLocalIntent(text) {
+  if (!text) return null;
+  const lower = text.trim().toLowerCase();
+
+  if (/\bbattery\b/.test(lower) || (/charge/.test(lower) && /kitn/.test(lower))) {
+    return { name: 'get_battery', args: {} };
+  }
+
+  let appName = null;
+  let m = lower.match(/^open\s+(.+)$/);
+  if (m) {
+    appName = m[1].trim();
+  } else {
+    m = lower.match(/^(.+?)\s+(khol do|khol den|kholo|khol|open karo|open kar do)$/);
+    if (m) appName = m[1].trim();
+  }
+  if (appName) {
+    return { name: 'open_app', args: { app_name: appName } };
+  }
+
+  if (/\balarm\b/.test(lower)) {
+    let tm = lower.match(/(\d{1,2})[:.](\d{2})/);
+    if (tm) {
+      let hour = parseInt(tm[1], 10);
+      const minute = parseInt(tm[2], 10);
+      if (/\bpm\b/.test(lower) && hour < 12) hour += 12;
+      if (/\bam\b/.test(lower) && hour === 12) hour = 0;
+      return { name: 'set_alarm', args: { hour, minute, label: 'Aureon Alarm' } };
+    }
+    const bm = lower.match(/(\d{1,2})\s*baje/);
+    if (bm) {
+      let hour = parseInt(bm[1], 10);
+      if (/(shaam|evening|raat|night)/.test(lower) && hour < 12) hour += 12;
+      return { name: 'set_alarm', args: { hour, minute: 0, label: 'Aureon Alarm' } };
+    }
+  }
+
+  return null;
+}
+
+async function callBackend(messages, model, tools) {
   if (!state.backendUrl) {
     throw new Error('No backend URL configured.');
   }
@@ -263,25 +327,122 @@ async function callBackend(messages, model) {
     body: JSON.stringify({
       messages,
       model,
+      tools: !!tools,
       systemPrompt: buildSystemPrompt(),
       uid: state.user ? state.user.uid : null,
       useKnowledge: $('toggle-use-knowledge') ? $('toggle-use-knowledge').checked : false
     })
   });
   if (!res.ok) throw new Error(`Server returned ${res.status}`);
-  const data = await res.json();
-  return data.reply || '(empty response)';
+  return await res.json(); // { reply } or { functionCall: { name, args } }
+}
+
+// ---------- Phase 6: Agent (on-device actions) ----------
+// Actions the model may ask the app to run natively (see AureonActionsPlugin.java).
+// Calls and SMS always require the user to confirm before they happen.
+const SENSITIVE_AGENT_ACTIONS = new Set(['make_call', 'send_sms']);
+const AGENT_LOOP_LIMIT = 4; // safety cap so a confused model can't loop forever
+
+async function runAgentTurn(wantsPdf, depth = 0) {
+  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  const result = await callBackend(state.currentMessages, state.model, agentOn);
+
+  if (result.functionCall) {
+    if (depth >= AGENT_LOOP_LIMIT) {
+      $('typing-indicator').classList.add('hidden');
+      addMessage('error', 'Agent got stuck trying to complete that action — try rephrasing.');
+      return;
+    }
+
+    const { name, args = {} } = result.functionCall;
+
+    if (SENSITIVE_AGENT_ACTIONS.has(name) && !confirmSensitiveAction(name, args)) {
+      $('typing-indicator').classList.add('hidden');
+      state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall });
+      state.currentMessages.push({ role: 'function', functionResponse: { name, response: { result: 'The user declined to allow this action.' } } });
+      saveChatSnapshot();
+      return runAgentTurn(wantsPdf, depth + 1);
+    }
+
+    let actionResult;
+    try {
+      actionResult = await executeAgentAction(name, args);
+      addMessage('ai', describeAgentAction(name, args, actionResult));
+    } catch (err) {
+      actionResult = { error: err.message || String(err) };
+      addMessage('error', `Couldn't ${name.replace(/_/g, ' ')}: ${actionResult.error}`);
+    }
+
+    state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall });
+    state.currentMessages.push({ role: 'function', functionResponse: { name, response: { result: actionResult } } });
+    saveChatSnapshot();
+
+    return runAgentTurn(wantsPdf, depth + 1);
+  }
+
+  $('typing-indicator').classList.add('hidden');
+  const reply = result.reply || '(empty response)';
+  addMessage('ai', reply, wantsPdf);
+  state.currentMessages.push({ role: 'assistant', content: reply });
+  saveChatSnapshot();
+}
+
+function confirmSensitiveAction(name, args) {
+  const label = name === 'make_call'
+    ? `call ${args.number}`
+    : `send an SMS to ${args.number}: "${args.message}"`;
+  return window.confirm(`Aureon wants to ${label}. Allow this?`);
+}
+
+async function executeAgentAction(name, args) {
+  const AureonActions = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+  if (!AureonActions) {
+    throw new Error('Phone actions only work in the installed app, not in a browser preview.');
+  }
+  switch (name) {
+    case 'get_battery': return await AureonActions.getBattery();
+    case 'open_app': return await AureonActions.openApp(args);
+    case 'make_call': return await AureonActions.makeCall(args);
+    case 'send_sms': return await AureonActions.sendSms(args);
+    case 'set_alarm': return await AureonActions.setAlarm(args);
+    case 'search_web': return await AureonActions.searchWeb(args);
+    case 'open_url': return await AureonActions.openUrl(args);
+    case 'play_music': return await AureonActions.playMusic(args);
+    case 'compose_email': return await AureonActions.composeEmail(args);
+    case 'send_whatsapp_message': return await AureonActions.sendWhatsappMessage(args);
+    default: throw new Error(`Unknown action: ${name}`);
+  }
+}
+
+function describeAgentAction(name, args, result) {
+  switch (name) {
+    case 'get_battery': return `🔋 Battery: ${result.level}%${result.charging ? ' (charging)' : ''}`;
+    case 'open_app': return `📱 Opened ${result.opened || args.app_name}`;
+    case 'make_call': return `📞 Calling ${args.number}…`;
+    case 'send_sms': return `✉️ Sent to ${args.number}`;
+    case 'set_alarm': return `⏰ Alarm set for ${result.alarmSet || `${args.hour}:${args.minute}`}`;
+    case 'search_web': return `🔎 Searching: ${args.query}`;
+    case 'open_url': return `🔗 Opened ${result.opened || args.url}`;
+    case 'play_music': return `🎵 Playing: ${args.query}`;
+    case 'compose_email': return `📧 Opened email draft: "${args.subject}"`;
+    case 'send_whatsapp_message': return `💬 Opened WhatsApp to ${args.number} — tap Send to deliver it`;
+    default: return '✅ Done';
+  }
 }
 
 // ---------- Personality + Memory ----------
 const BASE_PERSONALITY = `You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. Keep responses warm, natural, and conversational (like ChatGPT's tone), never stiff or robotic. Match the user's language style — if they write in Hinglish or Hindi, respond that way naturally. Keep it concise unless they ask for detail.`;
 
+const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, compose an email draft, or open a pre-filled WhatsApp message. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo" — call the matching tool instead of just explaining how. For calls and SMS the app always asks the user to confirm before it actually happens, so go ahead and call the tool for those too. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
+
 function buildSystemPrompt() {
   const memory = localStorage.getItem('aureon_memory') || '';
+  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  let prompt = agentOn ? `${BASE_PERSONALITY}\n\n${AGENT_CAPABILITIES}` : BASE_PERSONALITY;
   if (memory.trim()) {
-    return `${BASE_PERSONALITY}\n\nThings to remember about this user (stated by them):\n${memory.trim()}`;
+    prompt += `\n\nThings to remember about this user (stated by them):\n${memory.trim()}`;
   }
-  return BASE_PERSONALITY;
+  return prompt;
 }
 
 // ---------- Recent chats (local only, MVP) ----------
@@ -314,7 +475,9 @@ function renderRecent() {
       state.currentMessages = chat.messages;
       state.activeChatId = chat.id;
       $('messages').innerHTML = '';
-      chat.messages.forEach(m => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
+      chat.messages
+        .filter(m => m.content) // skip internal agent turns (functionCall/functionResponse have no content)
+        .forEach(m => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
       $('chat-title-text').textContent = chat.title;
       showScreen('screen-chat');
     };
@@ -327,6 +490,15 @@ $('btn-save-settings').onclick = () => {
   localStorage.setItem('aureon_memory', $('memory-input').value);
   closeSheet('sheet-settings');
 };
+
+$('btn-enable-voice-keyboard')?.addEventListener('click', async () => {
+  const AureonActions = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+  if (!AureonActions) {
+    alert('This only works in the installed app, not in a browser preview.');
+    return;
+  }
+  await AureonActions.openKeyboardSettings();
+});
 
 $('btn-logout').onclick = () => {
   auth.signOut();

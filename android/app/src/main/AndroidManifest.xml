@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required since Android 11 (API 30): without this, the system hides
+         almost every other app from PackageManager queries by default
+         ("package visibility"). This lets Aureon see any app with a
+         launcher icon, so open_app can find and open it by name. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -47,6 +59,23 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true"
         />
+
+        <!-- Voice-only keyboard (IME): user picks "Aureon Voice Typing" from
+             any app's keyboard switcher and taps the mic to dictate into
+             whatever field is focused there. Only runs when the user
+             explicitly switches to it and taps — it cannot read the screen
+             or act on its own. -->
+        <service
+            android:name=".AureonVoiceKeyboardService"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/aureon_ime_method" />
+        </service>
     </application>
 
     <!-- Permissions -->
@@ -55,4 +84,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.BIND_VOICE_INTERACTION" />
+
+    <!-- Phase 6 — Agent: only requested at runtime, right before the app
+         actually tries to place a call or send a text, and only after the
+         user has confirmed the action in-chat. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
 </manifest>

@@ -41,6 +41,119 @@ function requireDb(res) {
   return true;
 }
 
+// ==================== Phase 6: Agent tools (function calling) ====================
+// Each tool maps to a native action the Android app performs on-device
+// (see android AureonActionsPlugin.java). The backend never executes these
+// itself — it only tells Gemini which tools exist and relays the model's
+// chosen tool call back to the app, which runs it and reports the result
+// back in a follow-up request.
+const AGENT_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: 'get_battery',
+        description: "Get the phone's current battery percentage and whether it is charging.",
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'open_app',
+        description: 'Open an app already installed on the phone.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { app_name: { type: 'STRING', description: 'Name of the app, e.g. YouTube, WhatsApp, Camera, Chrome' } },
+          required: ['app_name']
+        }
+      },
+      {
+        name: 'make_call',
+        description: 'Place a phone call to a number. Sensitive — the app will always ask the user to confirm before dialing.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { number: { type: 'STRING', description: 'Phone number to call' } },
+          required: ['number']
+        }
+      },
+      {
+        name: 'send_sms',
+        description: 'Send a text message (SMS) to a number. Sensitive — the app will always ask the user to confirm before sending.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            number: { type: 'STRING' },
+            message: { type: 'STRING' }
+          },
+          required: ['number', 'message']
+        }
+      },
+      {
+        name: 'set_alarm',
+        description: "Set an alarm on the phone's clock app.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            hour: { type: 'NUMBER', description: '0-23, 24-hour format' },
+            minute: { type: 'NUMBER', description: '0-59' },
+            label: { type: 'STRING' }
+          },
+          required: ['hour', 'minute']
+        }
+      },
+      {
+        name: 'search_web',
+        description: 'Search Google for a query in the browser.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { query: { type: 'STRING' } },
+          required: ['query']
+        }
+      },
+      {
+        name: 'open_url',
+        description: 'Open a specific URL/website in the browser.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { url: { type: 'STRING' } },
+          required: ['url']
+        }
+      },
+      {
+        name: 'play_music',
+        description: 'Search for and play a song or music.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { query: { type: 'STRING' } },
+          required: ['query']
+        }
+      },
+      {
+        name: 'compose_email',
+        description: 'Open the phone\'s email app with a new message pre-filled (recipient, subject, body). Does not send it automatically — the user still taps send themselves.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            to: { type: 'STRING', description: 'Recipient email address, optional' },
+            subject: { type: 'STRING' },
+            body: { type: 'STRING' }
+          },
+          required: ['subject', 'body']
+        }
+      },
+      {
+        name: 'send_whatsapp_message',
+        description: 'Open WhatsApp on a chat with the given phone number, with a message pre-filled. Does not send it automatically — the user still taps the Send button themselves.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            number: { type: 'STRING', description: 'Phone number with country code, e.g. 91XXXXXXXXXX' },
+            message: { type: 'STRING' }
+          },
+          required: ['number', 'message']
+        }
+      }
+    ]
+  }
+];
+
 async function callOpenAI(messages, systemPrompt) {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
   const chatMessages = systemPrompt
@@ -134,9 +247,17 @@ async function resolveModelList(forceRefresh = false) {
   return cachedGeminiModel;
 }
 
-async function callGeminiWithModel(modelName, messages, systemPrompt) {
+async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) {
   const payload = {
     contents: messages.map(m => {
+      // A turn where Aureon (the model) previously requested a tool call.
+      if (m.functionCall) {
+        return { role: 'model', parts: [{ functionCall: m.functionCall }] };
+      }
+      // A turn carrying the result of a tool call the app just ran.
+      if (m.functionResponse) {
+        return { role: 'user', parts: [{ functionResponse: m.functionResponse }] };
+      }
       const parts = [{ text: m.content || '' }];
       if (m.image && m.image.data && m.image.mimeType) {
         parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
@@ -146,6 +267,9 @@ async function callGeminiWithModel(modelName, messages, systemPrompt) {
   };
   if (systemPrompt) {
     payload.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+  if (useTools) {
+    payload.tools = AGENT_TOOLS;
   }
 
   const res = await fetch(
@@ -162,10 +286,26 @@ async function callGeminiWithModel(modelName, messages, systemPrompt) {
     err.status = res.status;
     throw err;
   }
-  return data.candidates[0].content.parts[0].text;
+  const candidate = data.candidates && data.candidates[0];
+  const parts = (candidate && candidate.content && candidate.content.parts) || [];
+  const callPart = parts.find(p => p.functionCall);
+  if (callPart) {
+    return { functionCall: callPart.functionCall };
+  }
+  const text = parts.map(p => p.text || '').join('').trim();
+  if (text) return text;
+
+  // Gemini sometimes comes back with no usable content at all (safety
+  // filtering, an empty candidate, etc). Surface something the person can
+  // actually read instead of silently returning '' up the chain.
+  const finishReason = candidate && candidate.finishReason;
+  if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
+    return "Sorry, I can't answer that one — it got blocked by a safety filter. Try rephrasing?";
+  }
+  return "Sorry, I didn't get a proper response that time — try asking again.";
 }
 
-async function callGemini(messages, systemPrompt) {
+async function callGemini(messages, systemPrompt, useTools) {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
 
   let ranked = await resolveModelList();
@@ -178,7 +318,7 @@ async function callGemini(messages, systemPrompt) {
     triedThisCall.add(model);
 
     try {
-      return await callGeminiWithModel(model, messages, systemPrompt);
+      return await callGeminiWithModel(model, messages, systemPrompt, useTools);
     } catch (err) {
       lastErr = err;
       const msg = err.message || '';
@@ -383,7 +523,7 @@ app.post('/api/generate-pdf', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, model = 'gemini', systemPrompt, uid, useKnowledge } = req.body;
+    const { messages, model = 'gemini', systemPrompt, uid, useKnowledge, tools } = req.body;
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages array is required' });
     }
@@ -391,7 +531,7 @@ app.post('/api/chat', async (req, res) => {
     let finalSystemPrompt = systemPrompt || '';
     if (useKnowledge && uid && db) {
       try {
-        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user' && m.content);
         const context = lastUserMsg ? await retrieveRelevantContext(uid, lastUserMsg.content) : '';
         if (context) {
           finalSystemPrompt += `\n\nThe user has uploaded documents. Here are the most relevant excerpts for their question — use them to answer if relevant, and mention which document info came from:\n\n${context}`;
@@ -402,7 +542,14 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const provider = PROVIDERS[model] || PROVIDERS.openai;
-    const reply = await provider(messages, finalSystemPrompt);
+    const reply = await provider(messages, finalSystemPrompt, !!tools);
+
+    // Gemini may respond with a tool call instead of text — hand it back to
+    // the app as-is so it can run the matching native action and report the
+    // result in a follow-up request.
+    if (reply && typeof reply === 'object' && reply.functionCall) {
+      return res.json({ functionCall: reply.functionCall });
+    }
     res.json({ reply });
   } catch (err) {
     console.error(err);
