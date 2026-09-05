@@ -49,6 +49,13 @@ public class MainActivity extends BridgeActivity {
             needed.add(Manifest.permission.READ_CONTACTS);
         }
 
+        // Needed for "read recent message" / "recent message padho" to read
+        // the latest text message without opening any app.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.READ_SMS);
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {

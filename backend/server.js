@@ -162,6 +162,29 @@ const AGENT_TOOLS = [
           },
           required: ['contact_name', 'message']
         }
+      },
+      {
+        name: 'read_instagram_message',
+        description: 'Open a contact\'s Instagram DM chat and read back whatever message text is visible there. Not sensitive (nothing is sent or changed) — runs immediately without asking the user to confirm. Requires the user to have enabled Aureon\'s Accessibility Service. The returned text may include a few recent messages and UI labels, not just a single isolated message — summarize the relevant part for the user.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            contact_name: { type: 'STRING', description: 'Instagram username or display name whose chat to open, e.g. "Preeti"' }
+          },
+          required: ['contact_name']
+        }
+      },
+      {
+        name: 'send_whatsapp_live_location',
+        description: 'EXPERIMENTAL. Shares real-time live location with a contact via WhatsApp, fully automated including the final Send tap. Sensitive — the app will always ask the user to confirm before it actually sends, because unlike a normal message this completes the send with no further human tap. Requires the user to have enabled Aureon\'s Accessibility Service. May fail partway through on some WhatsApp versions/languages — if it does, tell the user which step failed based on the error.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            contact_name: { type: 'STRING', description: 'WhatsApp contact name to share live location with, e.g. "Pavan"' },
+            duration: { type: 'STRING', description: 'How long to share for — one of "15 minutes", "1 hour", "8 hours". Defaults to "15 minutes" if not specified.' }
+          },
+          required: ['contact_name']
+        }
       }
     ]
   }

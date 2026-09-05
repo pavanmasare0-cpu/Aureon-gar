@@ -9,6 +9,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.ContactsContract;
 import android.provider.Settings;
+import android.provider.Telephony;
 
 import androidx.core.content.ContextCompat;
 
@@ -110,6 +111,48 @@ public final class OfflineVoiceCommandEngine {
         String lower = text.toLowerCase(Locale.ROOT);
         if (lower.isEmpty()) return false;
         try {
+            // ---- Recent SMS (fully offline — no accessibility, no AI) ----
+            if (equalsAny(lower, "recent message", "read message", "read sms", "recent sms",
+                    "check message", "check messages", "read messages",
+                    "मैसेज पढ़ो", "रीसेंट मैसेज", "हाल का मैसेज पढ़ो",
+                    "मेसेज वाचा", "अलीकडील मेसेज", "अलीकडचा मेसेज वाचा")) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    result.onHandled("Enable Aureon's SMS permission in phone Settings to read recent messages.");
+                    return true;
+                }
+                result.onHandled(readMostRecentSms(context));
+                return true;
+            }
+
+            // ---- Check email (opens the phone's mail app and reads what's
+            // visible — needs Accessibility; not full email body parsing) ----
+            if (equalsAny(lower, "read email", "check email", "check emails", "read emails",
+                    "email padho", "ईमेल पढ़ो", "ईमेल चेक करो", "इमेल वाचा", "इमेल तपासा")) {
+                if (!AureonAccessibilityService.isEnabled()) {
+                    result.onHandled("Enable Aureon's Accessibility permission to read email.");
+                    return true;
+                }
+                String mailApp = null;
+                for (String candidate : new String[]{"gmail", "outlook", "mail"}) {
+                    if (isAppInstalled(context, candidate)) { mailApp = candidate; break; }
+                }
+                if (mailApp == null) {
+                    result.onHandled("Couldn't find a mail app (Gmail/Outlook/Mail) on this phone.");
+                    return true;
+                }
+                openAnyApp(context, mailApp, msg -> { });
+                // Brief wait for the inbox to render before reading. This
+                // blocks the calling thread briefly — same tradeoff already
+                // accepted elsewhere in this file for multi-step actions.
+                try { Thread.sleep(1200); } catch (InterruptedException ignored) { }
+                String screen = AureonAccessibilityService.readScreen();
+                result.onHandled(screen.isEmpty()
+                        ? "Opened your mail app but couldn't read anything on screen."
+                        : screen);
+                return true;
+            }
+
             if (equalsAny(lower, "read screen", "read the screen", "what is on screen", "screen read",
                     "स्क्रीन पढ़ो", "स्क्रीन वाचा")) {
                 if (!AureonAccessibilityService.isEnabled()) { result.onHandled("Enable Aureon's Accessibility permission to read the screen."); return true; }
@@ -312,6 +355,61 @@ public final class OfflineVoiceCommandEngine {
             result.onHandled("Couldn't open messaging for " + name + ".");
         }
         return true;
+    }
+
+    /** Best-effort caller-name lookup so SMS read-back can say a name instead of a raw number. */
+    private static String nameForPhoneNumber(Context context, String phoneNumber) {
+        Cursor cursor = null;
+        try {
+            Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phoneNumber));
+            cursor = context.getContentResolver().query(uri,
+                    new String[]{ ContactsContract.PhoneLookup.DISPLAY_NAME }, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME);
+                if (idx >= 0) return cursor.getString(idx);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return null;
+    }
+
+    private static String readMostRecentSms(Context context) {
+        Cursor cursor = null;
+        try {
+            cursor = context.getContentResolver().query(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    new String[]{ Telephony.Sms.Inbox.ADDRESS, Telephony.Sms.Inbox.BODY },
+                    null, null,
+                    Telephony.Sms.Inbox.DATE + " DESC LIMIT 1");
+            if (cursor == null || !cursor.moveToFirst()) {
+                return "No recent text messages found.";
+            }
+            int addrIdx = cursor.getColumnIndex(Telephony.Sms.Inbox.ADDRESS);
+            int bodyIdx = cursor.getColumnIndex(Telephony.Sms.Inbox.BODY);
+            String address = addrIdx >= 0 ? cursor.getString(addrIdx) : null;
+            String body = bodyIdx >= 0 ? cursor.getString(bodyIdx) : null;
+            if (body == null) body = "";
+            String from = address;
+            String contactName = address != null ? nameForPhoneNumber(context, address) : null;
+            if (contactName != null) from = contactName;
+            return "From " + (from != null ? from : "unknown") + ": " + body;
+        } catch (Exception e) {
+            return "Couldn't read text messages on this phone.";
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
+    private static boolean isAppInstalled(Context context, String needleLower) {
+        PackageManager pm = context.getPackageManager();
+        Intent query = new Intent(Intent.ACTION_MAIN);
+        query.addCategory(Intent.CATEGORY_LAUNCHER);
+        for (ResolveInfo info : pm.queryIntentActivities(query, 0)) {
+            if (info.loadLabel(pm).toString().toLowerCase(Locale.ROOT).contains(needleLower)) return true;
+        }
+        return false;
     }
 
     private static String findContactNumber(Context context, String name) {

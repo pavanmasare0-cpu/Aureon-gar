@@ -465,6 +465,197 @@ public class AureonActionsPlugin extends Plugin {
         call.resolve(status);
     }
 
+    // ---------------------------------------------------------------
+    // Instagram DM reading via Accessibility automation.
+    //
+    // Mirrors sendInstagramMessage()'s navigation (open Instagram, find the
+    // contact, open their chat) but stops before typing anything — it just
+    // captures whatever text is visible once the chat is open. This is NOT
+    // sensitive (nothing is sent or changed), so unlike sending, this runs
+    // immediately without a confirm dialog.
+    //
+    // Caveat: readScreen() returns ALL visible text in the chat (recent
+    // messages, timestamps, UI labels), not just the single latest message
+    // — Instagram's accessibility tree doesn't cleanly separate "their last
+    // message" from the rest of the conversation view. The AI is expected
+    // to pick out the relevant part when it reads this back to the user.
+    // ---------------------------------------------------------------
+    @PluginMethod
+    public void readInstagramMessage(PluginCall call) {
+        String contactName = call.getString("contact_name");
+        if (contactName == null || contactName.trim().isEmpty()) {
+            call.reject("contact_name is required");
+            return;
+        }
+
+        if (!AureonAccessibilityService.isEnabled()) {
+            call.reject("Aureon's Accessibility Service isn't turned on yet. Enable it in Settings \u2192 Accessibility \u2192 Aureon, then try again.");
+            return;
+        }
+
+        JSObject openResult;
+        try {
+            openResult = openAppByName("Instagram");
+        } catch (ActionException e) {
+            call.reject(e.getMessage());
+            return;
+        }
+
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(() -> runInstagramReadSteps(call, contactName.trim()), APP_LAUNCH_WAIT_MS);
+    }
+
+    private void runInstagramReadSteps(PluginCall call, String contactName) {
+        JSObject status = new JSObject();
+        status.put("contact", contactName);
+
+        boolean openedDm = AureonAccessibilityService.clickTextWithRetry("Direct", SCREEN_STEP_TIMEOUT_MS)
+                || AureonAccessibilityService.clickTextWithRetry("Messages", SCREEN_STEP_TIMEOUT_MS);
+        if (!openedDm) {
+            status.put("step_failed", "open_dm_list");
+            call.reject("Opened Instagram but couldn't find the Direct/Messages button. You'll need to check the chat manually this time.");
+            return;
+        }
+
+        boolean searchOpened = AureonAccessibilityService.clickTextWithRetry("Search", SCREEN_STEP_TIMEOUT_MS);
+        boolean typed = searchOpened && AureonAccessibilityService.typeText(contactName);
+        if (!typed) {
+            status.put("step_failed", "search_contact");
+            call.reject("Couldn't search for \"" + contactName + "\" — you'll need to find the chat manually this time.");
+            return;
+        }
+
+        boolean opened = AureonAccessibilityService.clickTextWithRetry(contactName, SCREEN_STEP_TIMEOUT_MS);
+        if (!opened) {
+            status.put("step_failed", "open_chat");
+            call.reject("Found search results but couldn't open \"" + contactName + "\"'s chat automatically.");
+            return;
+        }
+
+        // Give the chat a moment to render its message bubbles before reading.
+        Handler readHandler = new Handler(Looper.getMainLooper());
+        readHandler.postDelayed(() -> {
+            String screenText = AureonAccessibilityService.readScreen();
+            if (screenText == null || screenText.trim().isEmpty()) {
+                status.put("step_failed", "read_messages");
+                call.reject("Opened \"" + contactName + "\"'s chat but couldn't read any message text on screen.");
+                return;
+            }
+            status.put("message", screenText);
+            call.resolve(status);
+        }, 700);
+    }
+
+    // ---------------------------------------------------------------
+    // WhatsApp Live Location sharing — EXPERIMENTAL.
+    //
+    // Unlike sendWhatsappMessage() (which just pre-fills a deep-link
+    // compose screen and stops there, waiting for a human tap on Send),
+    // this drives WhatsApp's own "Share live location" UI all the way
+    // through, including the final Send tap. That's why it's marked
+    // sensitive in server.js and always asks for confirmation first.
+    //
+    // This depends on exact WhatsApp button labels/content-descriptions
+    // ("Attach", "Location", "Share live location", a duration option,
+    // "Send") which vary across WhatsApp versions and phone languages —
+    // treat this as a first attempt that will likely need at least one
+    // round of live-device debugging. Each step reports exactly where it
+    // failed to make that easier.
+    // ---------------------------------------------------------------
+    @PluginMethod
+    public void sendWhatsappLiveLocation(PluginCall call) {
+        String contactName = call.getString("contact_name");
+        String duration = call.getString("duration");
+        if (duration == null || duration.trim().isEmpty()) duration = "15 minutes";
+        if (contactName == null || contactName.trim().isEmpty()) {
+            call.reject("contact_name is required");
+            return;
+        }
+
+        if (!AureonAccessibilityService.isEnabled()) {
+            call.reject("Aureon's Accessibility Service isn't turned on yet. Enable it in Settings \u2192 Accessibility \u2192 Aureon, then try again.");
+            return;
+        }
+
+        try {
+            openAppByName("WhatsApp");
+        } catch (ActionException e) {
+            call.reject(e.getMessage());
+            return;
+        }
+
+        final String finalDuration = duration.trim();
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(() -> runWhatsappLiveLocationSteps(call, contactName.trim(), finalDuration), APP_LAUNCH_WAIT_MS);
+    }
+
+    private void runWhatsappLiveLocationSteps(PluginCall call, String contactName, String duration) {
+        JSObject status = new JSObject();
+        status.put("contact", contactName);
+        status.put("duration", duration);
+
+        boolean newChatOpened = AureonAccessibilityService.clickTextWithRetry("New chat", SCREEN_STEP_TIMEOUT_MS)
+                || AureonAccessibilityService.clickTextWithRetry("New Chat", SCREEN_STEP_TIMEOUT_MS);
+        if (!newChatOpened) {
+            status.put("step_failed", "new_chat");
+            call.reject("Opened WhatsApp but couldn't find the \"New chat\" button.");
+            return;
+        }
+
+        boolean typed = AureonAccessibilityService.typeText(contactName);
+        if (!typed) {
+            status.put("step_failed", "type_contact_search");
+            call.reject("Couldn't type \"" + contactName + "\" into WhatsApp's search.");
+            return;
+        }
+
+        boolean contactOpened = AureonAccessibilityService.clickTextWithRetry(contactName, SCREEN_STEP_TIMEOUT_MS);
+        if (!contactOpened) {
+            status.put("step_failed", "open_contact_chat");
+            call.reject("Searched for \"" + contactName + "\" but couldn't open their chat.");
+            return;
+        }
+
+        boolean attachOpened = AureonAccessibilityService.clickTextWithRetry("Attach", SCREEN_STEP_TIMEOUT_MS);
+        if (!attachOpened) {
+            status.put("step_failed", "open_attach_menu");
+            call.reject("Opened the chat but couldn't find the attach (\u2795) button.");
+            return;
+        }
+
+        boolean locationOpened = AureonAccessibilityService.clickTextWithRetry("Location", SCREEN_STEP_TIMEOUT_MS);
+        if (!locationOpened) {
+            status.put("step_failed", "open_location_menu");
+            call.reject("Opened the attach menu but couldn't find \"Location\".");
+            return;
+        }
+
+        boolean liveLocationOpened = AureonAccessibilityService.clickTextWithRetry("Share live location", SCREEN_STEP_TIMEOUT_MS)
+                || AureonAccessibilityService.clickTextWithRetry("Share Live Location", SCREEN_STEP_TIMEOUT_MS);
+        if (!liveLocationOpened) {
+            status.put("step_failed", "open_live_location_option");
+            call.reject("Opened Location sharing but couldn't find \"Share live location\".");
+            return;
+        }
+
+        boolean durationSelected = AureonAccessibilityService.clickTextWithRetry(duration, SCREEN_STEP_TIMEOUT_MS);
+        if (!durationSelected) {
+            status.put("step_failed", "select_duration");
+            call.reject("Opened live location sharing but couldn't select the \"" + duration + "\" option.");
+            return;
+        }
+
+        boolean sent = AureonAccessibilityService.clickTextWithRetry("Send", SCREEN_STEP_TIMEOUT_MS);
+        if (!sent) {
+            status.put("step_failed", "tap_send");
+            call.reject("Set up live location sharing but couldn't tap the final Send button — check WhatsApp, it may be waiting there.");
+            return;
+        }
+
+        status.put("sent", true);
+        call.resolve(status);
+    }
+
     /** Shared by openApp() and sendInstagramMessage() — launches an app by its display name. */
     private JSObject openAppByName(String appName) throws ActionException {
         PackageManager pm = getContext().getPackageManager();
