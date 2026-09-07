@@ -49,11 +49,22 @@ public class MainActivity extends BridgeActivity {
             needed.add(Manifest.permission.READ_CONTACTS);
         }
 
-        // Needed for "read recent message" / "recent message padho" to read
-        // the latest text message without opening any app.
+        // "recent message padho" — reads the latest text message without
+        // opening any app.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
                 != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.READ_SMS);
+        }
+
+        // "send location to Pavan" — needed to read the phone's last known
+        // GPS/network fix so it can be shared as a Maps link.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_COARSE_LOCATION);
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

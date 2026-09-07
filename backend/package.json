@@ -14,6 +14,7 @@
     "firebase-admin": "^12.1.0",
     "pdf-parse": "^1.1.1",
     "mammoth": "^1.7.2",
-    "pdfkit": "^0.15.0"
+    "pdfkit": "^0.15.0",
+    "adm-zip": "^0.5.10"
   }
 }

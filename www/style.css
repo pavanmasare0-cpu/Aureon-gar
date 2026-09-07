@@ -716,6 +716,25 @@ html, body {
 
 #image-preview-bar.hidden { display: none; }
 
+/* Fix: the attach-preview thumbnail had no size constraint at all, so a
+   photo straight from the camera (e.g. 4000x3000px) rendered at full
+   native resolution and took over the whole composer area. */
+.attach-card {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.image-preview-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.image-preview-thumb.hidden { display: none; }
+
 .icon-btn.listening {
   animation: aureonMicPulse 1s ease-in-out infinite;
   color: var(--gold, #b8912f);

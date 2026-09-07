@@ -8,10 +8,11 @@ const admin = require('firebase-admin');
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const PDFDocument = require('pdfkit');
+const AdmZip = require('adm-zip');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '100mb' }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -118,7 +119,16 @@ const AGENT_TOOLS = [
       },
       {
         name: 'play_music',
-        description: 'Search for and play a song or music.',
+        description: 'Search for and play a song or music via any installed music app, falling back to YouTube if none is set up.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { query: { type: 'STRING' } },
+          required: ['query']
+        }
+      },
+      {
+        name: 'play_youtube',
+        description: 'Play a specific video/song directly on the YouTube app (not a generic music app).',
         parameters: {
           type: 'OBJECT',
           properties: { query: { type: 'STRING' } },
@@ -425,6 +435,38 @@ async function extractText(mimeType, buffer) {
   if (mimeType.startsWith('text/')) {
     return buffer.toString('utf-8');
   }
+  if (mimeType === 'application/zip' || mimeType === 'application/x-zip-compressed') {
+    // Extract whatever readable text we can from files inside the zip —
+    // .txt/.pdf/.docx entries get run back through extractText itself;
+    // everything else (images, binaries, node_modules, etc) is skipped
+    // rather than failing the whole upload.
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries().filter(e => !e.isDirectory);
+    const pieces = [];
+    for (const entry of entries) {
+      const name = entry.entryName.toLowerCase();
+      let innerMime = null;
+      if (name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.json') || name.endsWith('.js') || name.endsWith('.css') || name.endsWith('.html')) {
+        innerMime = 'text/plain';
+      } else if (name.endsWith('.pdf')) {
+        innerMime = 'application/pdf';
+      } else if (name.endsWith('.docx')) {
+        innerMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      } else {
+        continue; // unsupported entry type inside the zip — skip, don't fail
+      }
+      try {
+        const innerText = await extractText(innerMime, entry.getData());
+        if (innerText && innerText.trim()) {
+          pieces.push(`--- ${entry.entryName} ---\n${innerText.trim()}`);
+        }
+      } catch (innerErr) {
+        // one bad file inside the zip shouldn't sink the whole upload
+        console.warn(`Skipping unreadable zip entry ${entry.entryName}:`, innerErr.message);
+      }
+    }
+    return pieces.join('\n\n');
+  }
   throw new Error(`Unsupported file type for text extraction: ${mimeType}`);
 }
 
@@ -462,14 +504,26 @@ app.post('/api/knowledge/upload', async (req, res) => {
       embeddedChunks.push({ text: chunk, embedding });
     }
 
+    // Chunks are stored in a subcollection, one document per chunk, instead
+    // of one big array field on the parent document. Firestore caps a
+    // single document at ~1MiB — a large file (the 100mb upload limit
+    // above exists for) easily produces enough chunks+embeddings to blow
+    // past that if they were all crammed into one doc. Batched at 400
+    // writes per batch (Firestore's hard cap is 500 per batch).
     const docRef = db.collection('users').doc(uid).collection('knowledge').doc();
     await docRef.set({
       filename,
       mimeType,
       chunkCount: embeddedChunks.length,
-      chunks: embeddedChunks,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
+    for (let i = 0; i < embeddedChunks.length; i += 400) {
+      const batch = db.batch();
+      embeddedChunks.slice(i, i + 400).forEach((chunk, offset) => {
+        batch.set(docRef.collection('chunks').doc(String(i + offset)), chunk);
+      });
+      await batch.commit();
+    }
 
     res.json({ id: docRef.id, filename, chunkCount: embeddedChunks.length });
   } catch (err) {
@@ -502,7 +556,18 @@ app.delete('/api/knowledge/:docId', async (req, res) => {
     const { uid } = req.query;
     const { docId } = req.params;
     if (!uid) return res.status(400).json({ error: 'uid is required' });
-    await db.collection('users').doc(uid).collection('knowledge').doc(docId).delete();
+    const docRef = db.collection('users').doc(uid).collection('knowledge').doc(docId);
+    // Firestore does NOT auto-delete subcollections when the parent
+    // document is deleted — the chunks subcollection has to be cleared
+    // explicitly, or every chunk from every "deleted" file keeps sitting
+    // there forever, still counted, still costing storage.
+    const chunksSnap = await docRef.collection('chunks').get();
+    for (let i = 0; i < chunksSnap.docs.length; i += 400) {
+      const batch = db.batch();
+      chunksSnap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    await docRef.delete();
     res.json({ ok: true });
   } catch (err) {
     console.error('Knowledge delete failed:', err);
@@ -513,14 +578,18 @@ app.delete('/api/knowledge/:docId', async (req, res) => {
 // Retrieve the most relevant chunks across all of a user's uploaded documents
 async function retrieveRelevantContext(uid, query, topK = 5) {
   if (!db) return '';
-  const snap = await db.collection('users').doc(uid).collection('knowledge').get();
-  if (snap.empty) return '';
+  const knowledgeSnap = await db.collection('users').doc(uid).collection('knowledge').get();
+  if (knowledgeSnap.empty) return '';
 
   const allChunks = [];
-  snap.forEach(doc => {
-    const data = doc.data();
-    (data.chunks || []).forEach(c => allChunks.push({ filename: data.filename, text: c.text, embedding: c.embedding }));
-  });
+  for (const doc of knowledgeSnap.docs) {
+    const filename = doc.data().filename;
+    const chunksSnap = await doc.ref.collection('chunks').get();
+    chunksSnap.forEach(c => {
+      const data = c.data();
+      allChunks.push({ filename, text: data.text, embedding: data.embedding });
+    });
+  }
   if (allChunks.length === 0) return '';
 
   const queryEmbedding = await embedText(query);

@@ -257,6 +257,47 @@ public class AureonActionsPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void playYoutube(PluginCall call) {
+        String query = call.getString("query");
+        if (query == null || query.trim().isEmpty()) {
+            call.reject("query is required");
+            return;
+        }
+        JSObject ret = doPlayYoutube(getContext(), query.trim());
+        call.resolve(ret);
+    }
+
+    /** Shared by playYoutube() plugin method and reused by offline commands. */
+    static JSObject doPlayYoutube(Context ctx, String query) {
+        try {
+            // Targets the YouTube app's own in-app search directly, so
+            // "youtube pe X bajao" plays on YouTube specifically instead of
+            // whatever app answers the generic media-search intent.
+            Intent intent = new Intent(Intent.ACTION_SEARCH);
+            intent.setPackage("com.google.android.youtube");
+            intent.putExtra("query", query);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (intent.resolveActivity(ctx.getPackageManager()) != null) {
+                ctx.startActivity(intent);
+                JSObject ret = new JSObject();
+                ret.put("playing", query);
+                ret.put("via", "youtube_app");
+                return ret;
+            }
+        } catch (Exception ignored) {
+            // fall through to the browser fallback below
+        }
+        Intent fallback = new Intent(Intent.ACTION_VIEW);
+        fallback.setData(Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)));
+        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(fallback);
+        JSObject ret = new JSObject();
+        ret.put("playing", query);
+        ret.put("via", "youtube_web");
+        return ret;
+    }
+
+    @PluginMethod
     public void playMusic(PluginCall call) {
         String query = call.getString("query");
         if (query == null || query.trim().isEmpty()) {

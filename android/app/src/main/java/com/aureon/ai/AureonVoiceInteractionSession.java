@@ -44,16 +44,22 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     private static final String AGENT_SYSTEM_PROMPT =
             "You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. " +
             "Keep responses warm, natural, and conversational, never stiff or robotic. Match the user's language " +
-            "style — if they speak in Hinglish or Hindi, respond that way naturally. Keep it concise unless asked " +
-            "for detail.\n\n" +
+            "style — if they speak in Hinglish or Hindi, respond that way naturally, including casual filler " +
+            "words like \"are\", \"yaar\", \"bhai\" — treat those as normal conversation, not part of the command " +
+            "itself. Keep it concise unless asked for detail.\n\n" +
             "You can also directly control the user's phone using tools: check battery, open an app, set an " +
-            "alarm, search the web, open a URL, play music, compose an email draft, or open a pre-filled " +
-            "WhatsApp message. When the user asks you to do one of these things, call the matching tool instead " +
-            "of just explaining how. You also have make_call and send_sms tools, but over voice you must NOT " +
-            "call them yourself — if the user asks to call or text someone, tell them to ask you the same thing " +
-            "from the chat screen instead, since that's where you can confirm it visually. Never write out a " +
-            "fake tool call as plain text — only use the real function-calling mechanism, or just say so in " +
-            "plain words if you can't.";
+            "alarm, search the web, open a URL, play music, play a specific video on YouTube directly, compose " +
+            "an email draft, open a pre-filled WhatsApp message, send an Instagram DM to a contact by name, " +
+            "read back the latest visible message in an Instagram chat, or share live location with a contact " +
+            "via WhatsApp. When the user asks you to do one of these things — in any language, e.g. \"Instagram " +
+            "mein Preeti ko text bhejo\", \"Pavan ko WhatsApp pe live location bhejo\" — call the matching tool " +
+            "instead of just explaining how. send_instagram_message and send_whatsapp_live_location will always " +
+            "ask the user a spoken yes/no before actually happening, so go ahead and call them directly — you " +
+            "don't need to ask for confirmation yourself, the app handles that. You also have make_call and " +
+            "send_sms tools, but over voice you must NOT call them yourself — if the user asks to call or text " +
+            "someone via SMS, tell them to ask you the same thing from the chat screen instead, since that's " +
+            "where you can confirm it visually. Never write out a fake tool call as plain text — only use the " +
+            "real function-calling mechanism, or just say so in plain words if you can't.";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -63,6 +69,16 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     private String pendingSpeech = null;
     private TextView statusText;
     private TextView responseText;
+
+    // Voice confirmation state for sensitive actions (Instagram DM,
+    // WhatsApp live location) — set right before asking "yes or no?" so the
+    // *next* thing heard is treated as a confirmation answer, not a new
+    // command.
+    private boolean awaitingConfirmation = false;
+    private JSONObject pendingFunctionCall = null;
+    private JSONArray pendingMessages = null;
+    private int pendingDepth = 0;
+    private int confirmationAttempts = 0;
 
     public AureonVoiceInteractionSession(Context context) {
         super(context);
@@ -99,7 +115,17 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                         // listening again automatically so the user can keep
                         // talking without repeating the wake word.
                         if ("aureon_reply".equals(utteranceId) && sessionActive) {
-                            mainHandler.postDelayed(AureonVoiceInteractionSession.this::startListening, 300);
+                            mainHandler.postDelayed(() -> {
+                                // Hide the floating overlay after the first
+                                // exchange — from here on it's audio-only:
+                                // saying "open WhatsApp" brings WhatsApp
+                                // straight to the front instead of showing
+                                // Aureon's popup in the way. The session
+                                // itself (and listening) keeps running
+                                // hidden until "stop"/"cancel" is heard.
+                                hide();
+                                startListening();
+                            }, 300);
                         }
                     }
 
@@ -125,10 +151,21 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         Log.d(TAG, "TTS speak() result: " + result);
     }
 
+    private int consecutiveListenErrors = 0;
+    private static final int MAX_CONSECUTIVE_ERRORS = 4;
+
     private void startListening() {
         if (!SpeechRecognizer.isRecognitionAvailable(getContext())) {
             setStatus("Speech recognition not available on this device.");
             return;
+        }
+
+        // Destroy any previous recognizer first — creating a new one on top
+        // of a still-alive one is how listening silently stops responding
+        // after a while (leaked recognizer holding the mic).
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
         }
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(getContext());
@@ -155,11 +192,38 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             @Override
             public void onError(int error) {
                 Log.e(TAG, "Speech recognition error code: " + error);
+                if (speechRecognizer != null) {
+                    speechRecognizer.destroy();
+                    speechRecognizer = null;
+                }
+
+                // Permission/client setup errors won't fix themselves by
+                // retrying — retrying those in a loop just burns battery.
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    setStatus("Aureon needs microphone permission — check Settings.");
+                    return;
+                }
+
+                consecutiveListenErrors++;
+                if (consecutiveListenErrors >= MAX_CONSECUTIVE_ERRORS) {
+                    // Stop auto-retrying after repeated failures in a row
+                    // (e.g. no mic input at all) so it doesn't loop forever
+                    // silently draining battery — but this is NOT a dead
+                    // end: saying "Aureon" again re-invokes this session
+                    // fresh, no app restart needed.
+                    setStatus("Didn't catch that a few times — say \"Aureon\" again to retry.");
+                    return;
+                }
+
                 setStatus("Didn't catch that. Try again.");
+                if (sessionActive) {
+                    mainHandler.postDelayed(AureonVoiceInteractionSession.this::startListening, 500);
+                }
             }
 
             @Override
             public void onResults(Bundle results) {
+                consecutiveListenErrors = 0;
                 ArrayList<String> matches = results.getStringArrayList(
                         SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty()) {
@@ -168,6 +232,9 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                     handleHeardText(heard);
                 } else {
                     setStatus("Didn't catch that. Try again.");
+                    if (sessionActive) {
+                        mainHandler.postDelayed(AureonVoiceInteractionSession.this::startListening, 500);
+                    }
                 }
             }
 
@@ -183,6 +250,12 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,
                 getContext().getPackageName());
+        // en-IN recognizes Hinglish (mixed Hindi/English in one sentence)
+        // far more reliably than the en-US default — Google's en-US model
+        // is tuned for American accents/vocabulary and drops or mangles
+        // Hindi words entirely.
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN");
+        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false);
 
         speechRecognizer.startListening(intent);
     }
@@ -192,6 +265,20 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     // was heard, with zero network involved. Anything else still needs
     // internet, same as before.
     private void handleHeardText(String heard) {
+        String lower = heard == null ? "" : heard.trim().toLowerCase(Locale.ROOT);
+        if (isStopCommand(lower)) {
+            stopEverything();
+            return;
+        }
+
+        // A sensitive action is waiting on a yes/no answer — whatever was
+        // just heard is that answer, not a new command. Handled completely
+        // separately from normal command parsing below.
+        if (awaitingConfirmation) {
+            handleConfirmationAnswer(lower);
+            return;
+        }
+
         try {
             AureonAgentActions.LocalIntent local = AureonAgentActions.matchLocalIntent(heard);
             if (local != null) {
@@ -209,6 +296,143 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             Log.e(TAG, "Local intent match failed", e);
         }
         sendToBackend(heard);
+    }
+
+    // "Stop"/"cancel" (and Hindi/Marathi equivalents) should always work —
+    // even mid-speech or mid-action — as an immediate off-switch, without
+    // needing the cloud backend or an agent loop to interpret it.
+    private String buildConfirmationPrompt(String name, JSONObject args) {
+        if ("send_instagram_message".equals(name)) {
+            return "Confirm — Instagram pe " + args.optString("contact_name", "unknown")
+                    + " ko ye bhejun: " + args.optString("message", "") + "? Haan ya nahi bolo.";
+        }
+        if ("send_whatsapp_live_location".equals(name)) {
+            return "Confirm — " + args.optString("contact_name", "unknown")
+                    + " ko WhatsApp pe " + args.optString("duration", "15 minutes")
+                    + " ke liye live location bhejun? Haan ya nahi bolo.";
+        }
+        return "Confirm this action? Haan ya nahi bolo.";
+    }
+
+    private boolean isAffirmative(String lower) {
+        return lower.equals("haan") || lower.equals("han") || lower.equals("yes")
+                || lower.equals("ok") || lower.equals("okay") || lower.equals("theek hai")
+                || lower.contains("kar do") || lower.contains("bhej do") || lower.contains("send kar")
+                || lower.contains("haan kar") || lower.contains("go ahead") || lower.contains("confirm");
+    }
+
+    private boolean isNegative(String lower) {
+        return lower.equals("nahi") || lower.equals("nahin") || lower.equals("no")
+                || lower.equals("nako") || lower.equals("cancel") || lower.contains("mat kar")
+                || lower.contains("mat bhejo") || lower.contains("rehne do") || lower.contains("don't");
+    }
+
+    // Runs once we've heard the answer to a sensitive-action confirmation
+    // prompt (asked from handleFunctionCall). Unclear answers are treated
+    // as a decline by default after one re-ask — staying silent about an
+    // unclear "maybe" is safer than guessing yes on something irreversible.
+    private void handleConfirmationAnswer(String lower) {
+        boolean yes = isAffirmative(lower);
+        boolean no = isNegative(lower);
+
+        if (!yes && !no) {
+            confirmationAttempts++;
+            if (confirmationAttempts < 2) {
+                mainHandler.post(() -> showReply("Samjha nahi — bhejun ye? Haan ya nahi bolo."));
+                return; // stays in awaitingConfirmation state, asks again
+            }
+            yes = false; // unclear twice in a row — default to NOT sending
+            no = true;
+        }
+
+        awaitingConfirmation = false;
+        JSONObject functionCall = pendingFunctionCall;
+        JSONArray messages = pendingMessages;
+        int depth = pendingDepth;
+        pendingFunctionCall = null;
+        pendingMessages = null;
+
+        if (no) {
+            mainHandler.post(() -> showReply("Theek hai, cancel kar diya."));
+            return;
+        }
+
+        try {
+            String name = functionCall.optString("name", "");
+            JSONObject args = functionCall.optJSONObject("args");
+            if (args == null) args = new JSONObject();
+
+            JSONObject resultPayload;
+            String spokenNote = null;
+            try {
+                JSONObject actionResult = runNonSensitiveAction(name, args);
+                resultPayload = new JSONObject().put("result", actionResult);
+                spokenNote = describeAction(name, args, actionResult);
+            } catch (AureonAgentActions.ActionException ae) {
+                resultPayload = new JSONObject().put("result", new JSONObject().put("error", ae.getMessage()));
+            }
+
+            JSONObject assistantTurn = new JSONObject();
+            assistantTurn.put("role", "assistant");
+            assistantTurn.put("functionCall", functionCall);
+            messages.put(assistantTurn);
+
+            JSONObject functionResponseWrapper = new JSONObject();
+            functionResponseWrapper.put("name", name);
+            functionResponseWrapper.put("response", resultPayload);
+            JSONObject functionTurn = new JSONObject();
+            functionTurn.put("role", "function");
+            functionTurn.put("functionResponse", functionResponseWrapper);
+            messages.put(functionTurn);
+
+            if (spokenNote != null) {
+                final String note = spokenNote;
+                mainHandler.post(() -> {
+                    if (statusText != null) statusText.setText(note);
+                });
+            }
+
+            continueConversation(messages, depth + 1);
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to execute confirmed action", e);
+            mainHandler.post(() -> showReply("Something went wrong running that action."));
+        }
+    }
+
+    private boolean isStopCommand(String lower) {
+        if (lower.isEmpty()) return false;
+        switch (lower) {
+            case "stop":
+            case "cancel":
+            case "रुको":
+            case "रुक जाओ":
+            case "बंद करो":
+            case "थांबा":
+            case "थांब":
+                return true;
+            default:
+                return lower.contains("stop karo") || lower.contains("cancel karo")
+                        || lower.contains("ruk jao") || lower.contains("band karo");
+        }
+    }
+
+    private void stopEverything() {
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+        }
+        if (speechRecognizer != null) {
+            speechRecognizer.cancel();
+        }
+        sessionActive = false;
+        setStatus("Cancelled.");
+        // Actually end the interaction (not just pause it) — matches "chalta
+        // rahega jab tak stop na bolu": stop should be a real, final off
+        // switch, not just a silent pause that could confuse whether Aureon
+        // is still listening in the background or not.
+        mainHandler.post(() -> {
+            showReply("Ok, ruk gaya.");
+            mainHandler.postDelayed(this::finish, 1200);
+        });
     }
 
     private void sendToBackend(String message) {
@@ -300,6 +524,20 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 // Never auto-execute sensitive actions from voice — no
                 // on-screen confirmation is possible here.
                 resultPayload = new JSONObject().put("result", "Voice can't do this directly — ask the user to confirm it in the Aureon chat screen.");
+            } else if ("send_instagram_message".equals(name) || "send_whatsapp_live_location".equals(name)) {
+                // These DO complete a real send/share with no further human
+                // tap involved, so unlike open_app/play_music they need an
+                // explicit spoken yes before anything happens. Park the
+                // call and messages, ask the question, and pick this back
+                // up in handleConfirmationAnswer() once we hear yes/no.
+                pendingFunctionCall = functionCall;
+                pendingMessages = messages;
+                pendingDepth = depth;
+                confirmationAttempts = 0;
+                awaitingConfirmation = true;
+                final JSONObject argsForPrompt = args;
+                mainHandler.post(() -> showReply(buildConfirmationPrompt(name, argsForPrompt)));
+                return;
             } else {
                 try {
                     JSONObject actionResult = runNonSensitiveAction(name, args);
@@ -356,6 +594,14 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 return AureonAgentActions.composeEmail(ctx, args.optString("to", null), args.optString("subject"), args.optString("body"));
             case "send_whatsapp_message":
                 return AureonAgentActions.sendWhatsappMessage(ctx, args.optString("number"), args.optString("message"));
+            case "read_instagram_message":
+                return AureonAgentActions.readInstagramMessage(ctx, args.optString("contact_name"));
+            case "play_youtube":
+                return AureonAgentActions.youtubeSearch(ctx, args.optString("query"));
+            case "send_instagram_message":
+                return AureonAgentActions.sendInstagramMessage(ctx, args.optString("contact_name"), args.optString("message"));
+            case "send_whatsapp_live_location":
+                return AureonAgentActions.sendWhatsappLiveLocation(ctx, args.optString("contact_name"), args.optString("duration", "15 minutes"));
             default:
                 throw new AureonAgentActions.ActionException("Unknown action: " + name);
         }

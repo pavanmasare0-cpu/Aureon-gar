@@ -193,6 +193,185 @@ public class AureonAgentActions {
         return ret;
     }
 
+    public static JSONObject youtubeSearch(Context ctx, String query) throws ActionException, JSONException {
+        if (query == null || query.trim().isEmpty()) throw new ActionException("query is required");
+
+        Intent intent = ctx.getPackageManager().getLaunchIntentForPackage("com.google.android.youtube");
+        if (intent == null) {
+            // YouTube app not installed — fall back to the website, which
+            // works the same everywhere.
+            Intent web = new Intent(Intent.ACTION_VIEW);
+            web.setData(Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)));
+            web.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(web);
+            JSONObject ret = new JSONObject();
+            ret.put("searched", query);
+            ret.put("via", "youtube.com");
+            return ret;
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(intent);
+
+        if (AureonAccessibilityService.isEnabled()) {
+            // Best-effort: tap the app's search icon and type the query.
+            // If any step doesn't line up with the installed YouTube
+            // version, this quietly stops trying and just leaves the app
+            // open — never worse than not automating at all.
+            new Thread(() -> {
+                if (AureonAccessibilityService.clickTextWithRetry("Search", 4000)) {
+                    AureonAccessibilityService.typeText(query);
+                    AureonAccessibilityService.clickTextWithRetry("Search", 2000);
+                }
+            }).start();
+        }
+
+        JSONObject ret = new JSONObject();
+        ret.put("searched", query);
+        ret.put("via", "youtube app");
+        return ret;
+    }
+
+    // ---------------------------------------------------------------
+    // Instagram DM. Unlike the other methods in this file, this one IS
+    // sensitive (it really sends), so it's deliberately NOT included in
+    // matchLocalIntent()/the always-safe offline shortcuts. The system
+    // voice assistant (AureonVoiceInteractionSession) only calls this
+    // after speaking the message back and getting a spoken "yes" — see
+    // askConfirmation() there. Same accessibility steps as the
+    // Capacitor-side twin in AureonActionsPlugin.java.
+    // ---------------------------------------------------------------
+    public static JSONObject sendInstagramMessage(Context ctx, String contactName, String message) throws ActionException, JSONException {
+        if (contactName == null || contactName.trim().isEmpty() || message == null || message.trim().isEmpty()) {
+            throw new ActionException("contact_name and message are required");
+        }
+        if (!AureonAccessibilityService.isEnabled()) {
+            throw new ActionException("Accessibility Service isn't enabled — turn it on in Settings first");
+        }
+
+        JSONObject openResult = openApp(ctx, "Instagram");
+
+        // Give Instagram a moment to load before driving its UI.
+        try { Thread.sleep(1800); } catch (InterruptedException ignored) { }
+
+        boolean openedDm = AureonAccessibilityService.clickTextWithRetry("Direct", 4000)
+                || AureonAccessibilityService.clickTextWithRetry("Messages", 4000);
+        if (!openedDm) throw new ActionException("Opened Instagram but couldn't find the Direct/Messages button");
+
+        boolean searchOpened = AureonAccessibilityService.clickTextWithRetry("Search", 4000);
+        boolean typed = searchOpened && AureonAccessibilityService.typeText(contactName.trim());
+        if (!typed) throw new ActionException("Couldn't search for \"" + contactName + "\"");
+
+        boolean opened = AureonAccessibilityService.clickTextWithRetry(contactName.trim(), 4000);
+        if (!opened) throw new ActionException("Found search results but couldn't open " + contactName + "'s chat");
+
+        boolean messageTyped = AureonAccessibilityService.waitForText("Message", 4000)
+                && AureonAccessibilityService.typeText(message);
+        if (!messageTyped) throw new ActionException("Opened the chat but couldn't type the message");
+
+        boolean sent = AureonAccessibilityService.clickTextWithRetry("Send", 4000);
+        if (!sent) throw new ActionException("Typed the message but couldn't tap Send — it's ready in the chat");
+
+        JSONObject ret = new JSONObject();
+        ret.put("sent", true);
+        ret.put("to", contactName);
+        return ret;
+    }
+
+    // ---------------------------------------------------------------
+    // Instagram DM reading — non-sensitive (reads only, never sends).
+    // ---------------------------------------------------------------
+    public static JSONObject readInstagramMessage(Context ctx, String contactName) throws ActionException, JSONException {
+        if (contactName == null || contactName.trim().isEmpty()) {
+            throw new ActionException("contact_name is required");
+        }
+        if (!AureonAccessibilityService.isEnabled()) {
+            throw new ActionException("Accessibility Service isn't enabled — turn it on in Settings first");
+        }
+
+        openApp(ctx, "Instagram");
+        try { Thread.sleep(1800); } catch (InterruptedException ignored) { }
+
+        boolean openedDm = AureonAccessibilityService.clickTextWithRetry("Direct", 4000)
+                || AureonAccessibilityService.clickTextWithRetry("Messages", 4000);
+        if (!openedDm) throw new ActionException("Opened Instagram but couldn't find the Direct/Messages button");
+
+        boolean searchOpened = AureonAccessibilityService.clickTextWithRetry("Search", 4000);
+        boolean typed = searchOpened && AureonAccessibilityService.typeText(contactName.trim());
+        if (!typed) throw new ActionException("Couldn't search for \"" + contactName + "\"");
+
+        boolean opened = AureonAccessibilityService.clickTextWithRetry(contactName.trim(), 4000);
+        if (!opened) throw new ActionException("Found search results but couldn't open " + contactName + "'s chat");
+
+        try { Thread.sleep(700); } catch (InterruptedException ignored) { }
+        String screenText = AureonAccessibilityService.readScreen();
+        if (screenText == null || screenText.trim().isEmpty()) {
+            throw new ActionException("Opened the chat but couldn't read any message text on screen");
+        }
+
+        JSONObject ret = new JSONObject();
+        ret.put("contact", contactName);
+        ret.put("message", screenText);
+        return ret;
+    }
+
+    // ---------------------------------------------------------------
+    // WhatsApp live location. SENSITIVE — this is the one action here
+    // that completes a real send with no further human tap (unlike
+    // sendWhatsappMessage, which only pre-fills). Only ever called by
+    // AureonVoiceInteractionSession after a spoken "yes" — see
+    // askConfirmation() there.
+    // ---------------------------------------------------------------
+    public static JSONObject sendWhatsappLiveLocation(Context ctx, String contactName, String duration) throws ActionException, JSONException {
+        if (contactName == null || contactName.trim().isEmpty()) {
+            throw new ActionException("contact_name is required");
+        }
+        if (duration == null || duration.trim().isEmpty()) duration = "15 minutes";
+        if (!AureonAccessibilityService.isEnabled()) {
+            throw new ActionException("Accessibility Service isn't enabled — turn it on in Settings first");
+        }
+
+        openApp(ctx, "WhatsApp");
+        try { Thread.sleep(1800); } catch (InterruptedException ignored) { }
+
+        boolean newChatOpened = AureonAccessibilityService.clickTextWithRetry("New chat", 4000)
+                || AureonAccessibilityService.clickTextWithRetry("New Chat", 4000);
+        if (!newChatOpened) throw new ActionException("Opened WhatsApp but couldn't find the \"New chat\" button");
+
+        if (!AureonAccessibilityService.typeText(contactName.trim())) {
+            throw new ActionException("Couldn't type \"" + contactName + "\" into WhatsApp's search");
+        }
+
+        if (!AureonAccessibilityService.clickTextWithRetry(contactName.trim(), 4000)) {
+            throw new ActionException("Searched for \"" + contactName + "\" but couldn't open their chat");
+        }
+
+        if (!AureonAccessibilityService.clickTextWithRetry("Attach", 4000)) {
+            throw new ActionException("Opened the chat but couldn't find the attach button");
+        }
+
+        if (!AureonAccessibilityService.clickTextWithRetry("Location", 4000)) {
+            throw new ActionException("Opened the attach menu but couldn't find \"Location\"");
+        }
+
+        boolean liveLocationOpened = AureonAccessibilityService.clickTextWithRetry("Share live location", 4000)
+                || AureonAccessibilityService.clickTextWithRetry("Share Live Location", 4000);
+        if (!liveLocationOpened) throw new ActionException("Opened Location sharing but couldn't find \"Share live location\"");
+
+        if (!AureonAccessibilityService.clickTextWithRetry(duration, 4000)) {
+            throw new ActionException("Opened live location sharing but couldn't select the \"" + duration + "\" option");
+        }
+
+        if (!AureonAccessibilityService.clickTextWithRetry("Send", 4000)) {
+            throw new ActionException("Set up live location sharing but couldn't tap the final Send button — check WhatsApp");
+        }
+
+        JSONObject ret = new JSONObject();
+        ret.put("sent", true);
+        ret.put("contact", contactName);
+        ret.put("duration", duration);
+        return ret;
+    }
+
     public static class LocalIntent {
         public final String name;
         public final JSONObject args;

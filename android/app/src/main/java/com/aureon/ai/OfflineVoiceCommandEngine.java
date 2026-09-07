@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.Cursor;
+import android.location.Location;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.provider.ContactsContract;
 import android.provider.Settings;
@@ -40,6 +42,13 @@ public final class OfflineVoiceCommandEngine {
     // that is the message body — no special connector word needed.
     private static final Pattern CONTACT_MESSAGE_PATTERN = Pattern.compile(
             "(?i)^(?:message|whatsapp|text|मैसेज|संदेश|मेसेज)\\s+(\\S+)\\s+(.+)$");
+
+    // "play <query> on youtube" / "youtube pe <query> bajao" / "youtube par
+    // <query> chalao" — plays directly in the YouTube app (see
+    // AureonActionsPlugin.doPlayYoutube), works fully offline-triggered
+    // even though the actual playback obviously still needs internet.
+    private static final Pattern YOUTUBE_PLAY_PATTERN = Pattern.compile(
+            "(?i)^(?:play\\s+(.+?)\\s+on\\s+youtube|youtube\\s+(?:pe|par)\\s+(.+?)\\s+(?:बजाओ|चलाओ|bajao|chalao))$");
 
     // Splits compound commands. Only used as a first attempt — if any part
     // fails to match a known command, we fall back to treating the whole
@@ -153,6 +162,20 @@ public final class OfflineVoiceCommandEngine {
                 return true;
             }
 
+            // ---- Share current location as a Maps link (NOT live-updating —
+            // a one-time "here I am right now" link, sent via WhatsApp/SMS
+            // the same way messageContact() sends any other text). This is
+            // the reliable fallback next to AureonAgentActions' real,
+            // automated WhatsApp Live Location feature. ----
+            if (lower.contains("location") || lower.contains("लोकेशन")) {
+                String locName = extractLocationContactName(text);
+                if (locName != null && !locName.isEmpty()) {
+                    if (sendLocationLink(context, locName, result)) return true;
+                }
+                // Couldn't figure out who to send it to — fall through so
+                // the AI can ask for clarification instead of staying silent.
+            }
+
             if (equalsAny(lower, "read screen", "read the screen", "what is on screen", "screen read",
                     "स्क्रीन पढ़ो", "स्क्रीन वाचा")) {
                 if (!AureonAccessibilityService.isEnabled()) { result.onHandled("Enable Aureon's Accessibility permission to read the screen."); return true; }
@@ -211,6 +234,14 @@ public final class OfflineVoiceCommandEngine {
             }
             if (equalsAny(lower, "quick settings", "open quick settings", "क्विक सेटिंग्स खोलो", "क्विक सेटिंग्ज उघडा")) {
                 result.onHandled(AureonAccessibilityService.globalAction(5) ? "Opening quick settings." : "Quick settings isn't available."); return true;
+            }
+
+            Matcher youtubePlayMatch = YOUTUBE_PLAY_PATTERN.matcher(text);
+            if (youtubePlayMatch.matches()) {
+                String query = youtubePlayMatch.group(1) != null ? youtubePlayMatch.group(1).trim() : youtubePlayMatch.group(2).trim();
+                AureonActionsPlugin.doPlayYoutube(context, query);
+                result.onHandled("Playing " + query + " on YouTube.");
+                return true;
             }
 
             if (containsAny(lower, "open youtube", "youtube खोलो", "youtube उघडा") || equalsAny(lower, "youtube")) return launchPackage(context, "com.google.android.youtube", "YouTube", result);
@@ -410,6 +441,74 @@ public final class OfflineVoiceCommandEngine {
             if (info.loadLabel(pm).toString().toLowerCase(Locale.ROOT).contains(needleLower)) return true;
         }
         return false;
+    }
+
+    /**
+     * Pulls a contact name out of a "location" sentence by stripping known
+     * filler words in English/Hindi/Marathi, e.g. "send location to Pavan"
+     * -> "Pavan", "Pavan ko location bhejo" -> "Pavan". Word-order-agnostic
+     * on purpose since Hindi/Marathi put the verb at the end.
+     */
+    private static final List<String> LOCATION_FILLERS = java.util.Arrays.asList(
+            "send", "share", "location", "to", "with", "my", "current", "live", "the",
+            "bhejo", "bhej", "do", "de", "ko", "kar", "karo", "dena", "dedo", "please",
+            "लोकेशन", "भेजो", "पाठवा", "को", "ला", "करा", "द्या", "मेरी", "माझे");
+
+    private static String extractLocationContactName(String text) {
+        String[] tokens = text.trim().split("\\s+");
+        StringBuilder nameBuilder = new StringBuilder();
+        for (String token : tokens) {
+            String clean = token.toLowerCase(Locale.ROOT);
+            if (!LOCATION_FILLERS.contains(clean)) {
+                if (nameBuilder.length() > 0) nameBuilder.append(" ");
+                nameBuilder.append(token);
+            }
+        }
+        return nameBuilder.length() > 0 ? nameBuilder.toString().trim() : null;
+    }
+
+    /**
+     * One-time "here I am right now" location link (NOT live-updating),
+     * sent the same way messageContact() sends any other text. Uses
+     * getLastKnownLocation() (synchronous, no permission-dance callback)
+     * rather than requesting a fresh GPS fix, so it can return quickly from
+     * this fully-offline, synchronous command path — but that means it can
+     * occasionally return null if the phone has no recent fix cached.
+     */
+    private static boolean sendLocationLink(Context context, String name, Result result) {
+        boolean hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        if (!hasFine && !hasCoarse) {
+            result.onHandled("Enable Aureon's Location permission in phone Settings to share your location.");
+            return true;
+        }
+
+        Location best = null;
+        try {
+            LocationManager lm = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+            if (lm != null) {
+                for (String provider : new String[]{ LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER }) {
+                    try {
+                        Location candidate = lm.getLastKnownLocation(provider);
+                        if (candidate != null && (best == null || candidate.getTime() > best.getTime())) {
+                            best = candidate;
+                        }
+                    } catch (SecurityException | IllegalArgumentException ignored) { }
+                }
+            }
+        } catch (Exception ignored) { }
+
+        if (best == null) {
+            result.onHandled("Couldn't get your current location — make sure Location/GPS is turned on, then try again.");
+            return true;
+        }
+
+        String link = "https://maps.google.com/?q=" + best.getLatitude() + "," + best.getLongitude();
+        boolean sent = messageContact(context, name, "My current location: " + link, result);
+        if (!sent) {
+            result.onHandled("Couldn't find a contact named \"" + name + "\" to send your location to.");
+        }
+        return true;
     }
 
     private static String findContactNumber(Context context, String name) {

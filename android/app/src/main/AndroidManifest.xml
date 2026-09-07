@@ -51,7 +51,7 @@
         <!-- Bridge for typing dictated text and performing UI actions (find
              contact, type message, tap Send) inside other apps like
              WhatsApp/Instagram. The user must explicitly enable it in
-             Android Accessibility settings — nothing runs until they do,
+             Android Accessibility settings; nothing runs until they do,
              and every send still goes through the voice confirmation step
              in AureonVoiceInteractionSession before anything is tapped. -->
         <service
@@ -89,4 +89,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 </manifest>
