@@ -121,10 +121,15 @@ public final class OfflineVoiceCommandEngine {
         if (lower.isEmpty()) return false;
         try {
             // ---- Recent SMS (fully offline — no accessibility, no AI) ----
-            if (equalsAny(lower, "recent message", "read message", "read sms", "recent sms",
-                    "check message", "check messages", "read messages",
-                    "मैसेज पढ़ो", "रीसेंट मैसेज", "हाल का मैसेज पढ़ो",
-                    "मेसेज वाचा", "अलीकडील मेसेज", "अलीकडचा मेसेज वाचा")) {
+            // Flexible on purpose: matches any combination of a "message/sms"
+            // word with a "read/check/recent" word, in English, Hinglish, or
+            // Devanagari — so phrasing like "recent message padho" (which an
+            // exact-string match would miss) still triggers this offline
+            // path instead of falling through to the AI backend.
+            boolean mentionsMessage = containsAny(lower, "message", "sms", "मैसेज", "मेसेज");
+            boolean isReadIntent = containsAny(lower, "read", "recent", "check", "padho", "padh",
+                    "पढ़ो", "पढ़", "पढ", "वाचा", "रीसेंट", "हाल", "अलीकड");
+            if (mentionsMessage && isReadIntent) {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS)
                         != PackageManager.PERMISSION_GRANTED) {
                     result.onHandled("Enable Aureon's SMS permission in phone Settings to read recent messages.");
@@ -136,8 +141,8 @@ public final class OfflineVoiceCommandEngine {
 
             // ---- Check email (opens the phone's mail app and reads what's
             // visible — needs Accessibility; not full email body parsing) ----
-            if (equalsAny(lower, "read email", "check email", "check emails", "read emails",
-                    "email padho", "ईमेल पढ़ो", "ईमेल चेक करो", "इमेल वाचा", "इमेल तपासा")) {
+            boolean mentionsEmail = containsAny(lower, "email", "e-mail", "gmail", "ईमेल", "इमेल");
+            if (mentionsEmail && isReadIntent) {
                 if (!AureonAccessibilityService.isEnabled()) {
                     result.onHandled("Enable Aureon's Accessibility permission to read email.");
                     return true;
@@ -174,6 +179,47 @@ public final class OfflineVoiceCommandEngine {
                 }
                 // Couldn't figure out who to send it to — fall through so
                 // the AI can ask for clarification instead of staying silent.
+            }
+
+            // ---- Answer / decline an incoming call (BEST-EFFORT, EXPERIMENTAL).
+            // No official Android API lets a normal app answer calls
+            // programmatically (that needs MODIFY_PHONE_STATE, which isn't
+            // grantable to regular apps, or being the phone's Default
+            // Dialer). This instead tries tapping the on-screen
+            // Answer/Decline button via Accessibility — how well that works
+            // depends entirely on the phone's own incoming-call UI, and may
+            // not work at all on phones whose call screen uses a custom
+            // slide/gesture instead of a plain tappable button. ----
+            if (equalsAny(lower, "answer call", "answer the call", "pick up call", "pick up the call",
+                    "receive call", "call uthao", "call utha lo", "call receive karo",
+                    "कॉल उठाओ", "कॉल रिसीव करो", "कॉल घ्या", "कॉल उचला")) {
+                if (!AureonAccessibilityService.isEnabled()) {
+                    result.onHandled("Enable Aureon's Accessibility permission to answer calls by voice.");
+                    return true;
+                }
+                boolean answered = AureonAccessibilityService.clickTextWithRetry("Answer", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("Accept", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("Answer call", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("स्वीकारें", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("उत्तर दें", 2500);
+                result.onHandled(answered
+                        ? "Answering the call."
+                        : "Couldn't find an Answer button on screen — this phone's call screen may not support automatic answering.");
+                return true;
+            }
+            if (equalsAny(lower, "decline call", "reject call", "decline the call", "reject the call",
+                    "call katao", "call cut karo", "कॉल काटो", "कॉल नाकारा")) {
+                if (!AureonAccessibilityService.isEnabled()) {
+                    result.onHandled("Enable Aureon's Accessibility permission to decline calls by voice.");
+                    return true;
+                }
+                boolean declined = AureonAccessibilityService.clickTextWithRetry("Decline", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("Reject", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("अस्वीकार करें", 2500);
+                result.onHandled(declined
+                        ? "Declining the call."
+                        : "Couldn't find a Decline button on screen — this phone's call screen may not support automatic declining.");
+                return true;
             }
 
             if (equalsAny(lower, "read screen", "read the screen", "what is on screen", "screen read",

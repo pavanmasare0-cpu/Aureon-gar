@@ -67,6 +67,19 @@ public class MainActivity extends BridgeActivity {
             needed.add(Manifest.permission.ACCESS_COARSE_LOCATION);
         }
 
+        // "kiska call hai" (caller-ID announcement) and "call uthao" (voice
+        // answer) both need to know a call is ringing; READ_CALL_LOG is
+        // additionally required on Android 9+ for the incoming number to
+        // actually be included in the system broadcast.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.READ_PHONE_STATE);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.READ_CALL_LOG);
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {

@@ -65,6 +65,18 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/aureon_accessibility_config" />
         </service>
+
+        <!-- Announces the caller's name ("Pavan is calling") the moment the
+             phone starts ringing. Independent of Default Assistant status —
+             registered here as a plain broadcast receiver, not tied to the
+             voice-interaction session. -->
+        <receiver
+            android:name=".AureonCallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Required since Android 11 (API 30): without this, the system hides
@@ -91,4 +103,6 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
 </manifest>
