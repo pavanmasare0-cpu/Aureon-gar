@@ -297,8 +297,13 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   const payload = {
     contents: messages.map(m => {
       // A turn where Aureon (the model) previously requested a tool call.
+      // thoughtSignature must be echoed back exactly as Gemini sent it —
+      // "thinking" models reject/degrade multi-turn function calling
+      // without it (error: "Function call is missing a thought_signature").
       if (m.functionCall) {
-        return { role: 'model', parts: [{ functionCall: m.functionCall }] };
+        const part = { functionCall: m.functionCall };
+        if (m.thoughtSignature) part.thoughtSignature = m.thoughtSignature;
+        return { role: 'model', parts: [part] };
       }
       // A turn carrying the result of a tool call the app just ran.
       if (m.functionResponse) {
@@ -336,7 +341,7 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   const parts = (candidate && candidate.content && candidate.content.parts) || [];
   const callPart = parts.find(p => p.functionCall);
   if (callPart) {
-    return { functionCall: callPart.functionCall };
+    return { functionCall: callPart.functionCall, thoughtSignature: callPart.thoughtSignature };
   }
   const text = parts.map(p => p.text || '').join('').trim();
   if (text) return text;
@@ -653,7 +658,7 @@ app.post('/api/chat', async (req, res) => {
     // the app as-is so it can run the matching native action and report the
     // result in a follow-up request.
     if (reply && typeof reply === 'object' && reply.functionCall) {
-      return res.json({ functionCall: reply.functionCall });
+      return res.json({ functionCall: reply.functionCall, thoughtSignature: reply.thoughtSignature });
     }
     res.json({ reply });
   } catch (err) {

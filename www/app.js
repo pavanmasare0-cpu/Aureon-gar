@@ -358,7 +358,7 @@ async function runAgentTurn(wantsPdf, depth = 0) {
 
     if (SENSITIVE_AGENT_ACTIONS.has(name) && !confirmSensitiveAction(name, args)) {
       $('typing-indicator').classList.add('hidden');
-      state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall });
+      state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall, thoughtSignature: result.thoughtSignature });
       state.currentMessages.push({ role: 'function', functionResponse: { name, response: { result: 'The user declined to allow this action.' } } });
       saveChatSnapshot();
       return runAgentTurn(wantsPdf, depth + 1);
@@ -373,7 +373,7 @@ async function runAgentTurn(wantsPdf, depth = 0) {
       addMessage('error', `Couldn't ${name.replace(/_/g, ' ')}: ${actionResult.error}`);
     }
 
-    state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall });
+    state.currentMessages.push({ role: 'assistant', functionCall: result.functionCall, thoughtSignature: result.thoughtSignature });
     state.currentMessages.push({ role: 'function', functionResponse: { name, response: { result: actionResult } } });
     saveChatSnapshot();
 

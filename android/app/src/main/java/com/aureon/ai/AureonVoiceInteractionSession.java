@@ -76,6 +76,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     // command.
     private boolean awaitingConfirmation = false;
     private JSONObject pendingFunctionCall = null;
+    private String pendingThoughtSignature = null;
     private JSONArray pendingMessages = null;
     private int pendingDepth = 0;
     private int confirmationAttempts = 0;
@@ -347,9 +348,11 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
         awaitingConfirmation = false;
         JSONObject functionCall = pendingFunctionCall;
+        String thoughtSignature = pendingThoughtSignature;
         JSONArray messages = pendingMessages;
         int depth = pendingDepth;
         pendingFunctionCall = null;
+        pendingThoughtSignature = null;
         pendingMessages = null;
 
         if (no) {
@@ -375,6 +378,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             JSONObject assistantTurn = new JSONObject();
             assistantTurn.put("role", "assistant");
             assistantTurn.put("functionCall", functionCall);
+            if (thoughtSignature != null) assistantTurn.put("thoughtSignature", thoughtSignature);
             messages.put(assistantTurn);
 
             JSONObject functionResponseWrapper = new JSONObject();
@@ -494,7 +498,8 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 }
 
                 if (responseJson.has("functionCall")) {
-                    handleFunctionCall(messages, responseJson.getJSONObject("functionCall"), depth);
+                    String thoughtSignature = responseJson.optString("thoughtSignature", null);
+                    handleFunctionCall(messages, responseJson.getJSONObject("functionCall"), thoughtSignature, depth);
                 } else {
                     String reply = responseJson.optString("reply", "(empty response)");
                     mainHandler.post(() -> showReply(reply));
@@ -506,7 +511,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         }).start();
     }
 
-    private void handleFunctionCall(JSONArray messages, JSONObject functionCall, int depth) {
+    private void handleFunctionCall(JSONArray messages, JSONObject functionCall, String thoughtSignature, int depth) {
         try {
             String name = functionCall.optString("name", "");
             JSONObject args = functionCall.optJSONObject("args");
@@ -531,12 +536,17 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 // call and messages, ask the question, and pick this back
                 // up in handleConfirmationAnswer() once we hear yes/no.
                 pendingFunctionCall = functionCall;
+                pendingThoughtSignature = thoughtSignature;
                 pendingMessages = messages;
                 pendingDepth = depth;
                 confirmationAttempts = 0;
                 awaitingConfirmation = true;
-                final JSONObject argsForPrompt = args;
-                mainHandler.post(() -> showReply(buildConfirmationPrompt(name, argsForPrompt)));
+                // args gets reassigned above (args == null check), so it's
+                // not effectively-final — lambdas require that. Copy into
+                // final locals just for the capture.
+                final String fName = name;
+                final JSONObject fArgs = args;
+                mainHandler.post(() -> showReply(buildConfirmationPrompt(fName, fArgs)));
                 return;
             } else {
                 try {
@@ -551,6 +561,10 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             JSONObject assistantTurn = new JSONObject();
             assistantTurn.put("role", "assistant");
             assistantTurn.put("functionCall", functionCall);
+            // Echo Gemini's thought_signature back exactly as received —
+            // "thinking" models require this on every subsequent turn that
+            // includes a prior function call, or they error out / degrade.
+            if (thoughtSignature != null) assistantTurn.put("thoughtSignature", thoughtSignature);
             messages.put(assistantTurn);
 
             JSONObject functionResponseWrapper = new JSONObject();
