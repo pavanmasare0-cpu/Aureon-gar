@@ -96,6 +96,25 @@ public class MainActivity extends BridgeActivity {
         } else {
             promptPhase6Setup();
         }
+
+        startCallListenerService();
+    }
+
+    /**
+     * Starts the persistent foreground service backing caller-ID
+     * announcement. Called unconditionally on every launch — Android will
+     * simply no-op if it's already running. This doesn't require the
+     * phone-state permissions to be granted yet; it just gets the
+     * always-on listener in place so announcements work as soon as the
+     * user does grant them.
+     */
+    private void startCallListenerService() {
+        try {
+            ContextCompat.startForegroundService(this, new Intent(this, AureonCallListenerService.class));
+        } catch (Exception ignored) {
+            // Best-effort — if this fails for any reason, the manifest-
+            // declared AureonCallReceiver is still there as a fallback.
+        }
     }
 
     private void promptPhase6Setup() {

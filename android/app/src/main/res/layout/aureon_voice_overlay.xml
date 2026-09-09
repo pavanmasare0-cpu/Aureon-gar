@@ -7,11 +7,10 @@
     android:background="#1A1A1A"
     android:padding="24dp">
 
-    <View
+    <com.aureon.ai.AureonEnergyOrbView
         android:id="@+id/aureon_orb"
-        android:layout_width="64dp"
-        android:layout_height="64dp"
-        android:background="@drawable/aureon_orb_glow" />
+        android:layout_width="160dp"
+        android:layout_height="160dp" />
 
     <TextView
         android:id="@+id/aureon_status_text"

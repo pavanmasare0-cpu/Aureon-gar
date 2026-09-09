@@ -69,7 +69,9 @@
         <!-- Announces the caller's name ("Pavan is calling") the moment the
              phone starts ringing. Independent of Default Assistant status —
              registered here as a plain broadcast receiver, not tied to the
-             voice-interaction session. -->
+             voice-interaction session. This is the manifest-declared
+             backup path; AureonCallListenerService is the primary,
+             more-reliable path on aggressive OEM skins. -->
         <receiver
             android:name=".AureonCallReceiver"
             android:exported="true">
@@ -77,6 +79,19 @@
                 <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
         </receiver>
+
+        <!-- Persistent foreground service, kept alive by its own low-
+             priority notification, whose dynamically-registered receiver
+             is far less likely to be skipped by ColorOS/Realme-style
+             background-kill than the static receiver above on its own. -->
+        <service
+            android:name=".AureonCallListenerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Announces caller name via text-to-speech when a call rings" />
+        </service>
     </application>
 
     <!-- Required since Android 11 (API 30): without this, the system hides
@@ -105,4 +120,5 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 </manifest>

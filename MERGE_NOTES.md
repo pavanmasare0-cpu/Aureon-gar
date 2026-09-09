@@ -248,3 +248,72 @@ line 544 — `args` variable lambda ke andar capture ho rahi thi, lekin usse
 pehle reassign kiya gaya tha (`if (args == null) args = new JSONObject();`)
 — Java lambdas ko "effectively final" variables chahiye. Fix: `fName`/`fArgs`
 naam ke final copies banaye, lambda unhe use karta hai ab.
+
+## Round 10 — PDF confusion fix
+
+**Bug nahi tha, confusing UX tha:** PDF generation asal mein pehle se
+kaam karta hai — jab bhi message mein "pdf" word ho, reply ke **neeche
+automatically ek "Save as PDF" button** aa jaata hai (`userAskedForPdf()`
+check). Lekin AI ko iske baare mein pata hi nahi tha (ye AI ka tool call
+nahi hai, sirf app ka apna UI hai), isliye jab user chat mein "PDF bana
+do" bolta tha, AI khud confuse hoke keh deta tha "mera paas PDF tool
+nahi hai" aur Notes-app copy-paste jaisa unrelated workaround sujhata
+tha — jabki button waqai reply ke neeche already ban chuka hota tha.
+
+**Fix:** System prompt (`AGENT_CAPABILITIES`) mein explicitly bata diya
+ki ye feature exist karta hai — ab AI "PDF bana do" sunte hi "neeche
+button se save kar lena" bolega, confusing manual instructions nahi
+dega.
+
+## Round 11 — chat horizontal scroll bug
+
+Screenshot mein dikha: chat bubble screen se bahar chala gaya tha, poora
+screen sideways scroll ho raha tha, sirf text ka left edge dikh raha tha.
+
+**Fix:** `.msg` bubble mein `overflow-wrap: break-word` aur `word-break:
+break-word` missing tha — lamba unbroken text (jaise koi URL ya bina-space
+wala token) bubble ki 82% max-width se bahar overflow ho jaata tha aur
+poori screen ko sideways scroll karva deta tha. `.messages` container aur
+`html, body` mein bhi `overflow-x: hidden` add kiya safety-net ke taur pe.
+
+## Round 12 — screen-control features
+
+**Already kaam karta tha (check kiya, confirm ho gaya):**
+- "Scroll" / "scroll up/down" — poora offline
+- "Back" / "go back" — poora offline
+
+**Naya add kiya:**
+- **"3 dots" / "menu" click** — accessibility icon ki shakal "dekh" nahi
+  sakti (ye camera nahi hai), sirf uska accessible label match kar sakti
+  hai. Isliye "3 dots" bolne par ab common labels try karta hai ("More
+  options", "More", "Menu", etc.) jo zyada apps use karte hain
+- **Bina prefix ke naam bolke click** — "click Pavan" bolna zaroori nahi,
+  ab sirf "Pavan" bolne se bhi (agar screen pe wo text dikh raha ho)
+  click ho jayega. **Safety:** ye sirf tab try hota hai jab (1) koi aur
+  command match na ho, (2) sirf 1-4 words wali chhoti phrase ho (poora
+  sentence nahi), (3) Accessibility ON ho — taaki normal baat-cheet galti
+  se kisi button ko na dabade
+
+⚠️ **Ek honest limitation:** "3 dots" ka click **guarantee nahi hai** —
+depend karta hai us app ne apne button ko kya accessible-label diya hai.
+Kuch apps mein match ho jayega, kuch mein nahi (jaise agar unka label
+"Options" ki jagah kuch bilkul alag ho) — real device pe test karke
+dekhna hoga.
+
+## Round 13 — Chat-attach PDF/DOCX/ZIP read na hona
+
+**Real bug mila:** Jab PDF/DOCX/ZIP seedha chat mein attach karte the
+(Knowledge-upload button se nahi, seedha attach icon se), file ka sirf
+**naam** bhejta tha AI ko — content kabhi nikala hi nahi jaata tha
+(code mein comment tak tha "we can't extract text client-side yet").
+Isliye AI sach mein "main padh nahi paya" bol raha tha.
+
+**Fix:**
+- Naya lightweight backend endpoint `/api/extract-text` — Knowledge-upload
+  wala hi extraction engine (PDF/DOCX/ZIP sab) use karta hai, lekin
+  Firestore mein kuch save nahi karta, sirf text wapas deta hai (one-off
+  chat-read ke liye, permanent knowledge-base ke liye nahi)
+- `www/app.js` — ab PDF/DOCX/ZIP attach karte hi backend se text
+  automatically nikal ke message ke saath AI ko bhejta hai
+- Zip bhi isi fix se cover ho gaya (kyunki same `extractText()` function
+  reuse hota hai jisme zip support pehle se hai)
