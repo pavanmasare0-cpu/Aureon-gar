@@ -317,3 +317,100 @@ Isliye AI sach mein "main padh nahi paya" bol raha tha.
   automatically nikal ke message ke saath AI ko bhejta hai
 - Zip bhi isi fix se cover ho gaya (kyunki same `extractText()` function
   reuse hota hai jisme zip support pehle se hai)
+
+## Round 14 — "message read nahi ho raha" bug
+
+**Real bug mila:** SMS/message-read, email-read, aur screen-read — teeno
+commands **exact-match** (`equalsAny`) use kar rahe the — matlab tumhe
+LITERALLY "recent message" ya "read screen" jaisa exact phrase bolna
+padta tha, koi bhi extra/alag word (jaise "message padho", "koi message
+aaya kya") match hi nahi hota tha, aur Aureon chup reh jaata tha.
+
+**Fix:** Teeno ko `containsAny` (loose match) mein badla, aur natural
+Hinglish variants add kiye:
+- Message: "message padho", "koi message", "naya message", "last message"
+- Email: "email padho", "email check", "naya email", "koi email"  
+- Screen: "screen padho", "ye padho", "kya likha hai", "isko padho"
+
+## Round 15 — 2 naye uploads se merge (dusre AI se)
+
+### 1. `aureon-orb-redesign-patch.zip`
+Naya **`AureonEnergyOrbView.java`** — custom-drawn animated orb (purple/gold
+glowing sphere, sparkles, rotation) jo plain yellow circle ki jagah
+overlay mein wire kiya. Exact reference-video jaisa nahi hai (wo asli
+video-render tha, code se replicate karna practical nahi), lekin
+static circle se kaafi behtar/premium dikhega. `aureon_voice_overlay.xml`
+aur `AureonVoiceInteractionSession.java` mein wire kiya (start/stop
+animation lifecycle ke saath, memory-leak-safe).
+
+**Bug jo maine merge karte waqt pakda aur fix kiya:** Ek galat `@Override`
+annotation field declaration ke upar aa gaya tha (compile error), fix kiya.
+
+### 2. `aureon-round6-patch-v5.zip`
+- **Naya: Caller-ID feature** (`AureonCallReceiver.java`) — jo humne
+  discuss kiya tha! Call aane par offline hi contact ka naam (ya number)
+  bol deta hai. Manifest + MainActivity mein permissions (READ_PHONE_STATE,
+  READ_CALL_LOG) bhi wire ki
+- **Naya (EXPERIMENTAL): Call answer/decline by voice** — "call uthao"/
+  "call katao" bolne par Accessibility se on-screen Answer/Decline button
+  tap karne ki koshish karta hai. ⚠️ **Bahut phone-dependent hai** — kuch
+  phones ka call-screen simple tappable button use karta hai (kaam karega),
+  kuch swipe-gesture use karte hain (kaam nahi karega). Real Default-Dialer
+  API abhi bhi nahi hai (wo possible hi nahi hai normal app ke liye)
+- **Behtar message/email matching** — pehle (round14) mera fix tha
+  phrase-list wala, is patch ka approach zyada flexible hai (do alag
+  boolean check — "message/sms mention hua" + "read/check/padho jaisa
+  kuch bola" — dono true ho to match) — isko adopt kiya, zyada natural
+  phrasing cover karega
+- Baaki sab (backend, app.js, style.css) us patch mein purana tha (mera
+  round7-14 wala already aage tha) — kuch naya nahi tha unme
+
+⚠️ **Test priority:** Caller-ID (naya, simple, high-confidence) pehle test
+karo. Call-answer/decline (naya, experimental, phone-dependent) is baar
+kaam kare ya na kare — dono normal hai, real-device result hi bata payega.
+
+## Round 16 — Caller-ID reliability improve (v6 upload se)
+
+**Real problem jo fix hua:** Static `BroadcastReceiver` (manifest-declared)
+akela ColorOS/Realme jaise aggressive OEM phones pe **kabhi-kabhi kaam
+nahi karta** — OS use app ke background mein hi kill/limit kar deta hai,
+chahe Autostart/Battery-unrestricted ON ho.
+
+**Fix:** Ek naya **foreground service** (`AureonCallListenerService`)
+add kiya jo apna khud ka low-priority notification rakhke background
+mein zinda rehta hai, aur uske andar ek dynamically-registered receiver
+hai jo static receiver se zyada reliably chalta hai in phones pe. Dono
+paths (static receiver + naya service) ab shared logic
+(`AureonCallAnnouncer`) use karte hain — jo bhi pehle fire ho, kaam ho
+jaata hai.
+
+- Naye files: `AureonCallAnnouncer.java`, `AureonCallListenerService.java`
+- Manifest: naya `<service>` (Android 14+ `specialUse` foreground-service
+  type ke saath, jo sahi/updated Android requirement hai) +
+  `FOREGROUND_SERVICE_SPECIAL_USE` permission
+- `MainActivity.java`: app open hote hi service start hoti hai
+
+Baaki files (backend, app.js, style.css, offline-engine) us upload mein
+purane the (round7-15 ke fixes wahan nahi the) — kuch naya nahi liya
+unse.
+
+## Round 17 — Alarm naam bolna (smart workaround mila!)
+
+**Maine pehle bataya tha:** "Alarm baje tab Aureon naam bole" ke liye
+poora naya alarm-system banana padega (bada rewrite), kyunki Aureon
+alarm ko Clock app ko handoff kar deta hai, uska control nahi rakhta.
+
+**Ye galat nikla — behtar tareeka mil gaya.** `AureonAccessibilityService`
+already system-wide chalti hai (lock screen ke upar bhi) — usi mein ek
+naya check add kiya gaya: jab bhi screen pe "Snooze" word dikhe (jo
+LAGBHAG SAB Android alarm-clock apps mein hota hai, chahe koi bhi brand
+ho), Aureon samajh jaata hai "ye alarm-ringing screen hai" aur turant
+screen ka text (jisme alarm ka naam bhi hota hai) TTS se bol deta hai.
+
+**Koi naya rewrite nahi chahiye tha** — Clock-app-handoff wala existing
+system waisa hi raha, bas Accessibility Service ko thoda smart bana diya.
+
+⚠️ **Limitation:** Name-extraction crude hai (bas "snooze"/"dismiss"
+words hata deta hai baaki text se) — agar screen pe time/date bhi ho to
+wo bhi bol sakta hai naam ke saath. 15-second cooldown hai taaki baar-baar
+na bole ek hi alarm ke liye.

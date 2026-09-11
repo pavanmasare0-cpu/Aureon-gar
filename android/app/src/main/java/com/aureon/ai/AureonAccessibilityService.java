@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -19,11 +21,14 @@ import java.util.Locale;
 public class AureonAccessibilityService extends AccessibilityService {
     private static AureonAccessibilityService instance;
     private volatile String lastScreenText = "";
+    private static long lastAlarmAnnounceAt = 0;
+    private static final long ALARM_ANNOUNCE_COOLDOWN_MS = 15000;
 
     @Override public void onServiceConnected() { instance = this; }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event != null && event.getEventType() != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             lastScreenText = readScreen();
+            maybeAnnounceAlarm(lastScreenText);
         }
     }
     @Override public void onInterrupt() {}
@@ -31,6 +36,83 @@ public class AureonAccessibilityService extends AccessibilityService {
 
     public static boolean isEnabled() { return instance != null; }
     public static String readScreen() { return instance == null ? "" : instance.readScreenInternal(); }
+
+    /**
+     * Announces a ringing alarm by voice — works over the lock screen too,
+     * since this service runs system-wide regardless of lock state. Detects
+     * an alarm screen by the near-universal presence of a "Snooze" control
+     * (works across OEM clock apps without hardcoding any one package
+     * name), rather than relying on a specific app to be the source.
+     */
+    private void maybeAnnounceAlarm(String screenText) {
+        if (screenText == null) return;
+        String lower = screenText.toLowerCase(Locale.ROOT);
+        boolean looksLikeAlarm = lower.contains("snooze");
+        if (!looksLikeAlarm) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastAlarmAnnounceAt < ALARM_ANNOUNCE_COOLDOWN_MS) return; // avoid re-announcing on repeat events for the same ringing alarm
+        lastAlarmAnnounceAt = now;
+
+        String alarmName = extractAlarmName(screenText);
+        String toSpeak = alarmName.isEmpty() ? "Your alarm is ringing." : ("Alarm: " + alarmName);
+        speak(toSpeak);
+    }
+
+    private static final String[] ALARM_DAY_NAMES = {
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+    };
+    private static final java.util.regex.Pattern ALARM_TIME_PATTERN =
+            java.util.regex.Pattern.compile("^\\d{1,2}[:.]\\d{2}\\s*(am|pm)?$", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * readScreenInternal() returns one accessible-node value per line, so
+     * this filters out lines that are clearly time/date/button noise
+     * ("10:09", "Friday, 11 September", "Snooze for 5 min", "Stop") and
+     * keeps whatever's left — normally just the alarm's own label.
+     */
+    private String extractAlarmName(String screenText) {
+        String[] lines = screenText.split("\\n");
+        StringBuilder kept = new StringBuilder();
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) continue;
+            String lower = line.toLowerCase(Locale.ROOT);
+
+            if (ALARM_TIME_PATTERN.matcher(line).matches()) continue; // "10:09"
+            if (line.matches("\\d+")) continue; // stray lone numbers
+            if (lower.contains("snooze")) continue; // "Snooze for 5 min"
+            boolean isDayName = false;
+            for (String day : ALARM_DAY_NAMES) { if (lower.contains(day)) { isDayName = true; break; } }
+            if (isDayName) continue; // "Friday, 11 September"
+            if (lower.equals("stop") || lower.equals("dismiss") || lower.equals("cancel") || lower.equals("ok")) continue;
+
+            if (kept.length() > 0) kept.append(" ");
+            kept.append(line);
+        }
+        return kept.toString().trim();
+    }
+
+    /** A fresh short-lived TTS engine per announcement, shut down once it finishes speaking. */
+    private void speak(String text) {
+        final TextToSpeech[] engine = new TextToSpeech[1];
+        engine[0] = new TextToSpeech(getApplicationContext(), status -> {
+            if (status != TextToSpeech.SUCCESS || engine[0] == null) return;
+            engine[0].setLanguage(Locale.getDefault());
+            engine[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) {}
+                @Override public void onDone(String utteranceId) { shutdownQuietly(); }
+                @Override public void onError(String utteranceId) { shutdownQuietly(); }
+                private void shutdownQuietly() {
+                    if (engine[0] != null) {
+                        try { engine[0].shutdown(); } catch (Exception ignored) {}
+                        engine[0] = null;
+                    }
+                }
+            });
+            engine[0].speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_alarm_announce");
+        });
+    }
 
     /** Returns visible UI text/content descriptions from the active window. */
     private String readScreenInternal() {
