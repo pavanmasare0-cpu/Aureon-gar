@@ -71,7 +71,8 @@ public class AureonAccessibilityService extends AccessibilityService {
             String trimmed = rawLine.trim();
             if (trimmed.isEmpty()) continue;
             String l = trimmed.toLowerCase(Locale.ROOT);
-            if (l.contains("snooze") || l.contains("dismiss") || l.equals("stop")) continue;
+            if (l.contains("snooze") || l.contains("dismiss") || l.equals("stop")
+                    || l.equals("cancel") || l.contains("alarm off") || l.equals("ok")) continue;
             if (trimmed.matches("(?i)\\d{1,2}:\\d{2}(\\s*[ap]\\.?m\\.?)?")) continue; // clock time, e.g. "10:09" / "10:09 AM"
             if (l.matches("(?i).*(monday|tuesday|wednesday|thursday|friday|saturday|sunday).*")) continue; // date line
             return trimmed;

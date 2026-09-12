@@ -4,16 +4,26 @@
     android:layout_height="match_parent"
     android:background="@drawable/aureon_deep_space_bg">
 
-    <!-- Orb video stays its own square size, centered — the deep-space
-         background around it (above) fills the rest of the screen instead
-         of stretching/cropping the orb itself to fit. -->
+    <!-- Full-screen cosmic/nebula background, edge-to-edge behind everything. -->
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/aureon_cosmic_bg"
+        android:contentDescription="@null" />
+
+    <!-- Orb video — unchanged player/logic, just repositioned: centered
+         horizontally, sitting in the middle/lower-middle of the screen,
+         slightly smaller than before so it reads as foreground over the
+         cosmic background rather than filling the whole view. -->
     <TextureView
         android:id="@+id/aureon_orb_texture"
-        android:layout_width="300dp"
-        android:layout_height="300dp"
-        android:layout_gravity="center" />
+        android:layout_width="240dp"
+        android:layout_height="240dp"
+        android:layout_gravity="center"
+        android:layout_marginTop="60dp" />
 
-    <!-- Text sits on top of the video, near the bottom. -->
+    <!-- Text sits below the orb, near the bottom. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
