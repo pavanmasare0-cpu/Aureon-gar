@@ -1,7 +1,14 @@
 package com.aureon.ai;
 
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
+import android.graphics.Matrix;
+import android.graphics.RectF;
+import android.graphics.SurfaceTexture;
+import android.media.MediaPlayer;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,7 +20,13 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -76,6 +89,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     // command.
     private boolean awaitingConfirmation = false;
     private JSONObject pendingFunctionCall = null;
+    private String pendingThoughtSignature = null;
     private JSONArray pendingMessages = null;
     private int pendingDepth = 0;
     private int confirmationAttempts = 0;
@@ -84,18 +98,137 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         super(context);
     }
 
+    private AureonEnergyOrbView orbView; // kept for backward-compat field name, unused now
+    private TextureView orbTexture;
+    private MediaPlayer orbMediaPlayer;
+    private static final int ORB_VIDEO_WIDTH = 480;
+    private static final int ORB_VIDEO_HEIGHT = 480;
+
+    // Applies fullscreen to the session's actual system Window (not just
+    // the content View) — getWindow() here returns a Dialog per the
+    // VoiceInteractionSession API; its own getWindow() is the real
+    // android.view.Window. Without this, the status bar area is reserved
+    // as a gap regardless of flags set on the inflated content view.
+    private void applyFullscreen() {
+        Dialog dialog = getWindow();
+        if (dialog == null) return;
+        Window window = dialog.getWindow();
+        if (window == null) return;
+
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        }
+    }
+
     @Override
     public View onCreateContentView() {
         View view = LayoutInflater.from(getContext())
                 .inflate(R.layout.aureon_voice_overlay, null);
 
+        // True fullscreen — apply to the actual system Window (not just this
+        // content view), which is what actually controls whether the status
+        // bar area is drawn over or left as a gap. VoiceInteractionSession's
+        // getWindow() returns a Dialog; its own getWindow() is the real
+        // android.view.Window the framework created for this session.
+        applyFullscreen();
+
         statusText = view.findViewById(R.id.aureon_status_text);
         responseText = view.findViewById(R.id.aureon_response_text);
+        orbTexture = view.findViewById(R.id.aureon_orb_texture);
+        setupOrbVideo();
 
         initTextToSpeech();
         startListening();
 
         return view;
+    }
+
+    private void setupOrbVideo() {
+        orbTexture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override
+            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                startOrbMediaPlayer(new Surface(surface));
+                configureOrbTransform(width, height);
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+                configureOrbTransform(width, height);
+            }
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+                return true;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
+        });
+    }
+
+    private void startOrbMediaPlayer(Surface surface) {
+        try {
+            AssetFileDescriptor afd = getContext().getResources().openRawResourceFd(R.raw.aureon_orb);
+            orbMediaPlayer = new MediaPlayer();
+            orbMediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            afd.close();
+            orbMediaPlayer.setSurface(surface);
+            orbMediaPlayer.setLooping(true);
+            orbMediaPlayer.setVolume(0f, 0f); // background animation, no sound
+            orbMediaPlayer.setOnPreparedListener(MediaPlayer::start);
+            // Some devices don't reliably honor setLooping(true) with
+            // hardware-decoded video into a TextureView — if playback ever
+            // stops on its own, just start it again instead of leaving a
+            // black frame on screen.
+            orbMediaPlayer.setOnCompletionListener(mp -> {
+                try { mp.start(); } catch (Exception ignored) {}
+            });
+            orbMediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                Log.e(TAG, "Orb video error what=" + what + " extra=" + extra);
+                try { mp.reset(); startOrbMediaPlayer(surface); } catch (Exception ignored) {}
+                return true;
+            });
+            orbMediaPlayer.prepareAsync();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start orb video", e);
+        }
+    }
+
+    // The TextureView is a fixed 300dp square matching the video's own
+    // square aspect ratio, so this just does a plain fill — no cropping
+    // needed since both are 1:1. Kept generic (rather than assuming
+    // identical size) in case the video's resolution ever changes.
+    private void configureOrbTransform(int viewWidth, int viewHeight) {
+        if (orbTexture == null) return;
+        Matrix matrix = new Matrix();
+        RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
+        RectF bufferRect = new RectF(0, 0, ORB_VIDEO_WIDTH, ORB_VIDEO_HEIGHT);
+        float centerX = viewRect.centerX();
+        float centerY = viewRect.centerY();
+        bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
+        float scale = Math.max(
+                (float) viewHeight / ORB_VIDEO_HEIGHT,
+                (float) viewWidth / ORB_VIDEO_WIDTH);
+        matrix.postScale(scale, scale, centerX, centerY);
+        orbTexture.setTransform(matrix);
     }
 
     private boolean sessionActive = true;
@@ -347,9 +480,11 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
         awaitingConfirmation = false;
         JSONObject functionCall = pendingFunctionCall;
+        String thoughtSignature = pendingThoughtSignature;
         JSONArray messages = pendingMessages;
         int depth = pendingDepth;
         pendingFunctionCall = null;
+        pendingThoughtSignature = null;
         pendingMessages = null;
 
         if (no) {
@@ -375,6 +510,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             JSONObject assistantTurn = new JSONObject();
             assistantTurn.put("role", "assistant");
             assistantTurn.put("functionCall", functionCall);
+            if (thoughtSignature != null) assistantTurn.put("thoughtSignature", thoughtSignature);
             messages.put(assistantTurn);
 
             JSONObject functionResponseWrapper = new JSONObject();
@@ -494,7 +630,8 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 }
 
                 if (responseJson.has("functionCall")) {
-                    handleFunctionCall(messages, responseJson.getJSONObject("functionCall"), depth);
+                    String thoughtSignature = responseJson.optString("thoughtSignature", null);
+                    handleFunctionCall(messages, responseJson.getJSONObject("functionCall"), thoughtSignature, depth);
                 } else {
                     String reply = responseJson.optString("reply", "(empty response)");
                     mainHandler.post(() -> showReply(reply));
@@ -506,7 +643,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         }).start();
     }
 
-    private void handleFunctionCall(JSONArray messages, JSONObject functionCall, int depth) {
+    private void handleFunctionCall(JSONArray messages, JSONObject functionCall, String thoughtSignature, int depth) {
         try {
             String name = functionCall.optString("name", "");
             JSONObject args = functionCall.optJSONObject("args");
@@ -531,12 +668,17 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 // call and messages, ask the question, and pick this back
                 // up in handleConfirmationAnswer() once we hear yes/no.
                 pendingFunctionCall = functionCall;
+                pendingThoughtSignature = thoughtSignature;
                 pendingMessages = messages;
                 pendingDepth = depth;
                 confirmationAttempts = 0;
                 awaitingConfirmation = true;
-                final JSONObject argsForPrompt = args;
-                mainHandler.post(() -> showReply(buildConfirmationPrompt(name, argsForPrompt)));
+                // args gets reassigned above (args == null check), so it's
+                // not effectively-final — lambdas require that. Copy into
+                // final locals just for the capture.
+                final String fName = name;
+                final JSONObject fArgs = args;
+                mainHandler.post(() -> showReply(buildConfirmationPrompt(fName, fArgs)));
                 return;
             } else {
                 try {
@@ -551,6 +693,10 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             JSONObject assistantTurn = new JSONObject();
             assistantTurn.put("role", "assistant");
             assistantTurn.put("functionCall", functionCall);
+            // Echo Gemini's thought_signature back exactly as received —
+            // "thinking" models require this on every subsequent turn that
+            // includes a prior function call, or they error out / degrade.
+            if (thoughtSignature != null) assistantTurn.put("thoughtSignature", thoughtSignature);
             messages.put(assistantTurn);
 
             JSONObject functionResponseWrapper = new JSONObject();
@@ -650,6 +796,17 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         super.onDestroy();
         sessionActive = false;
         mainHandler.removeCallbacksAndMessages(null);
+        if (orbView != null) {
+            orbView.stopAnimating();
+            orbView = null;
+        }
+        if (orbMediaPlayer != null) {
+            try {
+                orbMediaPlayer.stop();
+            } catch (Exception ignored) {}
+            orbMediaPlayer.release();
+            orbMediaPlayer = null;
+        }
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;

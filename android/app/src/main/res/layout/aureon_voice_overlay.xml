@@ -1,36 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:background="#1A1A1A"
-    android:padding="24dp">
+    android:layout_height="match_parent"
+    android:background="@drawable/aureon_deep_space_bg">
 
-    <com.aureon.ai.AureonEnergyOrbView
-        android:id="@+id/aureon_orb"
-        android:layout_width="96dp"
-        android:layout_height="96dp" />
+    <!-- Orb video stays its own square size, centered — the deep-space
+         background around it (above) fills the rest of the screen instead
+         of stretching/cropping the orb itself to fit. -->
+    <TextureView
+        android:id="@+id/aureon_orb_texture"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
+        android:layout_gravity="center" />
 
-    <TextView
-        android:id="@+id/aureon_status_text"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Listening…"
-        android:textColor="#FFD54A"
-        android:textSize="18sp"
-        android:fontFamily="sans-serif-medium" />
-
-    <TextView
-        android:id="@+id/aureon_response_text"
+    <!-- Text sits on top of the video, near the bottom. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text=""
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
         android:gravity="center"
-        android:visibility="gone" />
+        android:padding="32dp">
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/aureon_status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Listening…"
+            android:textColor="#FFD54A"
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:shadowColor="#000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="4" />
+
+        <TextView
+            android:id="@+id/aureon_response_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:gravity="center"
+            android:shadowColor="#000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="4"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</FrameLayout>

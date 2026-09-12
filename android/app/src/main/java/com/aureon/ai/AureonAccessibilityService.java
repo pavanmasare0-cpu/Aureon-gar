@@ -47,7 +47,12 @@ public class AureonAccessibilityService extends AccessibilityService {
     private void maybeAnnounceAlarm(String screenText) {
         if (screenText == null) return;
         String lower = screenText.toLowerCase(Locale.ROOT);
-        boolean looksLikeAlarm = lower.contains("snooze");
+        // Require BOTH "snooze" and "stop" — the actual ringing screen has
+        // both ("Snooze for 5 min" + "Stop"), but the Edit Alarm settings
+        // screen also has a "Snooze" row (its duration/count setting)
+        // without any "Stop" button, so checking "snooze" alone falsely
+        // triggered while the user was just editing an alarm, not ringing.
+        boolean looksLikeAlarm = lower.contains("snooze") && lower.contains("stop");
         if (!looksLikeAlarm) return;
 
         long now = System.currentTimeMillis();
