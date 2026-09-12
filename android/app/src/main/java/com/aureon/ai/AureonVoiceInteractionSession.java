@@ -100,6 +100,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private AureonEnergyOrbView orbView; // kept for backward-compat field name, unused now
     private TextureView orbTexture;
+    private AureonNebulaLightningView nebulaBackground;
     private MediaPlayer orbMediaPlayer;
     private static final int ORB_VIDEO_WIDTH = 480;
     private static final int ORB_VIDEO_HEIGHT = 480;
@@ -152,6 +153,8 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         statusText = view.findViewById(R.id.aureon_status_text);
         responseText = view.findViewById(R.id.aureon_response_text);
         orbTexture = view.findViewById(R.id.aureon_orb_texture);
+        nebulaBackground = view.findViewById(R.id.aureon_nebula_bg);
+        if (nebulaBackground != null) nebulaBackground.startAnimating();
         setupOrbVideo();
 
         initTextToSpeech();
@@ -799,6 +802,10 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         if (orbView != null) {
             orbView.stopAnimating();
             orbView = null;
+        }
+        if (nebulaBackground != null) {
+            nebulaBackground.stopAnimating();
+            nebulaBackground = null;
         }
         if (orbMediaPlayer != null) {
             try {
