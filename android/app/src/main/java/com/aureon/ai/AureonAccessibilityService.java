@@ -47,55 +47,36 @@ public class AureonAccessibilityService extends AccessibilityService {
     private void maybeAnnounceAlarm(String screenText) {
         if (screenText == null) return;
         String lower = screenText.toLowerCase(Locale.ROOT);
-        // Require BOTH "snooze" and "stop" — the actual ringing screen has
-        // both ("Snooze for 5 min" + "Stop"), but the Edit Alarm settings
-        // screen also has a "Snooze" row (its duration/count setting)
-        // without any "Stop" button, so checking "snooze" alone falsely
-        // triggered while the user was just editing an alarm, not ringing.
-        boolean looksLikeAlarm = lower.contains("snooze") && lower.contains("stop");
+        boolean looksLikeAlarm = lower.contains("snooze");
         if (!looksLikeAlarm) return;
 
         long now = System.currentTimeMillis();
         if (now - lastAlarmAnnounceAt < ALARM_ANNOUNCE_COOLDOWN_MS) return; // avoid re-announcing on repeat events for the same ringing alarm
         lastAlarmAnnounceAt = now;
 
-        String alarmName = extractAlarmName(screenText);
-        String toSpeak = alarmName.isEmpty() ? "Your alarm is ringing." : ("Alarm: " + alarmName);
-        speak(toSpeak);
+        String label = extractAlarmLabel(screenText);
+        speak(label != null ? ("Alarm: " + label) : "Your alarm is ringing.");
     }
 
-    private static final String[] ALARM_DAY_NAMES = {
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-    };
-    private static final java.util.regex.Pattern ALARM_TIME_PATTERN =
-            java.util.regex.Pattern.compile("^\\d{1,2}[:.]\\d{2}\\s*(am|pm)?$", java.util.regex.Pattern.CASE_INSENSITIVE);
-
     /**
-     * readScreenInternal() returns one accessible-node value per line, so
-     * this filters out lines that are clearly time/date/button noise
-     * ("10:09", "Friday, 11 September", "Snooze for 5 min", "Stop") and
-     * keeps whatever's left — normally just the alarm's own label.
+     * readScreen() puts one UI element's text per line. The ringing screen
+     * always has a handful of predictable lines (current time, today's
+     * date, Snooze/Stop/Dismiss buttons) alongside the one line that's
+     * actually the alarm's own label — this filters those predictable
+     * ones out so only the label (if there is one) gets spoken, instead
+     * of reading the whole screen top to bottom.
      */
-    private String extractAlarmName(String screenText) {
-        String[] lines = screenText.split("\\n");
-        StringBuilder kept = new StringBuilder();
-        for (String rawLine : lines) {
-            String line = rawLine.trim();
-            if (line.isEmpty()) continue;
-            String lower = line.toLowerCase(Locale.ROOT);
-
-            if (ALARM_TIME_PATTERN.matcher(line).matches()) continue; // "10:09"
-            if (line.matches("\\d+")) continue; // stray lone numbers
-            if (lower.contains("snooze")) continue; // "Snooze for 5 min"
-            boolean isDayName = false;
-            for (String day : ALARM_DAY_NAMES) { if (lower.contains(day)) { isDayName = true; break; } }
-            if (isDayName) continue; // "Friday, 11 September"
-            if (lower.equals("stop") || lower.equals("dismiss") || lower.equals("cancel") || lower.equals("ok")) continue;
-
-            if (kept.length() > 0) kept.append(" ");
-            kept.append(line);
+    private String extractAlarmLabel(String screenText) {
+        for (String rawLine : screenText.split("\n")) {
+            String trimmed = rawLine.trim();
+            if (trimmed.isEmpty()) continue;
+            String l = trimmed.toLowerCase(Locale.ROOT);
+            if (l.contains("snooze") || l.contains("dismiss") || l.equals("stop")) continue;
+            if (trimmed.matches("(?i)\\d{1,2}:\\d{2}(\\s*[ap]\\.?m\\.?)?")) continue; // clock time, e.g. "10:09" / "10:09 AM"
+            if (l.matches("(?i).*(monday|tuesday|wednesday|thursday|friday|saturday|sunday).*")) continue; // date line
+            return trimmed;
         }
-        return kept.toString().trim();
+        return null;
     }
 
     /** A fresh short-lived TTS engine per announcement, shut down once it finishes speaking. */

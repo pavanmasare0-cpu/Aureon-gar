@@ -414,3 +414,40 @@ system waisa hi raha, bas Accessibility Service ko thoda smart bana diya.
 words hata deta hai baaki text se) — agar screen pe time/date bhi ho to
 wo bhi bol sakta hai naam ke saath. 15-second cooldown hai taaki baar-baar
 na bole ek hi alarm ke liye.
+
+## Round 18 — Alarm announcement: naam-only filtering
+
+Tumne test kiya — poora screen padh raha tha ("10:09", "Friday, 11
+September", "pavan", "Snooze for 5 min", "Stop") sirf naam nahi.
+
+**Fix:** `readScreen()` har UI element ko alag line mein deta hai — ab
+line-by-line filter karta hai:
+- Time-jaisi line (`10:09`, `10:09 AM`) skip
+- Date line (jisme koi weekday ka naam ho) skip
+- "snooze"/"dismiss"/"stop" wali button-label lines skip
+- Jo line bachi (usually sirf alarm ka naam) — wahi bolta hai
+
+Ab sirf "Alarm: pavan" bolna chahiye, poora screen nahi.
+
+## Round 19 — Real video-based orb (finally!)
+
+Tumhara bahut purana reference-video wala sapna ab poora ho gaya —
+`aureon-orb-fullscreen-final.zip` mein sab kuch tha (poori video file
+samet, jo pehle 2 patches mein missing thi). Verify kiya ki ye package
+mere round18 (sabse latest) ke upar hi bana tha, isliye koi feature
+regression nahi hua.
+
+**Kya-kya aaya:**
+- `res/raw/aureon_orb.mp4` — asli video file, ab APK ke andar bundled
+  hai
+- Overlay ab **poori tarah fullscreen** hai (immersive mode, navigation
+  bar bhi hide), deep-space purple gradient background ke saath
+- Video `TextureView` mein center mein loop hoti hai (300dp square),
+  neeche status/response text overlay hota hai
+- Agar video kabhi atak jaye (kuch devices pe `setLooping` reliable
+  nahi hota), khud restart ho jaati hai
+- Purana custom-drawn `AureonEnergyOrbView.java` ab use nahi ho raha
+  (dead code hai, harmless — chaho to baad mein delete kar sakte ho)
+
+**APK size thoda badh jayegi** (~2.5MB video ki wajah se) — normal hai,
+expect karna.

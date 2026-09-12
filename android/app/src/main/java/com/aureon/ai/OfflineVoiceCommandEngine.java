@@ -222,8 +222,15 @@ public final class OfflineVoiceCommandEngine {
                 return true;
             }
 
-            if (equalsAny(lower, "read screen", "read the screen", "what is on screen", "screen read",
-                    "स्क्रीन पढ़ो", "स्क्रीन वाचा")) {
+            // Broad/loose match (containsAny, not exact) on purpose — people
+            // phrase this many different ways ("screen padho", "ye padho",
+            // "kya likha hai", "isko read karo") and a strict exact-match
+            // was silently failing on anything that wasn't the literal
+            // English phrase.
+            if (containsAny(lower, "read screen", "read the screen", "what is on screen", "screen read",
+                    "screen padho", "screen padh", "ye padho", "isko padho", "yeh padho", "kya likha hai",
+                    "kya likha he", "screen pe kya hai", "read karo screen", "screen ko padho",
+                    "स्क्रीन पढ़ो", "स्क्रीन वाचा", "यह पढ़ो", "क्या लिखा है")) {
                 if (!AureonAccessibilityService.isEnabled()) { result.onHandled("Enable Aureon's Accessibility permission to read the screen."); return true; }
                 String screen = AureonAccessibilityService.readScreen();
                 result.onHandled(screen.isEmpty() ? "I can't read any visible text on this screen." : screen);
@@ -266,6 +273,22 @@ public final class OfflineVoiceCommandEngine {
             if (equalsAny(lower, "scroll up", "ऊपर स्क्रॉल करो", "वर स्क्रोल करा")) {
                 result.onHandled(AureonAccessibilityService.scroll(false) ? "Scrolled up." : "I couldn't scroll this screen."); return true;
             }
+            // ---- "3 dots"/menu icon, by common alias labels (offline) ----
+            // Accessibility can't literally "see" an icon's shape — it can
+            // only match the accessible label a developer gave that button.
+            // Almost every app labels its overflow ("⋮") button "More
+            // options" under the hood, so try the common aliases in turn
+            // instead of the literal words the user said.
+            if (containsAny(lower, "3 dot", "three dot", "तीन डॉट", "तीन बिंदु", "menu button", "dot menu", "overflow menu", "more options")) {
+                String[] aliases = {"More options", "More", "Menu", "Overflow menu", "..."};
+                boolean clicked = false;
+                for (String alias : aliases) {
+                    if (AureonAccessibilityService.clickText(alias)) { clicked = true; break; }
+                }
+                result.onHandled(clicked ? "Opened the menu." : "Couldn't find a menu button on this screen.");
+                return true;
+            }
+
             if (equalsAny(lower, "go back", "back", "वापस जाओ", "वापस", "मागे जा", "मागे")) {
                 result.onHandled(AureonAccessibilityService.globalAction(1) ? "Going back." : "Back isn't available."); return true;
             }
@@ -312,6 +335,21 @@ public final class OfflineVoiceCommandEngine {
                 if (appName != null && !appName.isEmpty() && openAnyApp(context, appName, result)) return true;
                 // Not found among installed apps — fall through so the AI
                 // backend can respond (e.g. "open a good book recommendation").
+            }
+
+            // ---- Last resort: click whatever's on screen matching what
+            // was said (e.g. a contact's name in a WhatsApp chat list) —
+            // no "click"/"tap" prefix needed. Only tried for SHORT phrases
+            // (up to 4 words), only when Accessibility is on, and only
+            // after every pattern above has already failed to match — a
+            // full sentence almost never means "tap this", but a bare name
+            // or button label usually does. ----
+            if (AureonAccessibilityService.isEnabled()) {
+                int wordCount = text.split("\\s+").length;
+                if (wordCount > 0 && wordCount <= 4 && AureonAccessibilityService.clickText(text)) {
+                    result.onHandled("Opened \"" + text + "\".");
+                    return true;
+                }
             }
         } catch (Exception e) { result.onHandled("I couldn't perform that action on this phone."); return true; }
         return false;

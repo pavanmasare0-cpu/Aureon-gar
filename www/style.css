@@ -35,6 +35,7 @@ html, body {
   color: var(--charcoal);
   font-family: 'Manrope', -apple-system, sans-serif;
   overscroll-behavior: none;
+  overflow-x: hidden;
 }
 
 .screen {
@@ -463,6 +464,7 @@ html, body {
 .messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 16px 6px;
   display: flex;
   flex-direction: column;
@@ -475,6 +477,8 @@ html, body {
   font-size: 15px;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .msg.user {
   align-self: flex-end;

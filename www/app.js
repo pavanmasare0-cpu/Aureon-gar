@@ -188,9 +188,46 @@ $('image-input')?.addEventListener('change', (e) => {
       $('image-preview-bar').classList.remove('hidden');
     };
     reader.readAsText(file);
+  } else if (
+    file.type === 'application/pdf' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.type === 'application/zip' || file.type === 'application/x-zip-compressed' ||
+    file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.zip')
+  ) {
+    // PDF / DOCX / ZIP — send to the backend's extractor (same one the
+    // Knowledge upload uses) so the actual content reaches the AI instead
+    // of just the filename with nothing behind it.
+    $('image-preview-thumb').classList.add('hidden');
+    $('file-preview-label').classList.remove('hidden');
+    $('attach-name').textContent = `${file.name} (reading…)`;
+    $('image-preview-bar').classList.remove('hidden');
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const [, data] = reader.result.split(',');
+        const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf'
+          : file.name.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/zip');
+        const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/extract-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, mimeType, dataBase64: data })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `Server returned ${res.status}`);
+        state.pendingFileText = result.text;
+        $('attach-name').textContent = file.name;
+      } catch (err) {
+        state.pendingFileText = null;
+        $('attach-name').textContent = `${file.name} (couldn't read: ${err.message})`;
+      }
+    };
+    reader.readAsDataURL(file);
   } else {
-    // PDF / doc / other — we can't extract text client-side yet, but still
-    // let the user attach it; they'll see a note that content wasn't read.
+    // Anything else we genuinely can't extract from (images handled above,
+    // unknown binary formats) — still let the user attach it, they'll see
+    // a note that content wasn't read.
     $('image-preview-thumb').classList.add('hidden');
     $('file-preview-label').classList.remove('hidden');
     $('attach-name').textContent = file.name;
@@ -450,7 +487,7 @@ function describeAgentAction(name, args, result) {
 // ---------- Personality + Memory ----------
 const BASE_PERSONALITY = `You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. Keep responses warm, natural, and conversational (like ChatGPT's tone), never stiff or robotic. Match the user's language style — if they write in Hinglish or Hindi, respond that way naturally. Keep it concise unless they ask for detail.`;
 
-const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, play a specific video on YouTube directly, compose an email draft, open a pre-filled WhatsApp message (by number or by saved contact name), send an Instagram DM to a contact by name, read back the latest visible message in an Instagram chat, or share live location with a contact via WhatsApp. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo", "Instagram mein Pavan ko message karo", "Pavan ka last message kya hai", "Pavan ko live location bhejo" — call the matching tool instead of just explaining how. For calls, SMS, Instagram DMs, and live location the app always asks the user to confirm the exact action before it actually happens, so go ahead and call the tool for those too — don't ask the user to confirm yourself in chat, the app's own confirm dialog already handles that. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. Anything using Accessibility (send_instagram_message, read_instagram_message, send_whatsapp_live_location) needs Aureon's Accessibility Service turned on (Settings inside the app will prompt for this) — if it fails because that's off, tell the user to enable it. send_whatsapp_live_location is experimental and may fail partway on some WhatsApp versions — if so, tell the user which step failed. IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
+const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, play a specific video on YouTube directly, compose an email draft, open a pre-filled WhatsApp message (by number or by saved contact name), send an Instagram DM to a contact by name, read back the latest visible message in an Instagram chat, or share live location with a contact via WhatsApp. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo", "Instagram mein Pavan ko message karo", "Pavan ka last message kya hai", "Pavan ko live location bhejo" — call the matching tool instead of just explaining how. For calls, SMS, Instagram DMs, and live location the app always asks the user to confirm the exact action before it actually happens, so go ahead and call the tool for those too — don't ask the user to confirm yourself in chat, the app's own confirm dialog already handles that. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. Anything using Accessibility (send_instagram_message, read_instagram_message, send_whatsapp_live_location) needs Aureon's Accessibility Service turned on (Settings inside the app will prompt for this) — if it fails because that's off, tell the user to enable it. send_whatsapp_live_location is experimental and may fail partway on some WhatsApp versions — if so, tell the user which step failed. Separately (not a tool call): whenever the user's message contains the word "pdf" in any form (e.g. "PDF bana do", "save as pdf", "pdf chahiye"), the app automatically shows a "Save as PDF" button right under your reply — so just answer their actual question/request normally, then briefly mention the button will appear below (e.g. "Neeche 'Save as PDF' button se save kar lena"). Never say you can't create or download a PDF, and never give manual copy-paste-to-Notes-app workarounds — that button already does it. IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
 
 function buildSystemPrompt() {
   const memory = localStorage.getItem('aureon_memory') || '';

@@ -297,9 +297,9 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   const payload = {
     contents: messages.map(m => {
       // A turn where Aureon (the model) previously requested a tool call.
-      // Gemini's "thinking" models attach a thought_signature to function
-      // calls that MUST be echoed back on the next turn, or later tool
-      // calls start failing with a "missing thought_signature" error.
+      // thoughtSignature must be echoed back exactly as Gemini sent it —
+      // "thinking" models reject/degrade multi-turn function calling
+      // without it (error: "Function call is missing a thought_signature").
       if (m.functionCall) {
         const part = { functionCall: m.functionCall };
         if (m.thoughtSignature) part.thoughtSignature = m.thoughtSignature;
@@ -341,9 +341,7 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   const parts = (candidate && candidate.content && candidate.content.parts) || [];
   const callPart = parts.find(p => p.functionCall);
   if (callPart) {
-    const out = { functionCall: callPart.functionCall };
-    if (callPart.thoughtSignature) out.thoughtSignature = callPart.thoughtSignature;
-    return out;
+    return { functionCall: callPart.functionCall, thoughtSignature: callPart.thoughtSignature };
   }
   const text = parts.map(p => p.text || '').join('').trim();
   if (text) return text;
@@ -488,6 +486,28 @@ function cosineSimilarity(a, b) {
 }
 
 // Upload a document: extract text -> chunk -> embed each chunk -> store in Firestore
+// Lightweight one-off extraction for files attached directly in chat —
+// unlike /api/knowledge/upload, this doesn't embed/store anything in
+// Firestore, it just reads the file's text back so it can be dropped into
+// the current conversation. No uid/db required.
+app.post('/api/extract-text', async (req, res) => {
+  try {
+    const { filename, mimeType, dataBase64 } = req.body;
+    if (!mimeType || !dataBase64) {
+      return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
+    }
+    const buffer = Buffer.from(dataBase64, 'base64');
+    const text = await extractText(mimeType, buffer);
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Could not extract any readable text from this file.' });
+    }
+    res.json({ filename, text: text.trim() });
+  } catch (err) {
+    console.error('Text extraction failed:', err);
+    res.status(500).json({ error: err.message || 'Could not read this file.' });
+  }
+});
+
 app.post('/api/knowledge/upload', async (req, res) => {
   if (!requireDb(res)) return;
   try {
@@ -660,9 +680,7 @@ app.post('/api/chat', async (req, res) => {
     // the app as-is so it can run the matching native action and report the
     // result in a follow-up request.
     if (reply && typeof reply === 'object' && reply.functionCall) {
-      const out = { functionCall: reply.functionCall };
-      if (reply.thoughtSignature) out.thoughtSignature = reply.thoughtSignature;
-      return res.json(out);
+      return res.json({ functionCall: reply.functionCall, thoughtSignature: reply.thoughtSignature });
     }
     res.json({ reply });
   } catch (err) {
