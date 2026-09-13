@@ -4,25 +4,22 @@
     android:layout_height="match_parent"
     android:background="@drawable/aureon_deep_space_bg">
 
-    <!-- Full-screen animated cosmic background + crackling lightning tendrils,
-         same blue/violet/gold palette as the orb video. Sits behind the orb;
-         its own start/stop is driven from AureonVoiceInteractionSession so it
-         only runs while the overlay is actually showing. -->
-    <com.aureon.ai.AureonNebulaLightningView
-        android:id="@+id/aureon_nebula_bg"
+    <!-- Static cosmic/nebula background, edge-to-edge — no animated lightning,
+         just the still image, per feedback. -->
+    <ImageView
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/aureon_cosmic_bg"
+        android:contentDescription="@null" />
 
-    <!-- Orb video — unchanged player/logic, just repositioned: centered
-         horizontally, sitting in the middle/lower-middle of the screen,
-         slightly smaller than before so it reads as foreground over the
-         cosmic background rather than filling the whole view. -->
+    <!-- Orb video — clipped to a circle (see Java) so no square box shows;
+         truly centered on screen and a bit smaller than before. -->
     <TextureView
         android:id="@+id/aureon_orb_texture"
-        android:layout_width="240dp"
-        android:layout_height="240dp"
-        android:layout_gravity="center"
-        android:layout_marginTop="60dp" />
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        android:layout_gravity="center" />
 
     <!-- Text sits below the orb, near the bottom. -->
     <LinearLayout

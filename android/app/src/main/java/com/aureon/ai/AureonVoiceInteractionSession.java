@@ -100,7 +100,6 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private AureonEnergyOrbView orbView; // kept for backward-compat field name, unused now
     private TextureView orbTexture;
-    private AureonNebulaLightningView nebulaBackground;
     private MediaPlayer orbMediaPlayer;
     private static final int ORB_VIDEO_WIDTH = 480;
     private static final int ORB_VIDEO_HEIGHT = 480;
@@ -153,8 +152,18 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         statusText = view.findViewById(R.id.aureon_status_text);
         responseText = view.findViewById(R.id.aureon_response_text);
         orbTexture = view.findViewById(R.id.aureon_orb_texture);
-        nebulaBackground = view.findViewById(R.id.aureon_nebula_bg);
-        if (nebulaBackground != null) nebulaBackground.startAnimating();
+        // The orb video is a plain rectangular MP4 (no alpha channel — video
+        // formats generally can't have a transparent background), so its
+        // square corners show as a hard black box over the nebula backdrop.
+        // Clipping the TextureView to a circular outline crops those corners
+        // away, leaving just the round orb visible.
+        orbTexture.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View v, android.graphics.Outline outline) {
+                outline.setOval(0, 0, v.getWidth(), v.getHeight());
+            }
+        });
+        orbTexture.setClipToOutline(true);
         setupOrbVideo();
 
         initTextToSpeech();
@@ -802,10 +811,6 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         if (orbView != null) {
             orbView.stopAnimating();
             orbView = null;
-        }
-        if (nebulaBackground != null) {
-            nebulaBackground.stopAnimating();
-            nebulaBackground = null;
         }
         if (orbMediaPlayer != null) {
             try {
