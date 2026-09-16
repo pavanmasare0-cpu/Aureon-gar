@@ -525,15 +525,22 @@ function renderRecent() {
     item.className = 'recent-item';
     item.textContent = chat.title;
     item.onclick = () => {
-      closeDrawer();
-      state.currentMessages = chat.messages;
-      state.activeChatId = chat.id;
-      $('messages').innerHTML = '';
-      chat.messages
-        .filter(m => m.content) // skip internal agent turns (functionCall/functionResponse have no content)
-        .forEach(m => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
-      $('chat-title-text').textContent = chat.title;
-      showScreen('screen-chat');
+      try {
+        closeDrawer();
+        const messages = Array.isArray(chat.messages) ? chat.messages : [];
+        state.currentMessages = messages;
+        state.activeChatId = chat.id;
+        $('messages').innerHTML = '';
+        messages
+          .filter(m => m && m.content) // skip internal agent turns (functionCall/functionResponse have no content)
+          .forEach(m => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
+        $('chat-title-text').textContent = chat.title || 'Chat';
+        showScreen('screen-chat');
+      } catch (err) {
+        console.error('Failed to open chat from history:', err);
+        addMessage && showScreen('screen-home');
+        alert('Could not open that chat — it may be corrupted. Try another one.');
+      }
     };
     list.appendChild(item);
   });
