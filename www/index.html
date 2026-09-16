@@ -124,7 +124,7 @@
       <div class="section-label">My Documents</div>
       <p class="setting-hint">Upload PDFs, Word docs, or text files — Aureon will read them and use them to answer your questions.</p>
 
-      <input type="file" id="knowledge-file-input" accept=".pdf,.docx,.txt,.zip,application/pdf,application/zip,application/x-zip-compressed" style="display:none;" />
+      <input type="file" id="knowledge-file-input" accept=".pdf,.docx,.txt,.zip,application/pdf,application/zip,application/x-zip-compressed" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
       <button class="primary-btn" id="btn-upload-knowledge">+ Upload Document</button>
       <div id="knowledge-upload-status" class="setting-hint hidden"></div>
 
@@ -169,7 +169,7 @@
       <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
       <div class="composer-actions">
         <button class="icon-btn plain" id="btn-attach-2" aria-label="Attach file">➕</button>
-        <input id="image-input" type="file" accept="image/*,.pdf,.doc,.docx,.txt,application/pdf,text/plain" style="display:none" />
+        <input id="image-input" type="file" accept="image/*,.pdf,.doc,.docx,.txt,application/pdf,text/plain" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
         <div class="composer-spacer"></div>
         <button class="icon-btn circle" id="btn-mic-2" aria-label="Voice input">🎤</button>
         <button class="icon-btn circle send" id="btn-send-chat" aria-label="Send">➤</button>
