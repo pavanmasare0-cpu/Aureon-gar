@@ -428,7 +428,28 @@ function chunkText(text, chunkSize = 1200, overlap = 150) {
   return chunks.filter(c => c.trim().length > 20);
 }
 
-async function extractText(mimeType, buffer) {
+// Some Android file pickers report a generic or empty MIME type for
+// certain extensions (.zip and .docx especially — often coming back as
+// "application/octet-stream" or ""), which would otherwise make a
+// perfectly valid file fail with "Unsupported file type". Falls back to
+// the filename's extension whenever the browser-reported type is missing
+// or one of these generic catch-alls.
+function resolveMimeType(mimeType, filename) {
+  const generic = !mimeType || mimeType === 'application/octet-stream' || mimeType === 'application/binary';
+  if (!generic) return mimeType;
+  const ext = (filename || '').toLowerCase().split('.').pop();
+  const byExt = {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    txt: 'text/plain',
+    md: 'text/plain',
+    zip: 'application/zip'
+  };
+  return byExt[ext] || mimeType;
+}
+
+async function extractText(mimeType, buffer, filename) {
+  mimeType = resolveMimeType(mimeType, filename);
   if (mimeType === 'application/pdf') {
     const data = await pdfParse(buffer);
     return data.text;
@@ -497,7 +518,7 @@ app.post('/api/extract-text', async (req, res) => {
       return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
     }
     const buffer = Buffer.from(dataBase64, 'base64');
-    const text = await extractText(mimeType, buffer);
+    const text = await extractText(mimeType, buffer, filename);
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Could not extract any readable text from this file.' });
     }
@@ -516,7 +537,7 @@ app.post('/api/knowledge/upload', async (req, res) => {
       return res.status(400).json({ error: 'uid, filename, mimeType, and dataBase64 are required' });
     }
     const buffer = Buffer.from(dataBase64, 'base64');
-    const text = await extractText(mimeType, buffer);
+    const text = await extractText(mimeType, buffer, filename);
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Could not extract any text from this file.' });
     }
