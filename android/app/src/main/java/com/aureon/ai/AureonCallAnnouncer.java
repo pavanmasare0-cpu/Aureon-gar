@@ -45,6 +45,47 @@ final class AureonCallAnnouncer {
     }
 
     private static String lookupContactName(Context context, String phoneNumber) {
+        // Primary lookup — Android's own PhoneLookup provider, which
+        // normally handles country-code/formatting differences internally.
+        String name = lookupViaPhoneLookup(context, phoneNumber);
+        if (name != null) return name;
+
+        // Fallback: PhoneLookup can still miss a match on some OEM ROMs when
+        // the incoming number's format differs from how it's saved in
+        // Contacts (e.g. incoming "9876543210" vs saved "+91 98765 43210").
+        // Compare just the last 10 digits against every saved number instead.
+        String digitsOnly = phoneNumber.replaceAll("[^0-9]", "");
+        if (digitsOnly.length() < 10) return null;
+        String last10 = digitsOnly.substring(digitsOnly.length() - 10);
+
+        Cursor cursor = null;
+        try {
+            Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
+            cursor = context.getContentResolver().query(uri,
+                    new String[]{ ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                            ContactsContract.CommonDataKinds.Phone.NUMBER },
+                    null, null, null);
+            if (cursor != null) {
+                int nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+                int numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                while (cursor.moveToNext()) {
+                    String savedNumber = numIdx >= 0 ? cursor.getString(numIdx) : null;
+                    if (savedNumber == null) continue;
+                    String savedDigits = savedNumber.replaceAll("[^0-9]", "");
+                    if (savedDigits.length() >= 10
+                            && savedDigits.substring(savedDigits.length() - 10).equals(last10)) {
+                        return nameIdx >= 0 ? cursor.getString(nameIdx) : null;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return null;
+    }
+
+    private static String lookupViaPhoneLookup(Context context, String phoneNumber) {
         Cursor cursor = null;
         try {
             Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phoneNumber));

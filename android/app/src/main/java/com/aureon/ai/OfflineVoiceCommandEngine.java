@@ -9,9 +9,11 @@ import android.database.Cursor;
 import android.location.Location;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.ContactsContract;
 import android.provider.Settings;
 import android.provider.Telephony;
+import android.telecom.TelecomManager;
 
 import androidx.core.content.ContextCompat;
 
@@ -181,20 +183,35 @@ public final class OfflineVoiceCommandEngine {
                 // the AI can ask for clarification instead of staying silent.
             }
 
-            // ---- Answer / decline an incoming call (BEST-EFFORT, EXPERIMENTAL).
-            // No official Android API lets a normal app answer calls
-            // programmatically (that needs MODIFY_PHONE_STATE, which isn't
-            // grantable to regular apps, or being the phone's Default
-            // Dialer). This instead tries tapping the on-screen
-            // Answer/Decline button via Accessibility — how well that works
-            // depends entirely on the phone's own incoming-call UI, and may
-            // not work at all on phones whose call screen uses a custom
-            // slide/gesture instead of a plain tappable button. ----
+            // ---- Answer an incoming call.
+            // Primary path: TelecomManager.acceptRingingCall() — an official
+            // API since Android 8.0 (API 26) made specifically for this,
+            // requiring only ANSWER_PHONE_CALLS (a normal grantable
+            // permission, not MODIFY_PHONE_STATE or default-dialer status).
+            // This works regardless of what the phone's own call screen
+            // looks like, unlike UI automation. Falls back to tapping an
+            // on-screen Answer/Accept button via Accessibility only on
+            // pre-Oreo devices or if the permission wasn't granted. ----
             if (equalsAny(lower, "answer call", "answer the call", "pick up call", "pick up the call",
                     "receive call", "call uthao", "call utha lo", "call receive karo",
                     "कॉल उठाओ", "कॉल रिसीव करो", "कॉल घ्या", "कॉल उचला")) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        && ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS)
+                        == PackageManager.PERMISSION_GRANTED) {
+                    try {
+                        TelecomManager telecomManager =
+                                (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
+                        if (telecomManager != null) {
+                            telecomManager.acceptRingingCall();
+                            result.onHandled("Answering the call.");
+                            return true;
+                        }
+                    } catch (SecurityException e) {
+                        // fall through to the accessibility-based attempt below
+                    }
+                }
                 if (!AureonAccessibilityService.isEnabled()) {
-                    result.onHandled("Enable Aureon's Accessibility permission to answer calls by voice.");
+                    result.onHandled("Enable Aureon's phone-call permission (or Accessibility) in Settings to answer calls by voice.");
                     return true;
                 }
                 boolean answered = AureonAccessibilityService.clickTextWithRetry("Answer", 2500)

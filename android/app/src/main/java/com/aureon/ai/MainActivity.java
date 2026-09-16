@@ -62,6 +62,16 @@ public class MainActivity extends BridgeActivity {
             needed.add(Manifest.permission.READ_CALL_LOG);
         }
 
+        // "call uthao" (voice answer) — lets Aureon accept a ringing call
+        // directly through the telephony framework (TelecomManager), which
+        // works regardless of what the phone's own call screen looks like.
+        // Available since Android 8.0 (API 26).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.ANSWER_PHONE_CALLS)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ANSWER_PHONE_CALLS);
+        }
+
         // "recent message padho" — reads the latest text message without
         // opening any app.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
