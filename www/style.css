@@ -501,6 +501,19 @@ html, body {
   border: 1px solid #5A2E22;
 }
 
+.msg-generated-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 14px;
+  margin: 0;
+}
+.msg-image-caption {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--charcoal-soft);
+}
+.icon-btn.plain#btn-generate-image { font-size: 19px; }
+
 .typing-indicator {
   display: flex;
   gap: 4px;

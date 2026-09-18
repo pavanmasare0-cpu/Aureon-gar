@@ -64,6 +64,36 @@ function startChatFrom(text) {
 // ---------- Chat screen ----------
 $('btn-back').onclick = () => { renderRecent(); showScreen('screen-home'); };
 $('btn-send-chat').onclick = sendMessage;
+
+$('btn-generate-image').onclick = async () => {
+  const input = $('chat-input');
+  const prompt = input.value.trim();
+  if (!prompt) { alert('Type a description first, then tap 🎨 to generate an image from it.'); return; }
+  input.value = '';
+
+  if ($('chat-title-text').textContent === 'New chat') {
+    $('chat-title-text').textContent = prompt.slice(0, 28) + (prompt.length > 28 ? '…' : '');
+  }
+
+  addMessage('user', `🎨 Generate: ${prompt}`);
+  $('typing-indicator').classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/generate-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    const data = await res.json();
+    $('typing-indicator').classList.add('hidden');
+    if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+    const dataUrl = `data:${data.mimeType};base64,${data.dataBase64}`;
+    addMessage('ai', '', false, dataUrl);
+  } catch (err) {
+    $('typing-indicator').classList.add('hidden');
+    addMessage('error', `Couldn't generate that image. ${err.message || ''}`);
+  }
+};
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
 $('btn-model-switch').onclick = () => openSheet('sheet-model');
 
@@ -80,10 +110,25 @@ document.querySelectorAll('#sheet-model .sheet-option').forEach(opt => {
   };
 });
 
-function addMessage(role, text, wantsPdf = false) {
+function addMessage(role, text, wantsPdf = false, imageDataUrl = null) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  div.textContent = text;
+
+  if (imageDataUrl) {
+    const img = document.createElement('img');
+    img.src = imageDataUrl;
+    img.className = 'msg-generated-image';
+    div.appendChild(img);
+    if (text) {
+      const caption = document.createElement('div');
+      caption.className = 'msg-image-caption';
+      caption.textContent = text;
+      div.appendChild(caption);
+    }
+  } else {
+    div.textContent = text;
+  }
+
   $('messages').appendChild(div);
 
   if (role === 'ai' && wantsPdf) {
@@ -155,6 +200,10 @@ state.pendingFileText = null; // extracted text for txt files
 state.pendingFileName = null;
 
 $('btn-attach-2')?.addEventListener('click', () => $('image-input').click());
+$('btn-attach')?.addEventListener('click', () => {
+  startChatFrom(''); // home screen's attach has no preview bar of its own — hop into chat first
+  $('image-input').click();
+});
 
 $('image-input')?.addEventListener('change', (e) => {
   const file = e.target.files && e.target.files[0];
@@ -175,6 +224,32 @@ $('image-input')?.addEventListener('change', (e) => {
       $('image-preview-thumb').classList.remove('hidden');
       $('file-preview-label').classList.add('hidden');
       $('attach-name').textContent = file.name;
+      $('image-preview-bar').classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+  } else if (file.type.startsWith('video/')) {
+    // Short video clips (a screen recording, a quick clip) go to Gemini the
+    // same way images do — as inlineData — so the model can actually watch
+    // and describe/answer questions about it. Large videos can exceed the
+    // request size limit; keep clips short (well under a minute) for this
+    // to work reliably.
+    const MAX_INLINE_VIDEO_BYTES = 18 * 1024 * 1024; // ~18MB raw, ~24MB after base64
+    if (file.size > MAX_INLINE_VIDEO_BYTES) {
+      $('image-preview-thumb').classList.add('hidden');
+      $('file-preview-label').classList.remove('hidden');
+      $('attach-name').textContent = `${file.name} — too large (keep videos under ~18MB / a short clip)`;
+      $('image-preview-bar').classList.remove('hidden');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const [prefix, data] = result.split(',');
+      const mimeType = prefix.match(/data:(.*);base64/)[1] || file.type;
+      state.pendingImage = { mimeType, data }; // same field the backend already forwards as inlineData
+      $('image-preview-thumb').classList.add('hidden');
+      $('file-preview-label').classList.remove('hidden');
+      $('attach-name').textContent = `🎬 ${file.name}`;
       $('image-preview-bar').classList.remove('hidden');
     };
     reader.readAsDataURL(file);

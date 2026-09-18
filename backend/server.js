@@ -674,6 +674,39 @@ app.post('/api/generate-pdf', async (req, res) => {
   }
 });
 
+// ---------- Image generation ("draw me a...", "generate an image of...") ----------
+// Uses Gemini's image-output model via the same GEMINI_API_KEY already
+// configured for chat — no separate API/key needed.
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt is required' });
+    if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not set on the server.' });
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Image generation failed');
+
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData && p.inlineData.data);
+    if (!imagePart) {
+      const textPart = parts.find(p => p.text);
+      throw new Error(textPart?.text || 'Model did not return an image for this prompt.');
+    }
+    res.json({ mimeType: imagePart.inlineData.mimeType || 'image/png', dataBase64: imagePart.inlineData.data });
+  } catch (err) {
+    console.error('Image generation failed:', err);
+    res.status(500).json({ error: err.message || 'Could not generate image' });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, model = 'gemini', systemPrompt, uid, useKnowledge, tools } = req.body;
