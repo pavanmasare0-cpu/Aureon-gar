@@ -507,6 +507,12 @@ html, body {
   border-radius: 14px;
   margin: 0;
 }
+.msg-generated-video {
+  display: block;
+  max-width: 100%;
+  border-radius: 14px;
+  margin: 0;
+}
 .msg-image-caption {
   margin-top: 8px;
   font-size: 13px;

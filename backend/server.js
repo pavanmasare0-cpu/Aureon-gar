@@ -9,6 +9,13 @@ const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const PDFDocument = require('pdfkit');
 const AdmZip = require('adm-zip');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 app.use(cors());
@@ -679,31 +686,101 @@ app.post('/api/generate-pdf', async (req, res) => {
 // configured for chat — no separate API/key needed.
 app.post('/api/generate-image', async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, sourceImage } = req.body; // sourceImage (optional): { mimeType, dataBase64 } — presence turns this into an edit request
     if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt is required' });
     if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not set on the server.' });
+
+    const parts = [{ text: prompt }];
+    if (sourceImage && sourceImage.dataBase64 && sourceImage.mimeType) {
+      // Same image-output model handles edits when given an input image
+      // alongside the instruction — no separate "editing" model needed.
+      parts.push({ inlineData: { mimeType: sourceImage.mimeType, data: sourceImage.dataBase64 } });
+    }
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] })
+        body: JSON.stringify({ contents: [{ role: 'user', parts }] })
       }
     );
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || 'Image generation failed');
 
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find(p => p.inlineData && p.inlineData.data);
+    const resultParts = data.candidates?.[0]?.content?.parts || [];
+    const imagePart = resultParts.find(p => p.inlineData && p.inlineData.data);
     if (!imagePart) {
-      const textPart = parts.find(p => p.text);
+      const textPart = resultParts.find(p => p.text);
       throw new Error(textPart?.text || 'Model did not return an image for this prompt.');
     }
     res.json({ mimeType: imagePart.inlineData.mimeType || 'image/png', dataBase64: imagePart.inlineData.data });
   } catch (err) {
     console.error('Image generation failed:', err);
     res.status(500).json({ error: err.message || 'Could not generate image' });
+  }
+});
+
+// ---------- Video editing (trim / caption / format-convert) ----------
+// Deterministic ffmpeg-based editing — not AI-generative. Runs on a
+// temp file per request and cleans up afterward either way.
+app.post('/api/edit-video', async (req, res) => {
+  const { videoBase64, mimeType, operation, params } = req.body;
+  if (!videoBase64 || !operation) {
+    return res.status(400).json({ error: 'videoBase64 and operation are required' });
+  }
+
+  const tmpDir = os.tmpdir();
+  const jobId = crypto.randomBytes(8).toString('hex');
+  const inExt = (mimeType && mimeType.split('/')[1]) || 'mp4';
+  const inputPath = path.join(tmpDir, `aureon-in-${jobId}.${inExt}`);
+  const outExt = operation === 'convert' && params?.format ? params.format : inExt;
+  const outputPath = path.join(tmpDir, `aureon-out-${jobId}.${outExt}`);
+
+  const cleanup = () => {
+    fs.unlink(inputPath, () => {});
+    fs.unlink(outputPath, () => {});
+  };
+
+  try {
+    fs.writeFileSync(inputPath, Buffer.from(videoBase64, 'base64'));
+
+    await new Promise((resolve, reject) => {
+      let cmd = ffmpeg(inputPath);
+
+      if (operation === 'trim') {
+        const start = Number(params?.startSeconds) || 0;
+        const end = params?.endSeconds != null ? Number(params.endSeconds) : null;
+        cmd = cmd.setStartTime(start);
+        if (end != null && end > start) cmd = cmd.setDuration(end - start);
+      } else if (operation === 'caption') {
+        const text = String(params?.text || '').replace(/'/g, "\\'").replace(/:/g, '\\:');
+        // Simple burned-in caption near the bottom of the frame.
+        cmd = cmd.videoFilters(
+          `drawtext=text='${text}':fontcolor=white:fontsize=28:box=1:boxcolor=black@0.6:boxborderw=8:x=(w-text_w)/2:y=h-th-40`
+        );
+      } else if (operation === 'convert') {
+        // format is already reflected in outputPath's extension; ffmpeg
+        // infers the target container/codec from that.
+      } else {
+        reject(new Error(`Unknown operation: ${operation}`));
+        return;
+      }
+
+      cmd
+        .on('end', resolve)
+        .on('error', reject)
+        .save(outputPath);
+    });
+
+    const outBuffer = fs.readFileSync(outputPath);
+    const outMime = `video/${outExt === 'mp4' ? 'mp4' : outExt}`;
+    res.json({ mimeType: outMime, dataBase64: outBuffer.toString('base64') });
+  } catch (err) {
+    console.error('Video edit failed:', err);
+    res.status(500).json({ error: err.message || 'Video editing failed' });
+  } finally {
+    cleanup();
   }
 });
 

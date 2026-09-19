@@ -66,23 +66,42 @@ $('btn-back').onclick = () => { renderRecent(); showScreen('screen-home'); };
 $('btn-send-chat').onclick = sendMessage;
 
 $('btn-generate-image').onclick = async () => {
+  const pendingVideo = state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('video/')
+    ? state.pendingImage
+    : null;
+
+  if (pendingVideo) {
+    await handleVideoEdit(pendingVideo);
+    return;
+  }
+
   const input = $('chat-input');
   const prompt = input.value.trim();
   if (!prompt) { alert('Type a description first, then tap 🎨 to generate an image from it.'); return; }
   input.value = '';
 
+  const editingImage = state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('image/')
+    ? state.pendingImage
+    : null;
+
   if ($('chat-title-text').textContent === 'New chat') {
     $('chat-title-text').textContent = prompt.slice(0, 28) + (prompt.length > 28 ? '…' : '');
   }
 
-  addMessage('user', `🎨 Generate: ${prompt}`);
+  addMessage('user', editingImage ? `✏️ Edit: ${prompt}` : `🎨 Generate: ${prompt}`);
+  if (editingImage) {
+    state.pendingImage = null;
+    $('image-preview-bar').classList.add('hidden');
+  }
   $('typing-indicator').classList.remove('hidden');
 
   try {
+    const body = { prompt };
+    if (editingImage) body.sourceImage = { mimeType: editingImage.mimeType, dataBase64: editingImage.data };
     const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/generate-image`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     $('typing-indicator').classList.add('hidden');
@@ -91,7 +110,7 @@ $('btn-generate-image').onclick = async () => {
     addMessage('ai', '', false, dataUrl);
   } catch (err) {
     $('typing-indicator').classList.add('hidden');
-    addMessage('error', `Couldn't generate that image. ${err.message || ''}`);
+    addMessage('error', `Couldn't ${editingImage ? 'edit' : 'generate'} that image. ${err.message || ''}`);
   }
 };
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
@@ -110,7 +129,7 @@ document.querySelectorAll('#sheet-model .sheet-option').forEach(opt => {
   };
 });
 
-function addMessage(role, text, wantsPdf = false, imageDataUrl = null) {
+function addMessage(role, text, wantsPdf = false, imageDataUrl = null, videoDataUrl = null) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
 
@@ -119,6 +138,18 @@ function addMessage(role, text, wantsPdf = false, imageDataUrl = null) {
     img.src = imageDataUrl;
     img.className = 'msg-generated-image';
     div.appendChild(img);
+    if (text) {
+      const caption = document.createElement('div');
+      caption.className = 'msg-image-caption';
+      caption.textContent = text;
+      div.appendChild(caption);
+    }
+  } else if (videoDataUrl) {
+    const video = document.createElement('video');
+    video.src = videoDataUrl;
+    video.controls = true;
+    video.className = 'msg-generated-video';
+    div.appendChild(video);
     if (text) {
       const caption = document.createElement('div');
       caption.className = 'msg-image-caption';
@@ -317,6 +348,60 @@ $('btn-remove-image')?.addEventListener('click', () => {
   state.pendingFileName = null;
   $('image-preview-bar').classList.add('hidden');
 });
+
+async function handleVideoEdit(pendingVideo) {
+  const op = (prompt('Edit video — type one: trim, caption, or convert') || '').trim().toLowerCase();
+  if (!op) return;
+
+  let params = {};
+  let label = '';
+  if (op === 'trim') {
+    const start = prompt('Start time in seconds (e.g. 0)', '0');
+    if (start === null) return;
+    const end = prompt('End time in seconds (e.g. 15)');
+    if (end === null) return;
+    params = { startSeconds: Number(start) || 0, endSeconds: end ? Number(end) : null };
+    label = `✂️ Trim ${params.startSeconds}s–${params.endSeconds ?? '…'}s`;
+  } else if (op === 'caption') {
+    const text = prompt('Caption text to burn into the video:');
+    if (!text) return;
+    params = { text };
+    label = `✂️ Caption: ${text}`;
+  } else if (op === 'convert') {
+    const format = (prompt('Target format (mp4 or webm):', 'mp4') || 'mp4').trim().toLowerCase();
+    params = { format };
+    label = `✂️ Convert to .${format}`;
+  } else {
+    alert('Unrecognized option — type exactly: trim, caption, or convert.');
+    return;
+  }
+
+  addMessage('user', label);
+  state.pendingImage = null;
+  $('image-preview-bar').classList.add('hidden');
+  $('typing-indicator').classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/edit-video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videoBase64: pendingVideo.data,
+        mimeType: pendingVideo.mimeType,
+        operation: op,
+        params
+      })
+    });
+    const data = await res.json();
+    $('typing-indicator').classList.add('hidden');
+    if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
+    const dataUrl = `data:${data.mimeType};base64,${data.dataBase64}`;
+    addMessage('ai', '', false, null, dataUrl);
+  } catch (err) {
+    $('typing-indicator').classList.add('hidden');
+    addMessage('error', `Couldn't edit that video. ${err.message || ''}`);
+  }
+}
 
 async function sendMessage() {
   const input = $('chat-input');
