@@ -799,6 +799,22 @@ app.post('/api/chat', async (req, res) => {
     }
 
     let finalSystemPrompt = systemPrompt || '';
+
+    if (!tools) {
+      // Plain chat turns have google_search available (see
+      // callGeminiWithModel) — but Gemini decides on its own whether a
+      // question actually needs a search, and it can get this wrong when it
+      // doesn't realize how much time has passed since its training data
+      // (e.g. assuming a tournament "hasn't happened yet" when it actually
+      // has). Giving it today's real date, and explicitly telling it to
+      // search rather than guess for anything time-sensitive, fixes both
+      // problems at once.
+      const today = new Date().toLocaleDateString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
+      finalSystemPrompt += `\n\nToday's real date is ${today}. Your own training data has a cutoff well before this date, so don't assume something "hasn't happened yet" or reason purely from memory for anything that could have changed — sports results/schedules, news, prices, current holders of a position, ongoing events, etc. For those, use the google_search tool to check before answering instead of guessing from what you remember.`;
+    }
+
     if (useKnowledge && uid && db) {
       try {
         const lastUserMsg = [...messages].reverse().find(m => m.role === 'user' && m.content);
