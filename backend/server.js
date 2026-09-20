@@ -328,6 +328,13 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   }
   if (useTools) {
     payload.tools = AGENT_TOOLS;
+  } else {
+    // Plain chat (not an agent/phone-action turn) — let Gemini search the
+    // web on its own when a question needs current/live information (news,
+    // scores, prices, "what's happening with X right now", etc). The model
+    // decides per-question whether a search is actually needed; this
+    // doesn't force one on every message.
+    payload.tools = [{ google_search: {} }];
   }
 
   const res = await fetch(
