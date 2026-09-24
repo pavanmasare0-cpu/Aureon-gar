@@ -202,6 +202,33 @@ const AGENT_TOOLS = [
           },
           required: ['contact_name']
         }
+      },
+      {
+        name: 'save_reminder',
+        description: 'Saves something the user wants remembered for later, to be recalled on request (not spoken proactively at any specific time). Call this whenever the user says something like "yaad rakhna", "note kar lo", "remind me to...", "isko yaad rakhna" — in any language — followed by whatever they want remembered. Write the reminder as a short, clear, self-contained sentence in the same language the user said it in, keeping any time/context detail they mentioned (e.g. "sham ko" / "evening", "kal", "tomorrow") as PART OF the reminder text itself, since this is only recalled when the user later asks, not fired automatically at that time.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            text: { type: 'STRING', description: 'The reminder, written as a short self-contained sentence including any time/context the user mentioned, e.g. "Gaadi ka petrol khatam hone wala hai, sham ko petrol dalwana hai."' }
+          },
+          required: ['text']
+        }
+      },
+      {
+        name: 'recall_reminders',
+        description: 'Fetches whatever the user previously asked to be remembered (via save_reminder) that hasn\'t been read back to them yet. Call this when the user asks something like "kuch bhul raha hu", "kya yaad rakhna tha", "meri reminders batao", "koi reminder hai kya" — in any language. Read the returned reminders back to the user naturally (not as a robotic list) — if there are none, say so plainly rather than making something up.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'update_memory',
+        description: 'Saves a short, durable fact about the user permanently, so every future conversation (voice or typed) remembers it automatically — not just this one. Use this for things worth knowing about the user long-term: their name, preferences, ongoing life situations, people/things they mention often — NOT for one-off things to recall later (use save_reminder for those instead; a reminder is time-bound and read back once on request, memory is permanent background context). Only call this for something genuinely worth permanently knowing, not every passing detail of the conversation — and never for anything sensitive (health, finances, relationships problems, etc.) unless the user is explicitly asking you to remember it. Write it as a short third-person fact, in English, e.g. "Prefers short, direct answers." or "Owns a car, sometimes asks about fuel/maintenance."',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fact: { type: 'STRING', description: 'The short, durable fact to remember, third-person, e.g. "Name is Pavan."' }
+          },
+          required: ['fact']
+        }
       }
     ]
   }
@@ -279,12 +306,18 @@ async function fetchCandidateModels() {
 }
 
 function rankCandidates(candidates) {
+  // Text-to-speech / audio-only / image-only / realtime variants show up in
+  // the model list too (e.g. a "-tts" model) but can't handle a normal
+  // text+tool-calling request at all — picking one as a fallback is what
+  // produced "Function calling is not enabled for this model" once the
+  // primary model hit its quota.
+  const unsuitable = /preview|exp|thinking|live|translate|-tts$|tts-|audio|realtime|image-generation|embedding/i;
   const latestAlias = candidates.filter(name => /^gemini-flash-latest$/i.test(name));
   const stableFlash = candidates
-    .filter(name => /flash/i.test(name) && !/preview|exp|thinking|live|translate/i.test(name) && !/^gemini-flash-latest$/i.test(name))
+    .filter(name => /flash/i.test(name) && !unsuitable.test(name) && !/^gemini-flash-latest$/i.test(name))
     .sort((a, b) => extractVersion(b) - extractVersion(a));
-  const otherFlash = candidates.filter(name => /flash/i.test(name) && !latestAlias.includes(name) && !stableFlash.includes(name));
-  const rest = candidates.filter(name => !latestAlias.includes(name) && !stableFlash.includes(name) && !otherFlash.includes(name));
+  const otherFlash = candidates.filter(name => /flash/i.test(name) && !unsuitable.test(name) && !latestAlias.includes(name) && !stableFlash.includes(name));
+  const rest = candidates.filter(name => !unsuitable.test(name) && !latestAlias.includes(name) && !stableFlash.includes(name) && !otherFlash.includes(name));
 
   return [...latestAlias, ...stableFlash, ...otherFlash, ...rest];
 }
@@ -377,7 +410,7 @@ async function callGemini(messages, systemPrompt, useTools) {
   let lastErr;
   const triedThisCall = new Set();
 
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     const model = ranked.find(name => !triedThisCall.has(name));
     if (!model) break;
     triedThisCall.add(model);
@@ -388,8 +421,8 @@ async function callGemini(messages, systemPrompt, useTools) {
       lastErr = err;
       const msg = err.message || '';
 
-      const isPermanentIssue = /not found|no longer available|unsupported|deprecated|is not supported/i.test(msg);
-      const isTemporaryOverload = /high demand|overloaded|try again later|quota|rate limit/i.test(msg);
+      const isPermanentIssue = /not found|no longer available|unsupported|deprecated|is not supported|function calling is not enabled/i.test(msg);
+      const isTemporaryOverload = /high demand|overloaded|try again later|quota|rate limit|exceeded/i.test(msg);
 
       if (isPermanentIssue) {
         console.warn(`Gemini model "${model}" permanently unavailable, blacklisting:`, msg);
@@ -791,6 +824,46 @@ app.post('/api/edit-video', async (req, res) => {
   }
 });
 
+// ---------- Reminders (recall-on-request only, no scheduled alerts) ----------
+async function saveReminderToFirestore(uid, text) {
+  await db.collection('users').doc(uid).collection('reminders').add({
+    text,
+    delivered: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+// Fetches every not-yet-delivered reminder and marks them delivered in the
+// same call — recall_reminders is meant to surface each one once, not repeat
+// the same list forever every time the user asks.
+async function consumeUndeliveredReminders(uid) {
+  const snap = await db.collection('users').doc(uid).collection('reminders')
+    .where('delivered', '==', false).orderBy('createdAt', 'asc').get();
+  if (snap.empty) return [];
+  const batch = db.batch();
+  const texts = [];
+  snap.docs.forEach(doc => {
+    texts.push(doc.data().text);
+    batch.update(doc.ref, { delivered: true });
+  });
+  await batch.commit();
+  return texts;
+}
+
+// Reads the existing personalization-memory text (same doc /api/memory
+// serves) and appends one more line to it — this is how update_memory
+// grows it automatically from conversation, on top of whatever the user
+// typed into Settings by hand.
+async function appendToMemory(uid, fact) {
+  const ref = db.collection('users').doc(uid).collection('profile').doc('memory');
+  const doc = await ref.get();
+  const existing = doc.exists ? (doc.data().text || '') : '';
+  const clean = String(fact || '').trim();
+  if (!clean) return;
+  const updated = existing.trim() ? `${existing.trim()}\n${clean}` : clean;
+  await ref.set({ text: updated, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+}
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, model = 'gemini', systemPrompt, uid, useKnowledge, tools } = req.body;
@@ -828,22 +901,124 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const provider = PROVIDERS[model] || PROVIDERS.openai;
-    const reply = await provider(messages, finalSystemPrompt, !!tools);
+    const workingMessages = [...messages];
 
-    // Gemini may respond with a tool call instead of text — hand it back to
-    // the app as-is so it can run the matching native action and report the
-    // result in a follow-up request.
-    if (reply && typeof reply === 'object' && reply.functionCall) {
-      return res.json({ functionCall: reply.functionCall, thoughtSignature: reply.thoughtSignature });
+    // save_reminder / recall_reminders are handled right here on the
+    // backend (Firestore), not passed out to the client like every other
+    // tool — the client has no way to execute a "read/write a database
+    // record" action anyway. Looping in-process means the client never
+    // even sees these two tool names; it only ever gets back the final
+    // spoken/text reply, exactly as if this had been a normal turn.
+    for (let round = 0; round < 5; round++) {
+      const reply = await provider(workingMessages, finalSystemPrompt, !!tools);
+
+      if (!(reply && typeof reply === 'object' && reply.functionCall)) {
+        return res.json({ reply });
+      }
+
+      const { name, args = {} } = reply.functionCall;
+      if (name !== 'save_reminder' && name !== 'recall_reminders' && name !== 'update_memory') {
+        // A genuine device-action tool — hand it back to the app as before.
+        return res.json({ functionCall: reply.functionCall, thoughtSignature: reply.thoughtSignature });
+      }
+      if (!requireDb(res)) return;
+      if (!uid) return res.status(400).json({ error: 'uid is required to use reminders/memory' });
+
+      let result;
+      try {
+        if (name === 'save_reminder') {
+          await saveReminderToFirestore(uid, String(args.text || '').trim());
+          result = { result: 'Saved.' };
+        } else if (name === 'recall_reminders') {
+          const texts = await consumeUndeliveredReminders(uid);
+          result = { result: texts.length ? texts.join(' | ') : 'No pending reminders.' };
+        } else {
+          await appendToMemory(uid, args.fact);
+          result = { result: 'Remembered.' };
+        }
+      } catch (reminderErr) {
+        console.error('Reminder/memory tool failed:', reminderErr);
+        result = { result: 'Could not access that right now.' };
+      }
+
+      workingMessages.push({ role: 'assistant', functionCall: reply.functionCall, thoughtSignature: reply.thoughtSignature });
+      workingMessages.push({ role: 'function', functionResponse: { name, response: result } });
     }
-    res.json({ reply });
+
+    res.status(500).json({ error: 'Reminder handling did not resolve — try again.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong' });
   }
 });
 
+// ---------- Personal memory/notes ----------
+// The "things Aureon should remember about me" text from Settings used to
+// live only in the phone's localStorage — gone the moment the app was
+// uninstalled or the phone was replaced. Stored in Firestore now, same
+// account-tied way as chat history, so it survives both.
+app.get('/api/memory', async (req, res) => {
+  if (!requireDb(res)) return;
+  try {
+    const { uid } = req.query;
+    if (!uid) return res.status(400).json({ error: 'uid is required' });
+    const doc = await db.collection('users').doc(uid).collection('profile').doc('memory').get();
+    res.json({ text: doc.exists ? (doc.data().text || '') : '' });
+  } catch (err) {
+    console.error('Loading memory failed:', err);
+    res.status(500).json({ error: err.message || 'Could not load memory' });
+  }
+});
+
+app.post('/api/memory', async (req, res) => {
+  if (!requireDb(res)) return;
+  try {
+    const { uid, text } = req.body;
+    if (!uid) return res.status(400).json({ error: 'uid is required' });
+    await db.collection('users').doc(uid).collection('profile').doc('memory').set({
+      text: text || '',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Saving memory failed:', err);
+    res.status(500).json({ error: err.message || 'Could not save memory' });
+  }
+});
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/', (req, res) => res.send('Aureon AI backend is running. POST to /api/chat.'));
+
+// ---------- Save a conversation to chat history ----------
+// Used by the native "Hey Aureon" voice assistant (AureonVoiceInteractionSession,
+// which has no access to the WebView's Firestore session) so voice
+// conversations show up in the same chat history as typed ones, instead of
+// vanishing when the voice overlay closes. Mirrors the same
+// users/{uid}/chats/{chatId} shape the web app already writes directly
+// from JS. Not auth-protected yet (matches how the rest of this backend
+// currently works) — that's a separate, larger change being done later.
+app.post('/api/chat/save', async (req, res) => {
+  if (!requireDb(res)) return;
+  try {
+    const { uid, chatId, title, messages } = req.body;
+    if (!uid || !chatId || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'uid, chatId, and a non-empty messages array are required' });
+    }
+    const derivedTitle = (title && title.trim())
+      || (messages[0] && messages[0].content ? String(messages[0].content).slice(0, 40) : 'Voice chat');
+
+    await db.collection('users').doc(uid).collection('chats').doc(chatId).set({
+      title: derivedTitle,
+      messages,
+      source: 'voice',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    res.json({ ok: true, chatId });
+  } catch (err) {
+    console.error('Saving voice chat failed:', err);
+    res.status(500).json({ error: err.message || 'Could not save conversation' });
+  }
+});
 
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));
