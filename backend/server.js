@@ -891,6 +891,9 @@ app.post('/api/chat', async (req, res) => {
         const ownerDoc = saidCodeNow ? { exists: true } : await ownerRef.get();
         if (saidCodeNow || (ownerDoc.exists && ownerDoc.data && ownerDoc.data().isOwner)) {
           finalSystemPrompt += `\n\nThis user is Pavan — the owner and developer of Aureon itself. Treat him accordingly.`;
+          if (saidCodeNow) {
+            finalSystemPrompt += ` He just entered his owner-verification code in this message — acknowledge that you now recognize him as Pavan/the owner (briefly, naturally) instead of asking what the code is for or treating it as something to save/remember.`;
+          }
         }
       } catch (ownerErr) {
         console.warn('Owner-check failed, continuing without it:', ownerErr.message);
