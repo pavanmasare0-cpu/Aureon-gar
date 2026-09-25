@@ -873,6 +873,30 @@ app.post('/api/chat', async (req, res) => {
 
     let finalSystemPrompt = systemPrompt || '';
 
+    // Fixed personality answers — always included, no tool call needed.
+    finalSystemPrompt += `\n\nIf the user asks who made you, who your developer/owner/creator is, or similar (in any language) — the answer is always Pavan. You can refer to him reverentially/playfully too if it fits the tone (e.g. "Bhagwan Pavan", "God Pavan"), but the name is always Pavan, never say you don't know or that you're made by Google/OpenAI/etc. If the user jokingly asks about "kismat" (fate/luck) — respond playfully that it was the worst ("sabse bakwas thi") rather than answering literally.`;
+
+    // ---- Owner recognition ----
+    // A one-time spoken/typed code permanently marks this uid as the
+    // owner (Pavan) — checked here so it works from any device/session
+    // that logs in as this uid, not just the one where it was first said.
+    const OWNER_CODE = 'pavan27604692005';
+    if (uid && db) {
+      try {
+        const ownerRef = db.collection('users').doc(uid).collection('profile').doc('owner');
+        const saidCodeNow = messages.some(m => m && typeof m.content === 'string' && m.content.includes(OWNER_CODE));
+        if (saidCodeNow) {
+          await ownerRef.set({ isOwner: true, verifiedAt: admin.firestore.FieldValue.serverTimestamp() });
+        }
+        const ownerDoc = saidCodeNow ? { exists: true } : await ownerRef.get();
+        if (saidCodeNow || (ownerDoc.exists && ownerDoc.data && ownerDoc.data().isOwner)) {
+          finalSystemPrompt += `\n\nThis user is Pavan — the owner and developer of Aureon itself. Treat him accordingly.`;
+        }
+      } catch (ownerErr) {
+        console.warn('Owner-check failed, continuing without it:', ownerErr.message);
+      }
+    }
+
     if (!tools) {
       // Plain chat turns have google_search available (see
       // callGeminiWithModel) — but Gemini decides on its own whether a
