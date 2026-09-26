@@ -36,6 +36,12 @@ public class AureonCallListenerService extends Service {
     public void onCreate() {
         super.onCreate();
 
+        // Pay TTS's async-init cost now, once, instead of on the first
+        // actual ring — that init delay was the main reason the caller's
+        // name used to be announced well after the phone had already
+        // started ringing.
+        AureonCallAnnouncer.warmUp(getApplicationContext());
+
         phoneStateReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {

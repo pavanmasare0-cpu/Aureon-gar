@@ -66,42 +66,23 @@ $('btn-back').onclick = () => { renderRecent(); showScreen('screen-home'); };
 $('btn-send-chat').onclick = sendMessage;
 
 $('btn-generate-image').onclick = async () => {
-  const pendingVideo = state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('video/')
-    ? state.pendingImage
-    : null;
-
-  if (pendingVideo) {
-    await handleVideoEdit(pendingVideo);
-    return;
-  }
-
   const input = $('chat-input');
   const prompt = input.value.trim();
   if (!prompt) { alert('Type a description first, then tap 🎨 to generate an image from it.'); return; }
   input.value = '';
 
-  const editingImage = state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('image/')
-    ? state.pendingImage
-    : null;
-
   if ($('chat-title-text').textContent === 'New chat') {
     $('chat-title-text').textContent = prompt.slice(0, 28) + (prompt.length > 28 ? '…' : '');
   }
 
-  addMessage('user', editingImage ? `✏️ Edit: ${prompt}` : `🎨 Generate: ${prompt}`);
-  if (editingImage) {
-    state.pendingImage = null;
-    $('image-preview-bar').classList.add('hidden');
-  }
+  addMessage('user', `🎨 Generate: ${prompt}`);
   $('typing-indicator').classList.remove('hidden');
 
   try {
-    const body = { prompt };
-    if (editingImage) body.sourceImage = { mimeType: editingImage.mimeType, dataBase64: editingImage.data };
     const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/generate-image`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ prompt })
     });
     const data = await res.json();
     $('typing-indicator').classList.add('hidden');
@@ -110,7 +91,7 @@ $('btn-generate-image').onclick = async () => {
     addMessage('ai', '', false, dataUrl);
   } catch (err) {
     $('typing-indicator').classList.add('hidden');
-    addMessage('error', `Couldn't ${editingImage ? 'edit' : 'generate'} that image. ${err.message || ''}`);
+    addMessage('error', `Couldn't generate that image. ${err.message || ''}`);
   }
 };
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
@@ -129,7 +110,7 @@ document.querySelectorAll('#sheet-model .sheet-option').forEach(opt => {
   };
 });
 
-function addMessage(role, text, wantsPdf = false, imageDataUrl = null, videoDataUrl = null) {
+function addMessage(role, text, wantsPdf = false, imageDataUrl = null) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
 
@@ -138,18 +119,6 @@ function addMessage(role, text, wantsPdf = false, imageDataUrl = null, videoData
     img.src = imageDataUrl;
     img.className = 'msg-generated-image';
     div.appendChild(img);
-    if (text) {
-      const caption = document.createElement('div');
-      caption.className = 'msg-image-caption';
-      caption.textContent = text;
-      div.appendChild(caption);
-    }
-  } else if (videoDataUrl) {
-    const video = document.createElement('video');
-    video.src = videoDataUrl;
-    video.controls = true;
-    video.className = 'msg-generated-video';
-    div.appendChild(video);
     if (text) {
       const caption = document.createElement('div');
       caption.className = 'msg-image-caption';
@@ -348,60 +317,6 @@ $('btn-remove-image')?.addEventListener('click', () => {
   state.pendingFileName = null;
   $('image-preview-bar').classList.add('hidden');
 });
-
-async function handleVideoEdit(pendingVideo) {
-  const op = (prompt('Edit video — type one: trim, caption, or convert') || '').trim().toLowerCase();
-  if (!op) return;
-
-  let params = {};
-  let label = '';
-  if (op === 'trim') {
-    const start = prompt('Start time in seconds (e.g. 0)', '0');
-    if (start === null) return;
-    const end = prompt('End time in seconds (e.g. 15)');
-    if (end === null) return;
-    params = { startSeconds: Number(start) || 0, endSeconds: end ? Number(end) : null };
-    label = `✂️ Trim ${params.startSeconds}s–${params.endSeconds ?? '…'}s`;
-  } else if (op === 'caption') {
-    const text = prompt('Caption text to burn into the video:');
-    if (!text) return;
-    params = { text };
-    label = `✂️ Caption: ${text}`;
-  } else if (op === 'convert') {
-    const format = (prompt('Target format (mp4 or webm):', 'mp4') || 'mp4').trim().toLowerCase();
-    params = { format };
-    label = `✂️ Convert to .${format}`;
-  } else {
-    alert('Unrecognized option — type exactly: trim, caption, or convert.');
-    return;
-  }
-
-  addMessage('user', label);
-  state.pendingImage = null;
-  $('image-preview-bar').classList.add('hidden');
-  $('typing-indicator').classList.remove('hidden');
-
-  try {
-    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/edit-video`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        videoBase64: pendingVideo.data,
-        mimeType: pendingVideo.mimeType,
-        operation: op,
-        params
-      })
-    });
-    const data = await res.json();
-    $('typing-indicator').classList.add('hidden');
-    if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
-    const dataUrl = `data:${data.mimeType};base64,${data.dataBase64}`;
-    addMessage('ai', '', false, null, dataUrl);
-  } catch (err) {
-    $('typing-indicator').classList.add('hidden');
-    addMessage('error', `Couldn't edit that video. ${err.message || ''}`);
-  }
-}
 
 async function sendMessage() {
   const input = $('chat-input');
@@ -683,8 +598,16 @@ function renderRecent() {
   state.chats.forEach(chat => {
     const item = document.createElement('div');
     item.className = 'recent-item';
-    item.textContent = chat.title;
-    item.onclick = () => {
+    item.style.display = 'flex';
+    item.style.alignItems = 'center';
+    item.style.justifyContent = 'space-between';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = chat.title;
+    titleSpan.style.flex = '1';
+    titleSpan.style.overflow = 'hidden';
+    titleSpan.style.textOverflow = 'ellipsis';
+    titleSpan.onclick = () => {
       try {
         closeDrawer();
         const messages = Array.isArray(chat.messages) ? chat.messages : [];
@@ -702,13 +625,75 @@ function renderRecent() {
         alert('Could not open that chat — it may be corrupted. Try another one.');
       }
     };
+
+    // "⋮" menu — Rename / Delete, same interaction pattern as the
+    // knowledge-documents list delete button elsewhere in this file.
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'recent-item-menu-btn';
+    menuBtn.textContent = '⋮';
+    menuBtn.style.background = 'none';
+    menuBtn.style.border = 'none';
+    menuBtn.style.color = 'inherit';
+    menuBtn.style.fontSize = '1.3em';
+    menuBtn.style.padding = '0 8px';
+    menuBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      showChatItemMenu(chat, menuBtn);
+    };
+
+    item.appendChild(titleSpan);
+    item.appendChild(menuBtn);
     list.appendChild(item);
   });
 }
 
+function showChatItemMenu(chat, anchorEl) {
+  // Reuses simple confirm()/prompt() dialogs rather than building a custom
+  // popup menu widget — matches how the knowledge-documents list already
+  // handles its delete confirmation elsewhere in this file.
+  const choice = confirm(`"${chat.title}"\n\nOK = Rename, Cancel = show delete option`);
+  if (choice) {
+    const newTitle = prompt('Rename chat:', chat.title);
+    if (newTitle && newTitle.trim() && newTitle.trim() !== chat.title) {
+      renameChat(chat.id, newTitle.trim());
+    }
+    return;
+  }
+  if (confirm(`Delete "${chat.title}"? This cannot be undone.`)) {
+    deleteChat(chat.id);
+  }
+}
+
+function renameChat(chatId, newTitle) {
+  const idx = state.chats.findIndex(c => c.id === chatId);
+  if (idx === -1) return;
+  state.chats[idx].title = newTitle;
+  localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  renderRecent();
+  if (state.user) {
+    db.collection('users').doc(state.user.uid).collection('chats').doc(chatId)
+      .update({ title: newTitle })
+      .catch(err => console.error('Failed to rename chat in cloud:', err));
+  }
+}
+
+function deleteChat(chatId) {
+  state.chats = state.chats.filter(c => c.id !== chatId);
+  localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  renderRecent();
+  if (state.activeChatId === chatId) {
+    state.activeChatId = null;
+    state.currentMessages = [];
+  }
+  if (state.user) {
+    db.collection('users').doc(state.user.uid).collection('chats').doc(chatId)
+      .delete()
+      .catch(err => console.error('Failed to delete chat from cloud:', err));
+  }
+}
+
 // ---------- Settings ----------
 $('btn-save-settings').onclick = () => {
-  localStorage.setItem('aureon_memory', $('memory-input').value);
   closeSheet('sheet-settings');
 };
 
@@ -822,8 +807,47 @@ $('btn-send-reset').onclick = async () => {
 function enterApp(user) {
   state.user = user;
   $('account-email-display').textContent = user.email;
+  // Lets native code (the "Hey Aureon" voice assistant) know who's logged
+  // in, so it can save voice conversations to this same user's chat
+  // history — it has no access to this WebView's Firebase session
+  // otherwise. No-ops harmlessly outside the Capacitor app (e.g. testing
+  // in a plain browser).
+  if (window.AureonActions && AureonActions.setCurrentUser) {
+    AureonActions.setCurrentUser({ uid: user.uid }).catch(() => {});
+  }
   loadChatsFromCloud();
+  loadMemoryFromCloud();
   showScreen('screen-home');
+}
+
+// The "things Aureon should remember about me" text used to live only in
+// localStorage — gone if the app was uninstalled or the phone changed.
+// Pulled from Firestore on login and cached into localStorage, which is
+// still what buildSystemPrompt() reads from turn to turn.
+async function loadMemoryFromCloud() {
+  if (!state.user || !state.backendUrl) return;
+  try {
+    const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/memory?uid=${state.user.uid}`);
+    const data = await res.json();
+    if (res.ok && typeof data.text === 'string') {
+      localStorage.setItem('aureon_memory', data.text);
+    }
+  } catch (err) {
+    console.warn('Could not load memory from cloud, using local cache:', err.message);
+  }
+}
+
+async function saveMemoryToCloud(text) {
+  if (!state.user || !state.backendUrl) return;
+  try {
+    await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: state.user.uid, text })
+    });
+  } catch (err) {
+    console.warn('Could not save memory to cloud (kept locally for now):', err.message);
+  }
 }
 
 auth.onAuthStateChanged((user) => {
@@ -840,6 +864,9 @@ function routeForUser(user) {
     showScreen('screen-verify');
   } else {
     state.user = null;
+    if (window.AureonActions && AureonActions.clearCurrentUser) {
+      AureonActions.clearCurrentUser().catch(() => {});
+    }
     showScreen('screen-login');
   }
 }
@@ -909,7 +936,6 @@ function runSplash() {
 
 // ---------- Init ----------
 $('model-pill').textContent = MODEL_LABELS[state.model];
-if ($('memory-input')) $('memory-input').value = localStorage.getItem('aureon_memory') || '';
 renderRecent();
 runSplash();
 
@@ -977,8 +1003,19 @@ async function loadKnowledgeList() {
     data.files.forEach(file => {
       const item = document.createElement('div');
       item.className = 'recent-item knowledge-item';
-      item.innerHTML = `<span>${file.filename}</span><button class="knowledge-delete-btn" data-id="${file.id}">✕</button>`;
-      item.querySelector('.knowledge-delete-btn').onclick = async (ev) => {
+      // Built with real DOM nodes rather than innerHTML — file.filename is
+      // whatever name the uploader typed, and interpolating it straight
+      // into an HTML string would let a filename like
+      // "<img src=x onerror=...>" run as markup/script.
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = file.filename;
+      const delBtn = document.createElement('button');
+      delBtn.className = 'knowledge-delete-btn';
+      delBtn.dataset.id = file.id;
+      delBtn.textContent = '✕';
+      item.appendChild(nameSpan);
+      item.appendChild(delBtn);
+      delBtn.onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`Remove "${file.filename}"?`)) return;
         await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/knowledge/${file.id}?uid=${state.user.uid}`, { method: 'DELETE' });

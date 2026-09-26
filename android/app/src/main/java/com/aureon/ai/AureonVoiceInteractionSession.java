@@ -41,6 +41,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * The floating overlay shown when Aureon is invoked as the system assistant.
@@ -51,6 +52,25 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private static final String TAG = "AureonVoiceSession";
     private static final String BACKEND_URL = "https://aureone.onrender.com/api/chat";
+    private static final String SAVE_CHAT_URL = "https://aureone.onrender.com/api/chat/save";
+    private static final String MEMORY_URL = "https://aureone.onrender.com/api/memory";
+
+    // Fetched once per overlay session (not once per backend round-trip —
+    // a single conversation can involve several tool-call round-trips) and
+    // reused. null until the first attempt; empty string is a valid
+    // "fetched, nothing saved" result, so a separate flag tracks whether
+    // the fetch has actually happened yet.
+    private String cachedMemory = null;
+    private boolean memoryFetchAttempted = false;
+
+    // One growing chat document per overlay session, so a whole voice
+    // conversation (however many back-and-forth turns) lands as a single
+    // entry in chat history, the same way a typed conversation does —
+    // instead of either not saving at all, or splitting into a separate
+    // history entry per utterance.
+    private String voiceChatId = null;
+    private final JSONArray voiceMessages = new JSONArray();
+    private String lastUserUtterance = null;
     private static final int AGENT_LOOP_LIMIT = 3;
 
     // Same wording app.js sends, so voice and chat behave consistently.
@@ -167,6 +187,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         setupOrbVideo();
 
         initTextToSpeech();
+        AureonVoiceInteractionService.notifySessionActive(true);
         startListening();
 
         return view;
@@ -411,6 +432,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     // internet, same as before.
     private void handleHeardText(String heard) {
         String lower = heard == null ? "" : heard.trim().toLowerCase(Locale.ROOT);
+        lastUserUtterance = heard;
         if (isStopCommand(lower)) {
             stopEverything();
             return;
@@ -440,6 +462,23 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         } catch (JSONException e) {
             Log.e(TAG, "Local intent match failed", e);
         }
+
+        // Broader offline command router — go back/home/scroll, click, read
+        // screen, answer/decline call, recent SMS/email, offline WhatsApp
+        // messaging, etc. Previously only wired into the in-app chat mic
+        // (AureonSpeechPlugin); checking it here too means these all work
+        // through the system-wide "Hey Aureon" assistant instead of falling
+        // through to the cloud AI, which has no tool for most of them and
+        // was answering conversationally (or picking an unrelated tool)
+        // instead of actually doing anything.
+        try {
+            boolean offlineHandled = OfflineVoiceCommandEngine.handle(getContext(), heard,
+                    message -> mainHandler.post(() -> showReply(message)));
+            if (offlineHandled) return;
+        } catch (Exception e) {
+            Log.e(TAG, "Offline command engine failed", e);
+        }
+
         sendToBackend(heard);
     }
 
@@ -597,6 +636,38 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         continueConversation(messages, 0);
     }
 
+    // Blocking GET — only ever called from the background thread in
+    // continueConversation(), never the main thread. Same personalization
+    // notes the user typed into the in-app Settings sheet ("things Aureon
+    // should remember about me"), now shared with the voice assistant too
+    // instead of it only being the typed-chat path that knew about them.
+    private String fetchUserMemory(String uid) {
+        try {
+            URL url = new URL(MEMORY_URL + "?uid=" + uid);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(6000);
+            conn.setReadTimeout(6000);
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) {
+                conn.disconnect();
+                return "";
+            }
+            BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    conn.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line);
+            reader.close();
+            conn.disconnect();
+            JSONObject obj = new JSONObject(sb.toString());
+            return obj.optString("text", "");
+        } catch (Exception e) {
+            Log.w(TAG, "Could not load user memory for voice chat", e);
+            return "";
+        }
+    }
+
     // Phase 6 — Agent: same request/response loop as www/app.js's
     // runAgentTurn(), reimplemented natively since the voice overlay has no
     // access to the WebView/Capacitor bridge. Recurses when the model asks
@@ -607,10 +678,21 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
         new Thread(() -> {
             try {
+                if (!memoryFetchAttempted) {
+                    memoryFetchAttempted = true;
+                    String uid = AureonActionsPlugin.getCurrentUid(getContext());
+                    cachedMemory = (uid != null) ? fetchUserMemory(uid) : "";
+                }
+
+                String systemPrompt = AGENT_SYSTEM_PROMPT;
+                if (cachedMemory != null && !cachedMemory.trim().isEmpty()) {
+                    systemPrompt += "\n\nThings to remember about this user (stated by them):\n" + cachedMemory.trim();
+                }
+
                 JSONObject payload = new JSONObject();
                 payload.put("messages", messages);
                 payload.put("tools", true);
-                payload.put("systemPrompt", AGENT_SYSTEM_PROMPT);
+                payload.put("systemPrompt", systemPrompt);
 
                 URL url = new URL(BACKEND_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -801,12 +883,81 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             responseText.setVisibility(View.VISIBLE);
         }
         speak(reply);
+        logTurn(lastUserUtterance, reply);
+    }
+
+    // Appends this exchange to the running conversation and saves the whole
+    // thing to Firestore (via the backend, since native code has no
+    // Firestore/Firebase Auth session of its own) — same users/{uid}/chats
+    // shape the in-app typed chat already uses, so voice conversations show
+    // up in the same history instead of vanishing when the overlay closes.
+    private void logTurn(String userText, String assistantReply) {
+        if (assistantReply == null || assistantReply.trim().isEmpty()) return;
+        try {
+            if (userText != null && !userText.trim().isEmpty()) {
+                JSONObject userMsg = new JSONObject();
+                userMsg.put("role", "user");
+                userMsg.put("content", userText);
+                voiceMessages.put(userMsg);
+            }
+            JSONObject assistantMsg = new JSONObject();
+            assistantMsg.put("role", "assistant");
+            assistantMsg.put("content", assistantReply);
+            voiceMessages.put(assistantMsg);
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to build voice chat turn", e);
+            return;
+        }
+
+        String uid = AureonActionsPlugin.getCurrentUid(getContext());
+        if (uid == null) return; // nobody logged into the app yet — nothing to attach this to
+
+        if (voiceChatId == null) voiceChatId = UUID.randomUUID().toString();
+        final String chatId = voiceChatId;
+        final JSONArray messagesSnapshot = voiceMessages; // same reference is fine, we only read it on this thread below before mutating further
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("uid", uid);
+                payload.put("chatId", chatId);
+                // First user line as the title, same convention the in-app chat uses.
+                String title = null;
+                for (int i = 0; i < messagesSnapshot.length(); i++) {
+                    JSONObject m = messagesSnapshot.getJSONObject(i);
+                    if ("user".equals(m.optString("role"))) { title = m.optString("content"); break; }
+                }
+                if (title != null && title.length() > 40) title = title.substring(0, 40);
+                payload.put("title", title != null ? title : "Voice chat");
+                payload.put("messages", messagesSnapshot);
+
+                URL url = new URL(SAVE_CHAT_URL);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                int code = conn.getResponseCode();
+                if (code >= 400) {
+                    Log.w(TAG, "Saving voice chat turn returned HTTP " + code);
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                // Best-effort — never let a failed save affect the live conversation.
+                Log.w(TAG, "Could not save voice chat turn", e);
+            }
+        }).start();
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         sessionActive = false;
+        AureonVoiceInteractionService.notifySessionActive(false);
         mainHandler.removeCallbacksAndMessages(null);
         if (orbView != null) {
             orbView.stopAnimating();

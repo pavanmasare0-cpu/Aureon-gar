@@ -5,6 +5,7 @@ import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -53,6 +54,39 @@ public class AureonActionsPlugin extends Plugin {
     // here assumes success.
     private static final int APP_LAUNCH_WAIT_MS = 1800;
     private static final int SCREEN_STEP_TIMEOUT_MS = 4000;
+
+    // ---------------- Current-user bridge (for voice-chat history saving) ----------------
+    // The app's login happens in the WebView (Firebase JS SDK) — native
+    // code (the voice assistant) has no access to that session. www/app.js
+    // calls setCurrentUser/clearCurrentUser from its onAuthStateChanged
+    // listener so native code can look up "who's logged in right now"
+    // without a full native Firebase Auth setup.
+    private static final String PREFS_NAME = "aureon_current_user";
+    private static final String PREF_UID = "uid";
+
+    @PluginMethod
+    public void setCurrentUser(PluginCall call) {
+        String uid = call.getString("uid");
+        if (uid == null || uid.trim().isEmpty()) {
+            call.reject("uid is required");
+            return;
+        }
+        getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putString(PREF_UID, uid).apply();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void clearCurrentUser(PluginCall call) {
+        getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().remove(PREF_UID).apply();
+        call.resolve();
+    }
+
+    /** Called from other native classes (e.g. AureonVoiceInteractionSession) — not a PluginMethod. */
+    static String getCurrentUid(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREF_UID, null);
+    }
 
     @PluginMethod
     public void getBattery(PluginCall call) {

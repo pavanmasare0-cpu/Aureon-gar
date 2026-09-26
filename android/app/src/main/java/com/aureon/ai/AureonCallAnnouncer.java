@@ -22,12 +22,26 @@ import java.util.Locale;
 final class AureonCallAnnouncer {
     private AureonCallAnnouncer() {}
 
+    // Both AureonCallReceiver (static manifest receiver) AND
+    // AureonCallListenerService (its own dynamically-registered receiver)
+    // are active at the same time by design (see class comment below), so a
+    // single ring reliably delivers PHONE_STATE=RINGING to both of them
+    // within milliseconds of each other. Without this guard that meant the
+    // caller's name/number got spoken twice, back to back, on every call.
+    // Same pattern as ALARM_ANNOUNCE_COOLDOWN_MS in AureonAccessibilityService.
+    private static final long ANNOUNCE_COOLDOWN_MS = 3000;
+    private static volatile long lastAnnounceAt = 0;
+
     /** Call from any PHONE_STATE broadcast receiver, static or dynamic. */
     static void handlePhoneStateIntent(Context context, Intent intent) {
         if (intent == null || !TelephonyManager.ACTION_PHONE_STATE_CHANGED.equals(intent.getAction())) return;
 
         String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
         if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastAnnounceAt < ANNOUNCE_COOLDOWN_MS) return; // duplicate fire for the same ring, ignore
+        lastAnnounceAt = now;
 
         // Requires READ_CALL_LOG on Android 9+ (API 28) for this extra to
         // actually be populated — with only READ_PHONE_STATE it's empty.
@@ -102,24 +116,53 @@ final class AureonCallAnnouncer {
         return null;
     }
 
-    /** A fresh short-lived TTS engine per call — created, used once, then shut down. */
+    // Kept alive for the whole process instead of created fresh per call —
+    // TextToSpeech's async init (binding to the system TTS service) can
+    // take a very noticeable moment, which was the main cause of the
+    // announcement arriving well after the phone had already been ringing
+    // for a while. Pre-warming it once (see warmUp()) means a ring just
+    // uses an engine that's already sitting there ready to speak.
+    private static volatile TextToSpeech sharedEngine;
+    private static volatile boolean sharedEngineReady = false;
+    private static final Object ENGINE_LOCK = new Object();
+
+    /** Call once, early (e.g. MainActivity.onCreate / AureonCallListenerService.onCreate),
+     *  to pay TTS's init cost before any call actually rings. Safe to call more than once. */
+    static void warmUp(Context appContext) {
+        synchronized (ENGINE_LOCK) {
+            if (sharedEngine != null) return;
+            sharedEngine = new TextToSpeech(appContext.getApplicationContext(), status -> {
+                sharedEngineReady = (status == TextToSpeech.SUCCESS);
+                if (sharedEngineReady) sharedEngine.setLanguage(Locale.getDefault());
+            });
+        }
+    }
+
     private static void speak(Context appContext, String text) {
-        final TextToSpeech[] engine = new TextToSpeech[1];
-        engine[0] = new TextToSpeech(appContext, status -> {
-            if (status != TextToSpeech.SUCCESS || engine[0] == null) return;
-            engine[0].setLanguage(Locale.getDefault());
-            engine[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
+        warmUp(appContext); // no-op if already warmed/warming
+        if (sharedEngineReady) {
+            sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
+            return;
+        }
+        // Engine not ready yet (very first call right after boot, before
+        // warmUp() finished) — fall back to a one-off engine for just this
+        // announcement so the caller's name still gets spoken.
+        final TextToSpeech[] fallback = new TextToSpeech[1];
+        fallback[0] = new TextToSpeech(appContext.getApplicationContext(), status -> {
+            if (status != TextToSpeech.SUCCESS || fallback[0] == null) return;
+            fallback[0].setLanguage(Locale.getDefault());
+            fallback[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) {}
                 @Override public void onDone(String utteranceId) { shutdownQuietly(); }
                 @Override public void onError(String utteranceId) { shutdownQuietly(); }
                 private void shutdownQuietly() {
-                    if (engine[0] != null) {
-                        try { engine[0].shutdown(); } catch (Exception ignored) {}
-                        engine[0] = null;
+                    if (fallback[0] != null) {
+                        try { fallback[0].shutdown(); } catch (Exception ignored) {}
+                        fallback[0] = null;
                     }
                 }
             });
-            engine[0].speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
+            fallback[0].speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
         });
     }
 }
