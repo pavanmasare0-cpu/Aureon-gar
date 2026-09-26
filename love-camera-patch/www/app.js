@@ -115,6 +115,10 @@ $('btn-generate-image').onclick = async () => {
 };
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
 $('btn-model-switch').onclick = () => openSheet('sheet-model');
+$('btn-love-camera').onclick = () => {
+  const actions = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+  if (actions && actions.openLoveCamera) actions.openLoveCamera();
+};
 
 document.querySelectorAll('.sheet-backdrop').forEach(b => {
   b.onclick = () => document.querySelectorAll('.sheet').forEach(s => s.classList.add('hidden'));

@@ -21,47 +21,51 @@
         android:text="\u2715" />
 
     <!-- Side/bottom overlay panel: shows the last detected question and
-         Aureon's live answer. Updates automatically as the camera sees a
-         new question (see LoveCameraActivity#onTextDetected). -->
-    <LinearLayout
+         Aureon's live answer/solution. Updates automatically as the camera
+         sees a new question. Capped height + scroll so a long worked-out
+         solution doesn't push the camera preview off screen. -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:padding="20dp"
+        android:maxHeight="280dp"
         android:background="#CC1A1A2E">
 
-        <TextView
-            android:id="@+id/love_camera_question"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#AAAAAA"
-            android:textSize="14sp"
-            android:maxLines="2"
-            android:ellipsize="end"
-            android:text="Point the camera at a question…" />
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:minHeight="32dp">
+            android:orientation="vertical"
+            android:padding="20dp">
 
             <TextView
-                android:id="@+id/love_camera_answer"
+                android:id="@+id/love_camera_question"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp"
-                android:textStyle="bold" />
+                android:textColor="#AAAAAA"
+                android:textSize="14sp"
+                android:text="Point the camera at a question…" />
 
-            <ProgressBar
-                android:id="@+id/love_camera_spinner"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_gravity="end|center_vertical"
-                android:visibility="gone" />
-        </FrameLayout>
-    </LinearLayout>
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minHeight="32dp">
+
+                <TextView
+                    android:id="@+id/love_camera_answer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+
+                <ProgressBar
+                    android:id="@+id/love_camera_spinner"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="end|top"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+    </ScrollView>
 </FrameLayout>
