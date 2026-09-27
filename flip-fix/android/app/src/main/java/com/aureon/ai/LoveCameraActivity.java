@@ -380,11 +380,11 @@ public class LoveCameraActivity extends AppCompatActivity {
                     JSONArray candidates = responseJson.optJSONArray("candidates");
                     JSONObject firstCandidate = candidates != null && candidates.length() > 0 ? candidates.optJSONObject(0) : null;
                     JSONObject content = firstCandidate != null ? firstCandidate.optJSONObject("content") : null;
-                    JSONArray responseParts = content != null ? content.optJSONArray("parts") : null;
+                    JSONArray parts = content != null ? content.optJSONArray("parts") : null;
                     StringBuilder textOut = new StringBuilder();
-                    if (responseParts != null) {
-                        for (int i = 0; i < responseParts.length(); i++) {
-                            textOut.append(responseParts.optJSONObject(i).optString("text", ""));
+                    if (parts != null) {
+                        for (int i = 0; i < parts.length(); i++) {
+                            textOut.append(parts.optJSONObject(i).optString("text", ""));
                         }
                     }
                     rawReply = textOut.length() > 0 ? stripJsonFences(textOut.toString()) : jsonError("(no answer)");
