@@ -51,9 +51,6 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private static final String TAG = "AureonVoiceSession";
     private static final String BACKEND_URL = "https://aureone.onrender.com/api/chat";
-    // How many recent messages (3 exchanges) ride along with each request so
-    // follow-ups make sense: "Tejas ko message karo" -> "kya bhejun?" -> "hi".
-    private static final int VOICE_CONTEXT_MESSAGES = 6;
     private static final String BACKEND_SAVE_URL = "https://aureone.onrender.com/api/chat/save";
     private static final String MEMORY_URL_BASE = "https://aureone.onrender.com/api/memory?uid=";
     private static final int AGENT_LOOP_LIMIT = 3;
@@ -78,11 +75,6 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             "send_sms tools, but over voice you must NOT call them yourself — if the user asks to call or text " +
             "someone via SMS, tell them to ask you the same thing from the chat screen instead, since that's " +
             "where you can confirm it visually.\n\n" +
-            "MESSAGING: if the user asks to message or WhatsApp someone but hasn't said what to send " +
-            "(e.g. \"Tejas ko message karo\"), ask one short question like \"Kya message bhejun?\" — their " +
-            "next reply is the message itself, so use the earlier turns to know who it's for, then call " +
-            "send_whatsapp_message with contact_name and message. WhatsApp only opens with the message " +
-            "pre-filled, so tell them to tap Send themselves.\n\n" +
             "REMEMBERING: whenever the user asks you to remember, note down, or remind them of something " +
             "later — e.g. \"yaad rakhna\", \"note kar lo\", \"kal doodh lana hai yaad rakhna\", \"remind me " +
             "to...\" — you MUST call the save_reminder tool with what to remember; never just say you will " +
@@ -628,17 +620,6 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
     private void sendToBackend(String message) {
         JSONArray messages = new JSONArray();
         try {
-            // Recent turns first (voiceChatLog always holds whole user/assistant
-            // pairs), skipping exchanges that just ended in an error message.
-            int start = Math.max(0, voiceChatLog.length() - VOICE_CONTEXT_MESSAGES);
-            for (int i = start; i + 1 < voiceChatLog.length(); i += 2) {
-                JSONObject u = voiceChatLog.getJSONObject(i);
-                JSONObject a = voiceChatLog.getJSONObject(i + 1);
-                String reply = a.optString("content", "");
-                if (reply.startsWith("Error") || reply.startsWith("Couldn't")) continue;
-                messages.put(u);
-                messages.put(a);
-            }
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
             userMsg.put("content", message);
@@ -752,18 +733,12 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
         } catch (JSONException e) {
             return;
         }
-        final JSONArray logSnapshot;
-        try {
-            logSnapshot = new JSONArray(voiceChatLog.toString()); // copy — the live log keeps growing on the main thread
-        } catch (JSONException e) {
-            return;
-        }
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("uid", uid);
                 payload.put("chatId", voiceChatId);
-                payload.put("messages", logSnapshot);
+                payload.put("messages", voiceChatLog);
 
                 URL url = new URL(BACKEND_SAVE_URL);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -889,7 +864,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             case "compose_email":
                 return AureonAgentActions.composeEmail(ctx, args.optString("to", null), args.optString("subject"), args.optString("body"));
             case "send_whatsapp_message":
-                return AureonAgentActions.sendWhatsappMessage(ctx, args.optString("number"), args.optString("contact_name"), args.optString("message"));
+                return AureonAgentActions.sendWhatsappMessage(ctx, args.optString("number"), args.optString("message"));
             case "read_instagram_message":
                 return AureonAgentActions.readInstagramMessage(ctx, args.optString("contact_name"));
             case "play_youtube":
@@ -920,7 +895,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
             case "compose_email":
                 return "Opened email draft: " + args.optString("subject");
             case "send_whatsapp_message":
-                return "Opened WhatsApp to " + result.optString("to", args.optString("contact_name", args.optString("number"))) + " — tap send to deliver it";
+                return "Opened WhatsApp to " + args.optString("number") + " — tap send to deliver it";
             default:
                 return "Done";
         }

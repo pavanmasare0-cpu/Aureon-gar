@@ -1,6 +1,5 @@
 package com.aureon.ai;
 
-import android.Manifest;
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
@@ -8,14 +7,10 @@ import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.provider.AlarmClock;
-import android.provider.ContactsContract;
 import android.provider.MediaStore;
-
-import androidx.core.content.ContextCompat;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -183,25 +178,9 @@ public class AureonAgentActions {
         return ret;
     }
 
-    // Accepts either a phone number or a saved contact name ("Tejas") — the
-    // AI mostly passes a name when the user says "Tejas ko message karo".
-    // Name lookup needs the READ_CONTACTS runtime permission, which can only
-    // be prompted for from the app UI (typed chat) — not from this overlay.
-    public static JSONObject sendWhatsappMessage(Context ctx, String number, String contactName, String message) throws ActionException, JSONException {
-        String target = number;
-        String label = number;
-        if ((target == null || target.trim().isEmpty()) && contactName != null && !contactName.trim().isEmpty()) {
-            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-                throw new ActionException("I need Contacts permission to find \"" + contactName.trim()
-                        + "\". Open the Aureon app once, type \"WhatsApp pe " + contactName.trim()
-                        + " ko hi bhejo\" in chat and tap Allow — after that voice will work too.");
-            }
-            target = resolveContactNumber(ctx, contactName);
-            if (target == null) throw new ActionException("Couldn't find \"" + contactName.trim() + "\" in your contacts.");
-            label = contactName.trim();
-        }
-        if (target == null || target.trim().isEmpty()) throw new ActionException("number or contact_name is required");
-        String cleanNumber = target.replaceAll("[^0-9]", "");
+    public static JSONObject sendWhatsappMessage(Context ctx, String number, String message) throws ActionException, JSONException {
+        if (number == null || number.trim().isEmpty()) throw new ActionException("number is required");
+        String cleanNumber = number.replaceAll("[^0-9]", "");
 
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse("https://wa.me/" + cleanNumber + "?text=" + Uri.encode(message != null ? message : "")));
@@ -214,30 +193,8 @@ public class AureonAgentActions {
 
         JSONObject ret = new JSONObject();
         ret.put("opened", true);
-        ret.put("to", label);
+        ret.put("to", number);
         return ret;
-    }
-
-    /** Looks up a contact's first phone number by display name. Returns null if not found. */
-    private static String resolveContactNumber(Context ctx, String name) {
-        Cursor cursor = ctx.getContentResolver().query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                new String[] { ContactsContract.CommonDataKinds.Phone.NUMBER },
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?",
-                new String[] { "%" + name.trim() + "%" },
-                null
-        );
-        if (cursor == null) return null;
-        String result = null;
-        try {
-            if (cursor.moveToFirst()) {
-                int idx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
-                if (idx >= 0) result = cursor.getString(idx);
-            }
-        } finally {
-            cursor.close();
-        }
-        return result;
     }
 
     public static JSONObject playMusic(Context ctx, String query) throws ActionException, JSONException {
