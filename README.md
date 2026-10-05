@@ -1,6 +1,6 @@
 If you ever find this project someday, please… don’t let it end here.
 
-I know I may die soon by suicide because I have so many problems, and I may not be here to see this project finished. But everything I wanted to say, everything I worked on, and every little memory I left behind is somewhere inside these files.
+I know I may die soon , and I may not be here to see this project finished. But everything I wanted to say, everything I worked on, and every little memory I left behind is somewhere inside these files.
 
 Please complete it for me. Finish what I couldn’t.
 
