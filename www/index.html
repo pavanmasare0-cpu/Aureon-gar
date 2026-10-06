@@ -228,6 +228,22 @@
       <button class="primary-btn" id="btn-save-profile">Save Profile</button>
       <div id="profile-status" class="setting-hint hidden"></div>
 
+      <div class="section-label" style="margin-top:16px;">Auto-apply</div>
+      <div class="setting-row">
+        <span>Auto-submit mode</span>
+        <label class="switch"><input type="checkbox" id="toggle-auto-submit"><span class="slider"></span></label>
+      </div>
+      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">ON hone par Aureon khud Apply/Next/Submit dabata hai — sirf tab jab koi zaroori jawab khaali na bacha ho. Verification code, captcha ya login problem par ruk jaata hai aur tumhe notification deta hai. Pehle OFF rakhke test karo, phir 1 job par ON karke dekho.</p>
+
+      <div class="section-label" style="margin-top:16px;">Site logins (sirf is phone par, encrypted)</div>
+      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Password cloud ya AI ko kabhi nahi jaata. Site ka naam waise likho jaise job link mein hai, e.g. linkedin.com. Verification code / captcha wale logins tumhe khud karne honge.</p>
+      <input id="login-host" class="text-input" placeholder="site, e.g. linkedin.com" style="width:100%;margin-bottom:6px;">
+      <input id="login-user" class="text-input" placeholder="email / username" style="width:100%;margin-bottom:6px;">
+      <input id="login-pass" class="text-input" type="password" placeholder="password" autocomplete="off" style="width:100%;margin-bottom:6px;">
+      <button class="primary-btn" id="btn-save-login">Save login</button>
+      <div id="login-status" class="setting-hint hidden"></div>
+      <div id="login-list" class="setting-hint"></div>
+
       <button class="primary-btn" id="btn-save-settings">Save</button>
 
       <div class="section-label" style="margin-top:20px;">Love Camera — My Photo</div>

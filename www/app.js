@@ -1001,8 +1001,8 @@ function describeAgentAction(name, args, result) {
     case 'read_instagram_message': return `📖 Checked Instagram chat with ${args.contact_name}`;
     case 'send_whatsapp_live_location': return `📍 Shared live location with ${args.contact_name} via WhatsApp`;
     case 'fill_application_form': return result.loginRequired ? `🔐 Ye login page hai — pehle khud login karo, phir "form bhar do" bolo` : `📝 ${result.filled} field${result.filled === 1 ? '' : 's'} bhare${result.skipped && result.skipped.length ? `, ${result.skipped.length} tumhare liye chhode` : ''} — review karke Apply/Submit khud dabana`;
-    case 'start_job_applications': return `🧑‍💼 ${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
-    case 'next_job_application': return result.done ? `✅ Saari jobs ho gayi` : `➡️ Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
+    case 'start_job_applications': if (result.auto) return result.paused ? `⏸️ Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `✅ Auto-apply poora: ${result.appliedCount} apply hui`; return `🧑‍💼 ${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
+    case 'next_job_application': if (result.auto) return result.paused ? `⏸️ Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `✅ Auto-apply poora: ${result.appliedCount} apply hui`; return result.done ? `✅ Saari jobs ho gayi` : `➡️ Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
     case 'job_application_report': return `📋 Applied: ${result.applied.length} · Skipped: ${result.skipped.length} · Baaki: ${result.pending.length}`;
     case 'create_zip': return `🗜️ Zip ban gayi: ${result.zipped} (${result.fileCount} file${result.fileCount === 1 ? '' : 's'})`;
     default: return '✅ Done';
@@ -1012,7 +1012,7 @@ function describeAgentAction(name, args, result) {
 // ---------- Personality + Memory ----------
 const BASE_PERSONALITY = `You are Aureon, a friendly and casual AI assistant — talk like a helpful friend, not a formal machine. Keep responses warm, natural, and conversational (like ChatGPT's tone), never stiff or robotic. Match the user's language style — if they write in Hinglish or Hindi, respond that way naturally. Keep it concise unless they ask for detail.`;
 
-const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, play a specific video on YouTube directly, compose an email draft, open a pre-filled WhatsApp message (by number or by saved contact name), send an Instagram DM to a contact by name, read back the latest visible message in an Instagram chat, share live location with a contact via WhatsApp, or open the Love Camera — a live camera mode that reads a question visible on screen/paper and shows the answer in a live overlay panel, updating automatically as the visible question changes. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo", "Instagram mein Pavan ko message karo", "Pavan ka last message kya hai", "Pavan ko live location bhejo" — call the matching tool instead of just explaining how. For calls, SMS, Instagram DMs, and live location the app always asks the user to confirm the exact action before it actually happens, so go ahead and call the tool for those too — don't ask the user to confirm yourself in chat, the app's own confirm dialog already handles that. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. Anything using Accessibility (send_instagram_message, read_instagram_message, send_whatsapp_live_location) needs Aureon's Accessibility Service turned on (Settings inside the app will prompt for this) — if it fails because that's off, tell the user to enable it. send_whatsapp_live_location is experimental and may fail partway on some WhatsApp versions — if so, tell the user which step failed. Separately (not a tool call): whenever the user's message contains the word "pdf" in any form (e.g. "PDF bana do", "save as pdf", "pdf chahiye"), the app automatically shows a "Save as PDF" button right under your reply — so just answer their actual question/request normally, then briefly mention the button will appear below (e.g. "Neeche 'Save as PDF' button se save kar lena"). Never say you can't create or download a PDF, and never give manual copy-paste-to-Notes-app workarounds — that button already does it. REMEMBERING: whenever the user asks you to remember, note down, or remind them of something later — e.g. "yaad rakhna", "note kar lo", "kal doodh lana hai yaad rakhna", "remind me to..." — you MUST call the save_reminder tool with what to remember; never just say you will remember it, because without the tool call nothing is actually saved. Whenever the user asks what they forgot or wants to be reminded — e.g. "kuch bhul raha hu", "yaad dila do", "kya yaad rakhna tha", "koi reminder hai kya" — call recall_reminders and read back what it returns naturally (or say plainly that nothing is saved). For lasting facts about the user themselves (name, family, preferences, habits) call update_memory. Only tell the user you saved or remembered something after the tool call actually succeeded. FILES/ZIP: whenever the user asks for multiple pieces of content bundled together to download — "zip bana do", "ek zip mein de do", "sab files ek saath do", or similar — call the create_zip tool with each file's actual full content (not a description of it); the app handles the actual packaging and download/share prompt once you call it. Don't use this for a single plain-text answer. CODING REQUESTS: when the user asks you to write code — "code likho", "app banao", "script banado", "ye feature add karo", etc. — use the SAME judgement a real coding assistant would about file count, not a fixed rule: a single short script/function/snippet (one file, reads fine in a chat code block) stays as a normal reply with a code block, no zip. The moment it's genuinely more than one file (e.g. separate HTML/CSS/JS, a multi-file project, several related scripts, config + code together), proactively call create_zip yourself with each real file and its full content — don't just paste multiple files as text in the chat and don't ask the user whether they want a zip first, since there's no good reason not to hand them real files once there's more than one. Still explain what you built in your normal reply alongside the tool call. JOB APPLICATIONS: when the user asks you to apply to jobs — e.g. \"20 full stack developer jobs pe apply kar do\" — call start_job_applications with the role and count. It finds real open postings (link-checked), opens the first one and auto-fills its form from the Application Profile. You must NEVER submit an application, log in to a job site on the user's behalf, or claim you applied — the user always reviews and taps Apply themselves, because job sites ban automated submissions and a wrong answer goes straight to an employer. After each job opens, tell the user briefly: which job (title, company), how many fields were filled, which were skipped (they must answer those), and to review and tap Apply. Then WAIT. Only when the user says they applied / done / next call next_job_application (status skipped if they skipped it). If a result has loginRequired true, tell the user this page needs their login — they log in themselves (you never handle passwords), and when they say they are in, call fill_application_form with NO url to fill the form that is now open. If a page filled 0 fields for another reason, say so honestly. When the user asks for links or progress, call job_application_report and list the applied links. If the job search fails (for example the search quota is exhausted), do NOT keep retrying — tell the user to paste the job links in chat and then call start_job_applications with urls set to those links; that works without search. If fewer jobs than requested were found, say how many you actually found. Never invent jobs or links. FORM FILLING: when the user asks you to fill in an application or any form — e.g. \"form bhar do\", \"apply form fill kar do\", \"is page pe meri details daal do\" — call fill_application_form (pass url if they gave a page link). It fills the fields on the form page that is open in the foreground, scrolling down through it, using the user's saved Application Profile, and writes answers to technical/open questions grounded ONLY in that profile. It NEVER taps Submit/Apply — the user always reviews and presses Apply themselves — and it never touches password/OTP/payment fields. Fields it could not fill (legal declarations, demographic questions, anything not in the profile) are returned as skipped: tell the user which ones they need to answer themselves, and remind them to review everything before applying. If the profile is empty, tell them to fill Application Profile in Settings first.
+const AGENT_CAPABILITIES = `You can also directly control the user's phone using tools: check battery, open an app, make a call, send an SMS, set an alarm, search the web, open a URL, play music, play a specific video on YouTube directly, compose an email draft, open a pre-filled WhatsApp message (by number or by saved contact name), send an Instagram DM to a contact by name, read back the latest visible message in an Instagram chat, share live location with a contact via WhatsApp, or open the Love Camera — a live camera mode that reads a question visible on screen/paper and shows the answer in a live overlay panel, updating automatically as the visible question changes. When the user asks you to do one of these things — in any language, e.g. "battery kitni hai", "WhatsApp khol do", "gaana bajao", "email likho", "isko WhatsApp pe bhejo", "Instagram mein Pavan ko message karo", "Pavan ka last message kya hai", "Pavan ko live location bhejo" — call the matching tool instead of just explaining how. For calls, SMS, Instagram DMs, and live location the app always asks the user to confirm the exact action before it actually happens, so go ahead and call the tool for those too — don't ask the user to confirm yourself in chat, the app's own confirm dialog already handles that. compose_email and send_whatsapp_message only open a pre-filled draft — they never send automatically, the user still taps Send. Anything using Accessibility (send_instagram_message, read_instagram_message, send_whatsapp_live_location) needs Aureon's Accessibility Service turned on (Settings inside the app will prompt for this) — if it fails because that's off, tell the user to enable it. send_whatsapp_live_location is experimental and may fail partway on some WhatsApp versions — if so, tell the user which step failed. Separately (not a tool call): whenever the user's message contains the word "pdf" in any form (e.g. "PDF bana do", "save as pdf", "pdf chahiye"), the app automatically shows a "Save as PDF" button right under your reply — so just answer their actual question/request normally, then briefly mention the button will appear below (e.g. "Neeche 'Save as PDF' button se save kar lena"). Never say you can't create or download a PDF, and never give manual copy-paste-to-Notes-app workarounds — that button already does it. REMEMBERING: whenever the user asks you to remember, note down, or remind them of something later — e.g. "yaad rakhna", "note kar lo", "kal doodh lana hai yaad rakhna", "remind me to..." — you MUST call the save_reminder tool with what to remember; never just say you will remember it, because without the tool call nothing is actually saved. Whenever the user asks what they forgot or wants to be reminded — e.g. "kuch bhul raha hu", "yaad dila do", "kya yaad rakhna tha", "koi reminder hai kya" — call recall_reminders and read back what it returns naturally (or say plainly that nothing is saved). For lasting facts about the user themselves (name, family, preferences, habits) call update_memory. Only tell the user you saved or remembered something after the tool call actually succeeded. FILES/ZIP: whenever the user asks for multiple pieces of content bundled together to download — "zip bana do", "ek zip mein de do", "sab files ek saath do", or similar — call the create_zip tool with each file's actual full content (not a description of it); the app handles the actual packaging and download/share prompt once you call it. Don't use this for a single plain-text answer. CODING REQUESTS: when the user asks you to write code — "code likho", "app banao", "script banado", "ye feature add karo", etc. — use the SAME judgement a real coding assistant would about file count, not a fixed rule: a single short script/function/snippet (one file, reads fine in a chat code block) stays as a normal reply with a code block, no zip. The moment it's genuinely more than one file (e.g. separate HTML/CSS/JS, a multi-file project, several related scripts, config + code together), proactively call create_zip yourself with each real file and its full content — don't just paste multiple files as text in the chat and don't ask the user whether they want a zip first, since there's no good reason not to hand them real files once there's more than one. Still explain what you built in your normal reply alongside the tool call. JOB APPLICATIONS: when the user asks you to apply to jobs — e.g. \"20 full stack developer jobs pe apply kar do\" — call start_job_applications with the role and count (or with urls if they pasted links). It finds real open postings (link-checked), opens each, logs in with the user's saved site login if there is one, and fills the form from the Application Profile. Whether it also submits depends on the user's Auto-submit setting, not on you — you never submit anything yourself and never claim you applied unless a tool result says status submitted / applied. If the result has auto true: report how many were applied; if paused is true, tell the user exactly why (reason: needs_verification = a code or captcha they must enter; needs_login = log in on the phone; needs_input = required answers left blank, list the skipped fields; submit_clicked_unverified = check the page) and that after handling it they should say \"ho gaya\" so you call next_job_application. If auto is not set, tell the user briefly which job opened, how many fields were filled, which were skipped, and to review and tap Apply, then WAIT for them to say it is done before calling next_job_application (status skipped if they skipped it). When the user asks for links or progress, call job_application_report and list the applied links. If the job search fails (for example the search quota is exhausted), do NOT keep retrying — tell the user to paste the job links in chat and call start_job_applications with urls. If fewer jobs than requested were found, say how many you actually found. Never invent jobs or links. FORM FILLING: when the user asks you to fill in an application or any form — e.g. \"form bhar do\", \"apply form fill kar do\", \"is page pe meri details daal do\" — call fill_application_form (pass url if they gave a page link). It fills the fields on the form page that is open in the foreground, scrolling down through it, using the user's saved Application Profile, and writes answers to technical/open questions grounded ONLY in that profile. It only taps Next/Submit/Apply when the user has turned on Auto-submit in Settings and nothing required was left blank; otherwise the user presses Apply themselves. It never types into OTP/payment fields and never solves captchas or verification codes — it stops and notifies the user. Fields it could not fill (legal declarations, demographic questions, anything not in the profile) are returned as skipped: tell the user which ones they need to answer themselves, and remind them to review everything before applying. If the profile is empty, tell them to fill Application Profile in Settings first.
 IMPORTANT: never write out a fake tool call as plain text (e.g. never type something like "callingtool_open_url{...}" in your reply) — only use the real function-calling mechanism to call a tool. If you can't call a tool for some reason, just say so in plain words instead of describing a pretend call.`;
 
 // BUG FIX: this used to read ONLY localStorage['aureon_memory'], which is
@@ -1510,22 +1510,24 @@ async function loadKnowledgeList() {
 // Lists the empty fields on whatever page is in the foreground, asks the
 // backend to answer them from the user's Application Profile, types the
 // answers in, then scrolls and repeats. Never taps Submit/Apply.
+function isAutoSubmit() { try { return localStorage.getItem('aureon_auto_submit') === '1'; } catch (e) { return false; } }
+
 async function runFormFill(args) {
   const A = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
   if (!A) throw new Error('Form filling only works in the installed app.');
   const base = state.backendUrl.replace(/\/$/, '');
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  if (args.url) {
-    await A.openUrl({ url: args.url });
-    await sleep(8000);
-  } else {
+  let host = '';
+  try { if (args.url) host = new URL(args.url).hostname.replace(/^www\./, ''); } catch (e) { /* bad url */ }
+  if (!args.url) {
     addMessage('ai', '⏳ 10 second mein form wala page/app khol lo — phir main bharna shuru karunga.');
     await sleep(10000);
   }
-  // The scan/fill/scroll loop (text boxes, checkboxes, radio buttons,
-  // dropdowns) runs natively — same code the "Hey Aureon" voice overlay uses.
-  return await A.fillForm({ base });
+  // Everything below runs natively (open page, login with saved site login,
+  // tap Apply/Next, fill text/checkbox/radio/dropdown, scroll, and — only if
+  // Auto-submit is ON — tap Submit). Same fill code the voice overlay uses.
+  return await A.fillForm({ base, url: args.url || '', host, apply: true, autoSubmit: isAutoSubmit() });
 }
 
 // ---------- Application Profile (Settings) ----------
@@ -1564,7 +1566,8 @@ function saveJobQueue(q) { try { localStorage.setItem('aureon_job_queue', JSON.s
 async function openCurrentJob(q, prefix) {
   const job = q.jobs[q.index];
   const fill = await runFormFill({ url: job.url });
-  job.status = fill.loginRequired ? 'needs_login' : 'opened';
+  const loginNeeded = !!fill.loginRequired || fill.status === 'needs_login';
+  job.status = loginNeeded ? 'needs_login' : 'opened';
   saveJobQueue(q);
   return {
     message: prefix,
@@ -1573,8 +1576,8 @@ async function openCurrentJob(q, prefix) {
     current: { title: job.title, company: job.company, url: job.url },
     filled: fill.filled,
     skipped: fill.skipped,
-    loginRequired: !!fill.loginRequired,
-    note: fill.loginRequired ? 'Login page — nothing filled. Ask the user to log in; then call fill_application_form (no url) when they say so, and next_job_application after they apply.' : 'Nothing was submitted. The user must review and tap Apply themselves, then tell you; only then call next_job_application.'
+    loginRequired: loginNeeded,
+    note: loginNeeded ? 'Login page — nothing filled. Ask the user to log in; then call fill_application_form (no url) when they say so, and next_job_application after they apply.' : 'Nothing was submitted. The user must review and tap Apply themselves, then tell you; only then call next_job_application.'
   };
 }
 
@@ -1589,7 +1592,9 @@ async function startJobApplications(args) {
       jobs: pasted.map(u => { let h = u; try { h = new URL(u).hostname; } catch (e) {} return { title: h, company: '', url: u, status: 'pending' }; })
     };
     saveJobQueue(q0);
-    const out0 = await openCurrentJob(q0, `${q0.jobs.length} link(s) mile (tumhare diye hue).`);
+    const out0 = isAutoSubmit()
+      ? await runJobQueueAuto(q0, `${q0.jobs.length} link(s) mile (tumhare diye hue).`)
+      : await openCurrentJob(q0, `${q0.jobs.length} link(s) mile (tumhare diye hue).`);
     out0.requested = pasted.length;
     return out0;
   }
@@ -1603,7 +1608,8 @@ async function startJobApplications(args) {
   if (!data.jobs || !data.jobs.length) throw new Error('Koi verified job link nahi mila — role ya location badal ke dobara try karo.');
   const q = { role, startedAt: Date.now(), index: 0, jobs: data.jobs.map(j => ({ ...j, status: 'pending' })) };
   saveJobQueue(q);
-  const out = await openCurrentJob(q, `${q.jobs.length} job${q.jobs.length === 1 ? '' : 's'} mili (maanga tha: ${count}).`);
+  const startMsg = `${q.jobs.length} job${q.jobs.length === 1 ? '' : 's'} mili (maanga tha: ${count}).`;
+  const out = isAutoSubmit() ? await runJobQueueAuto(q, startMsg) : await openCurrentJob(q, startMsg);
   out.requested = count;
   return out;
 }
@@ -1617,7 +1623,37 @@ async function nextJobApplication(args) {
   q.index += 1;
   saveJobQueue(q);
   if (q.index >= q.jobs.length) return { done: true, ...jobApplicationReport() };
-  return await openCurrentJob(q, 'Agli job.');
+  return isAutoSubmit() ? await runJobQueueAuto(q, 'Agli jobs.') : await openCurrentJob(q, 'Agli job.');
+}
+
+const AUTO_PAUSE = ['needs_verification', 'needs_login', 'needs_input', 'submit_clicked_unverified', 'filled', 'error', 'max_steps'];
+
+// Auto-submit mode: walk the whole list. Keeps going after submitted /
+// already-applied / no-form jobs; stops at the first job that needs the user.
+async function runJobQueueAuto(q, prefix) {
+  while (q.index < q.jobs.length) {
+    const job = q.jobs[q.index];
+    let r;
+    try { r = await runFormFill({ url: job.url }); }
+    catch (e) { r = { status: 'error', note: e.message || String(e), filled: 0, skipped: [] }; }
+    job.result = r.status;
+    if (r.status === 'submitted') { job.status = 'applied'; job.appliedAt = Date.now(); }
+    else if (r.status === 'already_applied' || r.status === 'no_form') job.status = 'skipped';
+    else job.status = 'needs_you';
+    saveJobQueue(q);
+    if (job.status === 'applied' || job.status === 'skipped') { q.index += 1; saveJobQueue(q); continue; }
+    const rep = jobApplicationReport();
+    return {
+      auto: true, paused: true, reason: r.status, message: prefix,
+      position: `${q.index + 1}/${q.jobs.length}`, total: q.jobs.length,
+      current: { title: job.title, company: job.company, url: job.url },
+      filled: r.filled || 0, skipped: r.skipped || [], detail: r.note || '',
+      appliedCount: rep.applied.length,
+      note: 'Aureon paused here. The user was notified. After they handle it on the phone (code / login / answers / tapping Apply) and say it is done, call next_job_application.'
+    };
+  }
+  const rep = jobApplicationReport();
+  return { auto: true, done: true, message: prefix, total: q.jobs.length, appliedCount: rep.applied.length, ...rep };
 }
 
 function jobApplicationReport() {
@@ -1628,6 +1664,54 @@ function jobApplicationReport() {
     role: q.role,
     applied: q.jobs.filter(j => j.status === 'applied').map(pick),
     skipped: q.jobs.filter(j => j.status === 'skipped').map(pick),
-    pending: q.jobs.filter(j => j.status === 'pending' || j.status === 'opened' || j.status === 'needs_login').map(pick)
+    pending: q.jobs.filter(j => j.status === 'pending' || j.status === 'opened' || j.status === 'needs_login' || j.status === 'needs_you').map(pick)
   };
 }
+
+// ---------- Auto-submit toggle + saved site logins (Settings) ----------
+function aureonActionsPlugin() {
+  return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+}
+
+async function refreshLogins() {
+  const A = aureonActionsPlugin();
+  const box = $('login-list');
+  if (!A || !box) return;
+  try {
+    const r = await A.listLogins();
+    const arr = JSON.parse(r.logins || '[]');
+    box.textContent = arr.length ? '' : 'Koi saved login nahi.';
+    arr.forEach(l => {
+      const row = document.createElement('div');
+      row.textContent = `${l.host} — ${l.user}  `;
+      const b = document.createElement('button');
+      b.textContent = '✕';
+      b.onclick = async () => { await A.deleteLogin({ host: l.host }); refreshLogins(); };
+      row.appendChild(b);
+      box.appendChild(row);
+    });
+  } catch (e) { /* plugin not ready */ }
+}
+
+$('btn-save-login')?.addEventListener('click', async () => {
+  const A = aureonActionsPlugin();
+  const status = $('login-status');
+  const show = msg => { if (status) { status.textContent = msg; status.classList.remove('hidden'); } };
+  if (!A) { show('❌ Sirf installed app mein kaam karta hai.'); return; }
+  try {
+    await A.saveLogin({ host: $('login-host').value.trim(), user: $('login-user').value.trim(), pass: $('login-pass').value });
+    $('login-pass').value = '';
+    show('✅ Login is phone par encrypted save ho gaya.');
+    refreshLogins();
+  } catch (e) {
+    show('❌ ' + (e.message || e));
+  }
+});
+
+if ($('toggle-auto-submit')) {
+  $('toggle-auto-submit').checked = isAutoSubmit();
+  $('toggle-auto-submit').addEventListener('change', e => {
+    try { localStorage.setItem('aureon_auto_submit', e.target.checked ? '1' : '0'); } catch (err) { /* private mode */ }
+  });
+}
+$('btn-drawer-settings')?.addEventListener('click', () => { refreshLogins(); if ($('toggle-auto-submit')) $('toggle-auto-submit').checked = isAutoSubmit(); });

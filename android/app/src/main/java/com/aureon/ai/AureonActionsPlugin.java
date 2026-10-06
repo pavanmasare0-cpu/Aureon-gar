@@ -805,10 +805,16 @@ public class AureonActionsPlugin extends Plugin {
             call.reject("base is required");
             return;
         }
+        final String url = call.getString("url", "");
+        final String host = call.getString("host", "");
+        final boolean apply = call.getBoolean("apply", false);
+        final boolean autoSubmit = call.getBoolean("autoSubmit", false);
         final Context ctx = getContext();
         new Thread(() -> {
             try {
-                org.json.JSONObject result = AureonFormFiller.run(ctx, base.trim(), true);
+                org.json.JSONObject result = apply
+                        ? AureonFormFiller.runApplication(ctx, base.trim(), url, host, autoSubmit)
+                        : AureonFormFiller.run(ctx, base.trim(), true);
                 call.resolve(JSObject.fromJSONObject(result));
             } catch (AureonAgentActions.ActionException e) {
                 call.reject(e.getMessage());
@@ -816,5 +822,35 @@ public class AureonActionsPlugin extends Plugin {
                 call.reject("Form fill failed: " + e.getMessage());
             }
         }).start();
+    }
+
+    // Site logins: encrypted, phone-only. Passwords are never returned to JS.
+    @PluginMethod
+    public void saveLogin(PluginCall call) {
+        String host = call.getString("host", "");
+        String user = call.getString("user", "");
+        String pass = call.getString("pass", "");
+        if (host.isEmpty() || user.isEmpty() || pass.isEmpty()) {
+            call.reject("site, username aur password teeno chahiye");
+            return;
+        }
+        if (!AureonCredStore.save(getContext(), host, user, pass)) {
+            call.reject("Secure storage available nahi hai (Android 6+ chahiye) ya save fail hua.");
+            return;
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void deleteLogin(PluginCall call) {
+        AureonCredStore.delete(getContext(), call.getString("host", ""));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void listLogins(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("logins", AureonCredStore.list(getContext()).toString());
+        call.resolve(out);
     }
 }

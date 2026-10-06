@@ -477,3 +477,11 @@ expect karna.
 - Chat "Server returned 500": ab app server ka asli error dikhata hai. Aam wajah: Gemini quota khatam + Render par `GROQ_API_KEY` set nahi.
 - Job search quota error: links paste karo (`start_job_applications` ke `urls`), search nahi lagti.
 - Watchdog status: `https://aureone.onrender.com/api/watchdog/status`
+
+## Round 21 — Auto-apply (login + Apply/Next/Submit)
+- Settings: **Auto-submit mode** (default OFF) + **Site logins** (AES-GCM, Android Keystore, sirf phone par; password JS/backend/AI ko kabhi nahi jaata).
+- `AureonFormFiller.runApplication`: open -> login (saved) -> job page par Apply -> har screen fill -> Next/Submit (sirf Auto ON + koi zaroori jawab khaali nahi). Statuses: submitted / already_applied / needs_input / needs_verification / needs_login / submit_clicked_unverified / no_form.
+- Verification code, captcha, wrong login par ruk ke notification (`AureonNotifier`). Captcha/OTP kabhi solve nahi karta.
+- Auto mode mein queue khud chalti hai; pause hone par user "ho gaya" bolta hai -> `next_job_application`.
+- Voice overlay ("Hey Aureon, form bhar do") abhi bhi sirf fill karta hai, submit nahi.
+- Backend `/api/form-fill` ab `autoSubmit` leta hai: Auto ON mein terms/consent checkbox tick hote hain; eligibility sawaal tabhi jab profile mein clearly likha ho; EEO mein "prefer not to say" chunta hai.

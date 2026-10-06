@@ -558,4 +558,69 @@ public class AureonAccessibilityService extends AccessibilityService {
         }
         return null;
     }
+
+    // ---------------- Login + button helpers (auto-apply) ----------------
+
+    private static AccessibilityNodeInfo findPasswordNode(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 45) return null;
+        if (node.isPassword() && node.isEditable() && node.isEnabled() && node.isVisibleToUser()) {
+            return AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = findPasswordNode(child, depth + 1);
+            if (child != null) child.recycle();
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** Types into the visible password box. The value never leaves this process. */
+    public static boolean fillPasswordField(String value) {
+        if (instance == null || value == null) return false;
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return false;
+        AccessibilityNodeInfo n = findPasswordNode(root, 0);
+        root.recycle();
+        if (n == null) return false;
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        boolean ok = n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        n.recycle();
+        return ok;
+    }
+
+    private static AccessibilityNodeInfo findRegexNode(AccessibilityNodeInfo node, java.util.regex.Pattern p, int depth) {
+        if (node == null || depth > 45) return null;
+        if (node.isVisibleToUser() && !node.isEditable()) {
+            CharSequence tCs = node.getText();
+            CharSequence dCs = node.getContentDescription();
+            String t = tCs == null ? "" : tCs.toString().trim();
+            String d = dCs == null ? "" : dCs.toString().trim();
+            if ((!t.isEmpty() && p.matcher(t).matches()) || (!d.isEmpty() && p.matcher(d).matches())) {
+                return AccessibilityNodeInfo.obtain(node);
+            }
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = findRegexNode(child, p, depth + 1);
+            if (child != null) child.recycle();
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** Taps the first visible button/link whose whole text matches the pattern. */
+    public static boolean clickButtonMatching(java.util.regex.Pattern p) {
+        if (instance == null) return false;
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return false;
+        AccessibilityNodeInfo hit = findRegexNode(root, p, 0);
+        root.recycle();
+        if (hit == null) return false;
+        boolean ok = clickControl(hit);
+        hit.recycle();
+        return ok;
+    }
 }
