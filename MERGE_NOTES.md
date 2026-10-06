@@ -468,3 +468,12 @@ expect karna.
 - Trigger: in-app chat ya "Hey Aureon, form bhar do" (voice). Batch jobs (`start_job_applications`) sirf chat se.
 - Form-fill logic ab Java mein ek jagah: `AureonFormFiller.java` (chat plugin `fillForm` + voice session dono use karte hain).
 - `.env` zip se hata di gayi; purani Gemini/Groq keys rotate karo aur `git rm --cached backend/.env` karo.
+
+## APK (GitHub Actions)
+`.github/workflows/build-apk.yml` har push par debug APK banata hai. Repo -> Settings -> Secrets and variables -> Actions mein `GEMINI_API_KEY` aur `GROQ_API_KEY` daalo (optional: `GOOGLE_SERVICES_JSON_B64`). Phir Actions tab -> latest run -> Artifacts -> `aureon-debug-apk` download.
+
+## Troubleshooting (Round 20 testing)
+- Love Camera "No Gemini/Groq API key configured on this build": keys build-time par `android/local.properties` se aati hain. Local build: `echo 'GEMINI_API_KEY=..' >> android/local.properties` (aur GROQ), phir rebuild. GitHub Actions: repo Secrets mein `GEMINI_API_KEY`/`GROQ_API_KEY` daalo.
+- Chat "Server returned 500": ab app server ka asli error dikhata hai. Aam wajah: Gemini quota khatam + Render par `GROQ_API_KEY` set nahi.
+- Job search quota error: links paste karo (`start_job_applications` ke `urls`), search nahi lagti.
+- Watchdog status: `https://aureone.onrender.com/api/watchdog/status`

@@ -252,7 +252,8 @@ const AGENT_TOOLS = [
           properties: {
             role: { type: 'STRING', description: 'Job role, e.g. \"full stack developer\"' },
             count: { type: 'NUMBER', description: 'How many jobs the user wants to apply to (max 25).' },
-            location: { type: 'STRING', description: 'Optional city/country or \"remote\".' }
+            location: { type: 'STRING', description: 'Optional city/country or \"remote\".' },
+            urls: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Optional: job/application page links the user pasted. If given, these are used directly and no search is done.' }
           },
           required: ['role', 'count']
         }
@@ -1409,6 +1410,7 @@ ${profile.slice(0, 20000)}`;
     res.json({ answers, skipped });
   } catch (err) {
     console.error('form-fill failed:', err);
+    watchdog.recordError('form_fill_fail', err);
     res.status(500).json({ error: err.message || 'Could not fill form' });
   }
 });
@@ -1446,7 +1448,11 @@ app.post('/api/find-jobs', verifyAuth, async (req, res) => {
     try {
       reply = await callGemini([{ role: 'user', content: prompt }], 'You are a careful job-search assistant. Never invent URLs or companies.', false);
     } catch (e) {
-      return res.status(502).json({ error: 'Job search is unavailable right now: ' + (e.message || 'model error') });
+      watchdog.recordError('find_jobs_fail', e);
+      const quota = /quota|rate limit|exceeded|429/i.test(e.message || '');
+      return res.status(502).json({ error: quota
+        ? 'Gemini search ka quota abhi khatam hai (free limit). Job links yahan paste kar do, main unhi par apply form bhar dunga — ya quota reset hone par dobara try karo.'
+        : 'Job search is unavailable right now: ' + (e.message || 'model error') });
     }
     if (typeof reply !== 'string') reply = '';
     const cleaned = reply.replace(/```json|```/gi, '');
@@ -1466,6 +1472,7 @@ app.post('/api/find-jobs', verifyAuth, async (req, res) => {
     res.json({ jobs, requested: count });
   } catch (err) {
     console.error('find-jobs failed:', err);
+    watchdog.recordError('find_jobs_fail', err);
     res.status(500).json({ error: err.message || 'Could not find jobs' });
   }
 });
