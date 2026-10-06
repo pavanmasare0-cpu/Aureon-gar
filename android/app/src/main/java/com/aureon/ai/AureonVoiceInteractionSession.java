@@ -51,6 +51,7 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
 
     private static final String TAG = "AureonVoiceSession";
     private static final String BACKEND_URL = "https://aureone.onrender.com/api/chat";
+    private static final String BACKEND_BASE = "https://aureone.onrender.com";
     // How many recent messages (3 exchanges) ride along with each request so
     // follow-ups make sense: "Tejas ko message karo" -> "kya bhejun?" -> "hi".
     private static final int VOICE_CONTEXT_MESSAGES = 6;
@@ -913,6 +914,19 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 return AureonAgentActions.sendInstagramMessage(ctx, args.optString("contact_name"), args.optString("message"));
             case "send_whatsapp_live_location":
                 return AureonAgentActions.sendWhatsappLiveLocation(ctx, args.optString("contact_name"), args.optString("duration", "15 minutes"));
+            case "fill_application_form": {
+                String formUrl = args.optString("url", "");
+                if (!formUrl.isEmpty()) {
+                    AureonAgentActions.openUrl(ctx, formUrl);
+                    try { Thread.sleep(8000); } catch (InterruptedException ignored) {}
+                }
+                // Voice: the form page is already in front (user said "Hey Aureon, form bhar do").
+                return AureonFormFiller.run(ctx, BACKEND_BASE, false);
+            }
+            case "start_job_applications":
+            case "next_job_application":
+            case "job_application_report":
+                throw new AureonAgentActions.ActionException("Batch job applications Aureon app ki chat se chalte hain. Voice se sirf abhi khule page ka form bhar sakta hu (fill_application_form).");
             default:
                 throw new AureonAgentActions.ActionException("Unknown action: " + name);
         }
@@ -934,6 +948,8 @@ public class AureonVoiceInteractionSession extends VoiceInteractionSession {
                 return "Playing: " + args.optString("query");
             case "compose_email":
                 return "Opened email draft: " + args.optString("subject");
+            case "fill_application_form":
+                return result.optBoolean("loginRequired") ? "Login page hai — pehle login karo" : ("Filled " + result.optInt("filled") + " field(s) — review karke Apply dabao");
             case "send_whatsapp_message":
                 return "Opened WhatsApp to " + result.optString("to", args.optString("contact_name", args.optString("number"))) + " — tap send to deliver it";
             default:

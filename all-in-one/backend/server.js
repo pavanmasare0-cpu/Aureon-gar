@@ -919,7 +919,7 @@ app.post('/api/chat', async (req, res) => {
     // A one-time spoken/typed code permanently marks this uid as the
     // owner (Pavan) — checked here so it works from any device/session
     // that logs in as this uid, not just the one where it was first said.
-    const OWNER_CODE = 'pavan27604692005';
+    const OWNER_CODE = process.env.OWNER_CODE || '';
     if (uid && db) {
       try {
         const ownerRef = db.collection('users').doc(uid).collection('profile').doc('owner');

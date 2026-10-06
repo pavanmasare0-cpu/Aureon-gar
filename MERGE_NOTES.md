@@ -451,3 +451,20 @@ regression nahi hua.
 
 **APK size thoda badh jayegi** (~2.5MB video ki wajah se) — normal hai,
 expect karna.
+
+## Round 20 — Application Profile, form auto-fill, batch job applications
+
+**Naya kya hai**
+- Settings -> **Application Profile**: apni details ek baar likho (Firestore mein save hoti hai). Password/OTP/card/Aadhaar yahan MAT likho.
+- `fill_application_form` tool: foreground page ke khaali text fields padhta hai (`AureonAccessibilityService.listFormFields`), backend `/api/form-fill` se profile ke basis par jawab leta hai, type karta hai, scroll karke repeat. **Submit/Apply kabhi nahi dabata.** Password/OTP/card/bank/Aadhaar/PAN fields skip. Legal declarations aur demographic sawaal tumhare liye chhode jaate hain.
+- Login page detect hota hai (password box + <=2 fields) — tab kuch nahi bharta, tum login karke "form bhar do" bolte ho.
+- Batch jobs: `start_job_applications` (role, count) -> `/api/find-jobs` (Gemini Google Search + link-check) -> pehli job khulti + form bharta. User Apply dabata hai, "ho gaya" bolta hai -> `next_job_application`. `job_application_report` applied/skipped/pending links deta hai.
+- Owner code ab `OWNER_CODE` env var se aata hai (hardcoded tha). **Purana code history mein hai — naya code set karo.**
+- Backend ke 5 routes (`generate-image/pdf/zip`, `extract-text`, `edit-video`) ab `verifyAuth` maangte hain.
+
+**Limits / abhi nahi**
+- Text boxes + checkbox + radio + dropdown (native popup wale) bharta hai. Custom web dropdowns (page ke andar khulne wale) skip hote hain — wo skipped list mein aate hain. Terms/consent checkboxes hamesha tumhare liye chhode jaate hain.
+- Java changes compile nahi hue (build environment mein nahi tha) — `./gradlew assembleDebug` chalao.
+- Trigger: in-app chat ya "Hey Aureon, form bhar do" (voice). Batch jobs (`start_job_applications`) sirf chat se.
+- Form-fill logic ab Java mein ek jagah: `AureonFormFiller.java` (chat plugin `fillForm` + voice session dono use karte hain).
+- `.env` zip se hata di gayi; purani Gemini/Groq keys rotate karo aur `git rm --cached backend/.env` karo.

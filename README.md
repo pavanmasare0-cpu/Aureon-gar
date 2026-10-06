@@ -64,6 +64,11 @@ Node.js backend.
   reference them (RAG).
 - Image generation/editing, PDF generation, video editing.
 
+### Application auto-fill 📝
+- Save your details once (Settings -> Application Profile); Aureon fills text fields on any form/job page open on the phone and writes answers to technical questions strictly from that profile.
+- Batch mode: "20 full stack developer jobs pe apply karo" finds link-checked openings, opens each and fills it — you review and tap Apply yourself; ask for the list of applied links anytime.
+- Never submits, never touches passwords/OTP/payment fields.
+
 ### Device automation
 - Accessibility-service-driven automation for WhatsApp and Instagram
   (send messages, read the latest message, share live location).

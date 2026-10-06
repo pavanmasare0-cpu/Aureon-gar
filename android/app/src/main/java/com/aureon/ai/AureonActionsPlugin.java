@@ -793,4 +793,28 @@ public class AureonActionsPlugin extends Plugin {
         getContext().startActivity(intent);
         call.resolve();
     }
+
+    // ---------------------------------------------------------------
+    // Application form filling — runs the shared AureonFormFiller on a
+    // background thread. Never taps Submit/Apply.
+    // ---------------------------------------------------------------
+    @PluginMethod
+    public void fillForm(PluginCall call) {
+        final String base = call.getString("base");
+        if (base == null || base.trim().isEmpty()) {
+            call.reject("base is required");
+            return;
+        }
+        final Context ctx = getContext();
+        new Thread(() -> {
+            try {
+                org.json.JSONObject result = AureonFormFiller.run(ctx, base.trim(), true);
+                call.resolve(JSObject.fromJSONObject(result));
+            } catch (AureonAgentActions.ActionException e) {
+                call.reject(e.getMessage());
+            } catch (Exception e) {
+                call.reject("Form fill failed: " + e.getMessage());
+            }
+        }).start();
+    }
 }

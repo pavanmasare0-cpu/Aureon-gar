@@ -3,6 +3,7 @@ package com.aureon.ai;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
+import android.os.Build;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
@@ -12,6 +13,9 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * User-enabled automation bridge. Android requires the user to explicitly
@@ -277,6 +281,278 @@ public class AureonAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             AccessibilityNodeInfo found = findByText(child, query);
+            if (child != null) child.recycle();
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    // ---------------- Form filling (Application Profile) ----------------
+    // Scans the foreground screen/page for fillable controls (text boxes,
+    // checkboxes, radio buttons, dropdowns) and acts on them by index.
+    // Never reads or fills password fields, and never taps Submit/Apply.
+    //
+    // The index counts EVERY non-password control in tree order (visible or
+    // not) and the walk never descends into a control, so scan-pass and
+    // act-pass always agree even if the keyboard changes what is visible.
+
+    private static volatile boolean scanSawPassword = false;
+    public static boolean lastScanSawPassword() { return scanSawPassword; }
+
+    public static String activePackage() {
+        if (instance == null) return "";
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return "";
+        CharSequence pkg = root.getPackageName();
+        root.recycle();
+        return pkg == null ? "" : pkg.toString();
+    }
+
+    private static String controlType(AccessibilityNodeInfo n) {
+        if (n.isPassword()) return "password";
+        if (!n.isEnabled()) return null;
+        if (n.isEditable()) return "text";
+        CharSequence cn = n.getClassName();
+        String c = cn == null ? "" : cn.toString();
+        if (n.isCheckable()) return c.contains("RadioButton") ? "radio" : "checkbox";
+        if (c.contains("Spinner")) return "dropdown";
+        return null;
+    }
+
+    private static String joinLabel(String a, String b) {
+        if (b == null || b.isEmpty() || a.equals(b) || a.contains(b)) return a;
+        if (a.isEmpty()) return b;
+        return a + " | " + b;
+    }
+
+    /** JSON array of visible controls: {index, type, label, current, checked, group, option, multiline}. */
+    public static String scanForm() {
+        scanSawPassword = false;
+        JSONArray out = new JSONArray();
+        if (instance == null) return out.toString();
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return out.toString();
+        try {
+            walkForm(root, new int[]{0}, new String[]{""}, out, 0);
+        } catch (Exception ignored) {}
+        root.recycle();
+        return out.toString();
+    }
+
+    private static void walkForm(AccessibilityNodeInfo node, int[] idx, String[] lastLabel,
+                                 JSONArray out, int depth) throws JSONException {
+        if (node == null || depth > 45) return;
+        String type = controlType(node);
+        if ("password".equals(type)) {
+            if (node.isVisibleToUser()) scanSawPassword = true;
+            return;
+        }
+        if (type != null) {
+            int myIndex = idx[0]++;
+            if (node.isVisibleToUser()) {
+                CharSequence txtCs = node.getText();
+                String txt = txtCs == null ? "" : txtCs.toString().trim();
+                CharSequence descCs = node.getContentDescription();
+                String desc = descCs == null ? "" : descCs.toString().trim();
+                JSONObject f = new JSONObject();
+                f.put("index", myIndex);
+                f.put("type", type);
+                if ("text".equals(type)) {
+                    CharSequence hintCs = Build.VERSION.SDK_INT >= 26 ? node.getHintText() : null;
+                    String hint = hintCs == null ? "" : hintCs.toString().trim();
+                    boolean showingHint = Build.VERSION.SDK_INT >= 26 && node.isShowingHintText();
+                    String current = showingHint ? "" : txt;
+                    String label = joinLabel(joinLabel(lastLabel[0], hint), desc);
+                    f.put("label", label.length() > 200 ? label.substring(0, 200) : label);
+                    f.put("current", current.length() > 300 ? current.substring(0, 300) : current);
+                    f.put("multiline", node.isMultiLine());
+                } else if ("dropdown".equals(type)) {
+                    f.put("label", joinLabel(lastLabel[0], desc));
+                    f.put("current", txt);
+                } else {
+                    String own = !txt.isEmpty() ? txt : desc;
+                    f.put("checked", node.isChecked());
+                    if ("radio".equals(type)) {
+                        f.put("group", lastLabel[0]);
+                        f.put("option", own.isEmpty() ? ("option " + myIndex) : own);
+                    } else {
+                        f.put("label", own.isEmpty() ? lastLabel[0] : own);
+                    }
+                }
+                out.put(f);
+            }
+            if ("text".equals(type) || "dropdown".equals(type)) lastLabel[0] = "";
+            return;
+        }
+        CharSequence t = node.getText();
+        if (t != null && !node.isClickable()) {
+            String str = t.toString().trim();
+            if (str.length() >= 2 && str.length() <= 200) lastLabel[0] = str;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                walkForm(child, idx, lastLabel, out, depth + 1);
+                child.recycle();
+            }
+        }
+    }
+
+    private static AccessibilityNodeInfo locateControl(int target) {
+        if (instance == null) return null;
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return null;
+        AccessibilityNodeInfo found = locate(root, new int[]{0}, target, 0);
+        root.recycle();
+        return found;
+    }
+
+    private static AccessibilityNodeInfo locate(AccessibilityNodeInfo node, int[] idx, int target, int depth) {
+        if (node == null || depth > 45) return null;
+        String type = controlType(node);
+        if ("password".equals(type)) return null;
+        if (type != null) {
+            if (idx[0]++ == target) return AccessibilityNodeInfo.obtain(node);
+            return null;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = locate(child, idx, target, depth + 1);
+            if (child != null) child.recycle();
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static void pause(int ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
+    }
+
+    public static boolean setTextAt(int index, String value) {
+        AccessibilityNodeInfo n = locateControl(index);
+        if (n == null) return false;
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        boolean ok = n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        n.recycle();
+        return ok;
+    }
+
+    private static boolean clickControl(AccessibilityNodeInfo n) {
+        boolean ok = clickNode(n);
+        if (!ok) ok = n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        return ok;
+    }
+
+    public static boolean clickAt(int index) {
+        AccessibilityNodeInfo n = locateControl(index);
+        if (n == null) return false;
+        boolean ok = clickControl(n);
+        n.recycle();
+        return ok;
+    }
+
+    public static boolean setCheckedAt(int index, boolean wantChecked) {
+        AccessibilityNodeInfo n = locateControl(index);
+        if (n == null) return false;
+        boolean ok = true;
+        if (n.isChecked() != wantChecked) ok = clickControl(n);
+        n.recycle();
+        return ok;
+    }
+
+    /**
+     * Opens a dropdown and reads its options (native popup only). Returns an
+     * empty array if nothing opened or the "popup" looks like the whole page
+     * (a custom inline widget) — those are left for the user. Only presses
+     * BACK when a small popup really appeared, so it can never navigate the
+     * page away.
+     */
+    public static JSONArray readDropdownOptions(int index) {
+        JSONArray opts = new JSONArray();
+        AccessibilityNodeInfo n = locateControl(index);
+        if (n == null) return opts;
+        String before = readScreen();
+        boolean clicked = clickControl(n);
+        if (!clicked) { n.recycle(); return opts; }
+        pause(700);
+        String after = readScreen();
+        if (after == null || after.equals(before)) { n.recycle(); return opts; }
+        String[] lines = after.split("\n");
+        if (lines.length > 40) {
+            // Inline widget opened over the page: toggle it closed, skip it.
+            AccessibilityNodeInfo again = locateControl(index);
+            if (again != null) { clickControl(again); again.recycle(); }
+            n.recycle();
+            return opts;
+        }
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        for (String line : lines) {
+            String o = line.trim();
+            String low = o.toLowerCase(Locale.ROOT);
+            if (o.isEmpty() || o.length() > 80) continue;
+            if (low.equals("cancel") || low.equals("done") || low.equals("ok") || low.equals("close")) continue;
+            if (seen.add(low)) opts.put(o);
+        }
+        performGlobalActionStatic(GLOBAL_ACTION_BACK);
+        pause(500);
+        n.recycle();
+        return opts;
+    }
+
+    private static void performGlobalActionStatic(int action) {
+        if (instance != null) instance.performGlobalAction(action);
+    }
+
+    /** Opens the dropdown at index and taps the option whose text matches. */
+    public static boolean chooseDropdown(int index, String option) {
+        AccessibilityNodeInfo n = locateControl(index);
+        if (n == null) return false;
+        boolean clicked = clickControl(n);
+        n.recycle();
+        if (!clicked) return false;
+        pause(700);
+        boolean ok = selectOptionText(option, 2500);
+        if (!ok) {
+            performGlobalActionStatic(GLOBAL_ACTION_BACK);
+            pause(400);
+        }
+        return ok;
+    }
+
+    private static boolean selectOptionText(String option, int timeoutMs) {
+        String q = option.trim().toLowerCase(Locale.ROOT);
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (instance != null) {
+                AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+                if (root != null) {
+                    AccessibilityNodeInfo hit = findExactText(root, q);
+                    if (hit == null) hit = findByText(root, q);
+                    root.recycle();
+                    if (hit != null) {
+                        boolean ok = clickControl(hit);
+                        hit.recycle();
+                        if (ok) return true;
+                    }
+                }
+            }
+            pause(300);
+        }
+        return false;
+    }
+
+    private static AccessibilityNodeInfo findExactText(AccessibilityNodeInfo node, String q) {
+        if (node == null) return null;
+        CharSequence tCs = node.getText();
+        CharSequence dCs = node.getContentDescription();
+        String t = tCs == null ? "" : tCs.toString().trim().toLowerCase(Locale.ROOT);
+        String d = dCs == null ? "" : dCs.toString().trim().toLowerCase(Locale.ROOT);
+        if (t.equals(q) || d.equals(q)) return AccessibilityNodeInfo.obtain(node);
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = findExactText(child, q);
             if (child != null) child.recycle();
             if (found != null) return found;
         }
