@@ -1680,16 +1680,34 @@ async function refreshLogins() {
   try {
     const r = await A.listLogins();
     const arr = JSON.parse(r.logins || '[]');
-    box.textContent = arr.length ? '' : 'Koi saved login nahi.';
+    box.textContent = '';
+    if (!arr.length) {
+      const empty = document.createElement('div');
+      empty.className = 'login-empty';
+      empty.textContent = 'Koi saved login nahi.';
+      box.appendChild(empty);
+    }
     arr.forEach(l => {
       const row = document.createElement('div');
-      row.textContent = `${l.host} — ${l.user}  `;
+      row.className = 'login-chip';
+      const info = document.createElement('div');
+      const hostEl = document.createElement('div');
+      hostEl.className = 'login-host';
+      hostEl.textContent = l.host;
+      const userEl = document.createElement('div');
+      userEl.className = 'login-user';
+      userEl.textContent = l.user;
+      info.appendChild(hostEl);
+      info.appendChild(userEl);
       const b = document.createElement('button');
+      b.className = 'login-del';
       b.textContent = '✕';
       b.onclick = async () => { await A.deleteLogin({ host: l.host }); refreshLogins(); };
+      row.appendChild(info);
       row.appendChild(b);
       box.appendChild(row);
     });
+    updateSettingsSubs();
   } catch (e) { /* plugin not ready */ }
 }
 
@@ -1715,3 +1733,56 @@ if ($('toggle-auto-submit')) {
   });
 }
 $('btn-drawer-settings')?.addEventListener('click', () => { refreshLogins(); if ($('toggle-auto-submit')) $('toggle-auto-submit').checked = isAutoSubmit(); });
+
+// ---------- Settings: list of rows -> detail panes ----------
+function settingsEl(id) { return document.getElementById(id); }
+
+function updateSettingsSubs() {
+  const auto = settingsEl('sub-auto');
+  if (auto) auto.textContent = isAutoSubmit() ? 'On — khud submit karega' : 'Off';
+  const acc = settingsEl('sub-account');
+  const email = settingsEl('account-email-display');
+  if (acc && email) acc.textContent = email.textContent || '';
+  const logins = settingsEl('login-list');
+  const sub = settingsEl('sub-logins');
+  if (sub && logins) {
+    const n = logins.querySelectorAll('.login-chip').length;
+    sub.textContent = n ? `${n} saved` : 'Koi saved login nahi';
+  }
+}
+
+function settingsShowList() {
+  const list = settingsEl('settings-list');
+  if (list) list.classList.remove('hidden');
+  document.querySelectorAll('.settings-pane').forEach(p => p.classList.add('hidden'));
+  settingsEl('settings-back')?.classList.add('hidden');
+  settingsEl('settings-footer')?.classList.add('hidden');
+  const t = settingsEl('settings-title');
+  if (t) t.textContent = 'Settings';
+  updateSettingsSubs();
+  const sc = settingsEl('settings-scroll');
+  if (sc) sc.scrollTop = 0;
+}
+
+function settingsOpenPane(name) {
+  const pane = document.querySelector(`.settings-pane[data-pane="${name}"]`);
+  if (!pane) return;
+  settingsEl('settings-list')?.classList.add('hidden');
+  document.querySelectorAll('.settings-pane').forEach(p => p.classList.add('hidden'));
+  pane.classList.remove('hidden');
+  settingsEl('settings-back')?.classList.remove('hidden');
+  const t = settingsEl('settings-title');
+  if (t) t.textContent = pane.dataset.title || 'Settings';
+  // "Save settings" only matters for the General and Memory panes
+  settingsEl('settings-footer')?.classList.toggle('hidden', !(name === 'general' || name === 'memory'));
+  const sc = settingsEl('settings-scroll');
+  if (sc) sc.scrollTop = 0;
+  if (name === 'logins') refreshLogins();
+}
+
+document.querySelectorAll('.list-row[data-open]').forEach(btn => {
+  btn.addEventListener('click', () => settingsOpenPane(btn.dataset.open));
+});
+settingsEl('settings-back')?.addEventListener('click', settingsShowList);
+$('btn-drawer-settings')?.addEventListener('click', () => setTimeout(() => { settingsShowList(); refreshLogins(); }, 0));
+$('toggle-auto-submit')?.addEventListener('change', updateSettingsSubs);

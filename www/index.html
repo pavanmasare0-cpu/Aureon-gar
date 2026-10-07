@@ -194,69 +194,128 @@
   </div>
 
   <!-- ===== SETTINGS SHEET ===== -->
-  <div id="sheet-settings" class="sheet hidden">
+  <div id="sheet-settings" class="sheet sheet-settings hidden">
     <div class="sheet-backdrop"></div>
     <div class="sheet-body">
       <div class="sheet-handle"></div>
-      <div class="section-label">Settings</div>
+      <div class="settings-head">
+        <button class="settings-back hidden" id="settings-back" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="settings-title" id="settings-title">Settings</div>
+      </div>
 
-      <div class="setting-row">
-        <span>Response streaming</span>
-        <label class="switch"><input type="checkbox" id="toggle-stream" checked><span class="slider"></span></label>
-      </div>
-      <div class="setting-row">
-        <span>Auto language detect</span>
-        <label class="switch"><input type="checkbox" id="toggle-lang" checked><span class="slider"></span></label>
-      </div>
-      <div class="setting-row">
-        <span>Voice recognition language</span>
-        <select id="voice-lang-select" class="text-input" style="width:auto;padding:6px 10px;">
+      <div class="settings-scroll" id="settings-scroll">
+        <div id="settings-list">
+          <div class="list-group">
+          <button class="list-row" data-open="general">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            <span class="row-text"><span class="row-title">General</span><span class="row-sub">Streaming, language, voice</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="list-row" data-open="memory">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            <span class="row-text"><span class="row-title">Memory</span><span class="row-sub">Aureon ko kya yaad rakhna hai</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+          <div class="list-group">
+          <button class="list-row" data-open="profile">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span class="row-text"><span class="row-title">Application Profile</span><span class="row-sub">Forms ke liye tumhari details</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="list-row" data-open="auto">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span class="row-text"><span class="row-title">Auto-apply</span><span class="row-sub" id="sub-auto">Off</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="list-row" data-open="logins">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span class="row-text"><span class="row-title">Site logins</span><span class="row-sub" id="sub-logins">Koi saved login nahi</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+          <div class="list-group">
+          <button class="list-row" data-open="camera">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span class="row-text"><span class="row-title">Love Camera</span><span class="row-sub">Apni photo</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="list-row" data-open="account">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="row-text"><span class="row-title">Account</span><span class="row-sub" id="sub-account"></span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+        </div>
+
+        <section class="settings-card settings-pane hidden" data-pane="general" data-title="General">
+          <div class="setting-row">
+            <span>Response streaming</span>
+            <label class="switch"><input type="checkbox" id="toggle-stream" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <span>Auto language detect</span>
+            <label class="switch"><input type="checkbox" id="toggle-lang" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <span>Voice language</span>
+            <select id="voice-lang-select" class="text-input" style="width:auto;padding:6px 10px;">
           <option value="auto">Auto (phone language)</option>
           <option value="en-IN">English</option>
           <option value="hi-IN">Hindi</option>
           <option value="mr-IN">Marathi</option>
         </select>
+          </div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="memory" data-title="Memory">
+          <p class="card-sub">Aureon ko tumhare baare mein kya yaad rakhna hai — jaise "short jawab do", "Hinglish mein reply karo".</p>
+          <textarea id="memory-input" class="text-input" rows="4" placeholder="Ek line mein ek preference…"></textarea>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="profile" data-title="Application Profile">
+          <p class="card-sub">Apni details ek baar likho — naam, phone, email, education, skills, projects, links, notice period. Forms isi se bharte hain. Sirf sach likho. Password / OTP / card / Aadhaar mat likhna.</p>
+          <textarea id="profile-input" class="text-input" rows="8" placeholder="Full name: …&#10;Email: …&#10;Phone: …&#10;Education: …&#10;Skills: …&#10;Projects: …&#10;LinkedIn / GitHub: …"></textarea>
+          <button class="primary-btn" id="btn-save-profile">Save Profile</button>
+          <div id="profile-status" class="setting-hint hidden"></div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="auto" data-title="Auto-apply">
+          <div class="setting-row">
+            <span>Auto-submit mode</span>
+            <label class="switch"><input type="checkbox" id="toggle-auto-submit"><span class="slider"></span></label>
+          </div>
+          <p class="card-sub">ON hone par Aureon khud Apply / Next / Submit dabata hai — sirf tab jab koi zaroori jawab khaali na ho. Verification code, captcha ya login problem par ruk ke notification deta hai. Pehle OFF rakhke test karo.</p>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="logins" data-title="Site logins">
+          <p class="card-sub">Sirf is phone par, encrypted. Password cloud ya AI ko kabhi nahi jaata. Site ka naam job link jaisa likho (e.g. linkedin.com). Code / captcha wale logins khud karne honge.</p>
+          <input id="login-host" class="text-input" placeholder="Site — e.g. linkedin.com" autocapitalize="none" autocorrect="off">
+          <input id="login-user" class="text-input" placeholder="Email / username" autocapitalize="none" autocorrect="off">
+          <input id="login-pass" class="text-input" type="password" placeholder="Password" autocomplete="off">
+          <button class="primary-btn" id="btn-save-login">Save login</button>
+          <div id="login-status" class="setting-hint hidden"></div>
+          <div id="login-list" class="login-list"></div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="camera" data-title="Love Camera">
+          <p class="card-sub">Apne chehre ki saaf photo daalo — Love Camera tumhe naam se pehchanega aur greet karega.</p>
+          <input type="file" id="owner-photo-input" accept="image/*" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
+          <button class="primary-btn" id="btn-upload-owner-photo">+ Upload My Photo</button>
+          <div id="owner-photo-status" class="setting-hint hidden"></div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="account" data-title="Account">
+          <div class="setting-row"><span id="account-email-display">Not logged in</span></div>
+          <button class="primary-btn danger-btn" id="btn-logout">Log Out</button>
+        </section>
       </div>
 
-      <div class="section-label" style="margin-top:16px;">Memory</div>
-      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Things Aureon should remember about you — e.g. "I prefer short answers", "Reply in Hinglish"</p>
-      <textarea id="memory-input" class="text-input" rows="4" placeholder="Add preferences, one per line…" style="width:100%;resize:vertical;font-family:inherit;"></textarea>
-
-      <div class="section-label" style="margin-top:16px;">Application Profile</div>
-      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Apni details ek baar likho — naam, phone, email, education, CGPA, skills, projects, links, location, notice period, etc. Aureon forms/job applications mein yahi se bharega (technical answers bhi isi ke basis par). Sirf wahi likho jo sach ho. Password/OTP/card/Aadhaar mat likhna.</p>
-      <textarea id="profile-input" class="text-input" rows="8" placeholder="Full name: …&#10;Email: …&#10;Phone: …&#10;Education: …&#10;Skills: …&#10;Projects: …&#10;LinkedIn / GitHub: …" style="width:100%;resize:vertical;font-family:inherit;"></textarea>
-      <button class="primary-btn" id="btn-save-profile">Save Profile</button>
-      <div id="profile-status" class="setting-hint hidden"></div>
-
-      <div class="section-label" style="margin-top:16px;">Auto-apply</div>
-      <div class="setting-row">
-        <span>Auto-submit mode</span>
-        <label class="switch"><input type="checkbox" id="toggle-auto-submit"><span class="slider"></span></label>
+      <div class="settings-footer hidden" id="settings-footer">
+        <button class="primary-btn" id="btn-save-settings">Save settings</button>
       </div>
-      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">ON hone par Aureon khud Apply/Next/Submit dabata hai — sirf tab jab koi zaroori jawab khaali na bacha ho. Verification code, captcha ya login problem par ruk jaata hai aur tumhe notification deta hai. Pehle OFF rakhke test karo, phir 1 job par ON karke dekho.</p>
-
-      <div class="section-label" style="margin-top:16px;">Site logins (sirf is phone par, encrypted)</div>
-      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Password cloud ya AI ko kabhi nahi jaata. Site ka naam waise likho jaise job link mein hai, e.g. linkedin.com. Verification code / captcha wale logins tumhe khud karne honge.</p>
-      <input id="login-host" class="text-input" placeholder="site, e.g. linkedin.com" style="width:100%;margin-bottom:6px;">
-      <input id="login-user" class="text-input" placeholder="email / username" style="width:100%;margin-bottom:6px;">
-      <input id="login-pass" class="text-input" type="password" placeholder="password" autocomplete="off" style="width:100%;margin-bottom:6px;">
-      <button class="primary-btn" id="btn-save-login">Save login</button>
-      <div id="login-status" class="setting-hint hidden"></div>
-      <div id="login-list" class="setting-hint"></div>
-
-      <button class="primary-btn" id="btn-save-settings">Save</button>
-
-      <div class="section-label" style="margin-top:20px;">Love Camera — My Photo</div>
-      <p style="font-size:12px;opacity:0.7;margin:4px 0 8px;">Upload a clear photo of your face — Love Camera will recognize you and greet you by name, and can gently check in if you look upset.</p>
-      <input type="file" id="owner-photo-input" accept="image/*" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
-      <button class="primary-btn" id="btn-upload-owner-photo">+ Upload My Photo</button>
-      <div id="owner-photo-status" class="setting-hint hidden"></div>
-
-      <div class="section-label" style="margin-top:20px;">Account</div>
-      <div class="setting-row">
-        <span id="account-email-display">Not logged in</span>
-      </div>
-      <button class="primary-btn danger-btn" id="btn-logout">Log Out</button>
     </div>
   </div>
 
