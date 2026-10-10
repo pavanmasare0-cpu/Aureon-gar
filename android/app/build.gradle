@@ -11,6 +11,23 @@ if (localPropsFile.exists()) {
     localProps.load(new FileInputStream(localPropsFile))
 }
 
+// Several keys per provider: Love Camera tries them in order and moves to the
+// next one when a key is rejected or out of quota. Put them in local.properties
+// as GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3, GEMINI_API_KEY_4 (same
+// for GROQ_API_KEY...), or as one comma-separated GEMINI_API_KEYS=a,b,c line.
+def collectKeys = { String base ->
+    def list = []
+    ['', '_2', '_3', '_4'].each { suffix ->
+        def v = localProps.getProperty(base + suffix, '').trim()
+        if (v && !list.contains(v)) list << v
+    }
+    localProps.getProperty(base + 'S', '').split(',').each { raw ->
+        def v = raw.trim()
+        if (v && !list.contains(v)) list << v
+    }
+    return list.join(',')
+}
+
 android {
     namespace "com.aureon.ai"
     compileSdk rootProject.ext.compileSdkVersion
@@ -26,6 +43,8 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "GEMINI_API_KEY", "\"${localProps.getProperty('GEMINI_API_KEY', '')}\""
         buildConfigField "String", "GROQ_API_KEY", "\"${localProps.getProperty('GROQ_API_KEY', '')}\""
+        buildConfigField "String", "GEMINI_API_KEYS", "\"${collectKeys('GEMINI_API_KEY')}\""
+        buildConfigField "String", "GROQ_API_KEYS", "\"${collectKeys('GROQ_API_KEY')}\""
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

@@ -549,29 +549,212 @@ function callLocal(messages) {
 // it". openai/gpt-oss-120b is Groq's current flagship model that's actually
 // usable on a standard key. Check console.groq.com/docs/models if this
 // ever needs to change again.
-async function callGroq(messages, systemPrompt) {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set in backend/.env');
-  // Groq only understands plain text turns — drop function-call/response
-  // turns (they carry no `content` and make the request 400).
-  const textOnly = messages.filter(m => m && typeof m.content === 'string' && m.content
-    && (m.role === 'user' || m.role === 'assistant'));
-  const chatMessages = systemPrompt
-    ? [{ role: 'system', content: systemPrompt }, ...textOnly]
-    : textOnly;
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`
-    },
-    body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages: chatMessages })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Groq request failed');
-  return data.choices[0].message.content;
+// Gemini-style schema (type: 'OBJECT'/'STRING'...) -> JSON-schema (lowercase types)
+function toJsonSchema(s) {
+  if (Array.isArray(s)) return s.map(toJsonSchema);
+  if (s && typeof s === 'object') {
+    const o = {};
+    for (const [k, v] of Object.entries(s)) {
+      o[k] = (k === 'type' && typeof v === 'string') ? v.toLowerCase() : toJsonSchema(v);
+    }
+    return o;
+  }
+  return s;
 }
 
-const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal };
+const GROQ_TOOLS = AGENT_TOOLS.flatMap(g => g.functionDeclarations || []).map(d => ({
+  type: 'function',
+  function: {
+    name: d.name,
+    description: d.description,
+    parameters: toJsonSchema(d.parameters || { type: 'OBJECT', properties: {} })
+  }
+}));
+const GROQ_TOOL_NAMES = new Set(GROQ_TOOLS.map(x => x.function.name));
+
+// Groq (OpenAI-compatible) with real tool-calling, so when Gemini is out of
+// quota the same device actions still work. Returns a string, or
+// { functionCall: { name, args } } exactly like callGemini does.
+async function callGroq(messages, systemPrompt, useTools = false) {
+  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set in backend/.env');
+
+  const out = [];
+  let pendingId = null;
+  let n = 0;
+  for (const m of messages) {
+    if (!m) continue;
+    if (m.functionCall) {
+      if (!useTools) continue;
+      pendingId = `call_${++n}`;
+      out.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: pendingId, type: 'function', function: { name: m.functionCall.name, arguments: JSON.stringify(m.functionCall.args || {}) } }]
+      });
+    } else if (m.functionResponse) {
+      if (!useTools || !pendingId) continue;
+      out.push({ role: 'tool', tool_call_id: pendingId, content: JSON.stringify(m.functionResponse.response ?? {}) });
+      pendingId = null;
+    } else if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content) {
+      out.push({ role: m.role, content: m.content });
+    }
+  }
+
+  const send = async (withTools, extraSystem) => {
+    const sys = [systemPrompt, extraSystem].filter(Boolean).join('\n\n');
+    const body = {
+      model: 'openai/gpt-oss-120b',
+      messages: sys ? [{ role: 'system', content: sys }, ...out] : out
+    };
+    if (withTools) { body.tools = GROQ_TOOLS; body.tool_choice = 'auto'; }
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || 'Groq request failed');
+    return data.choices[0].message;
+  };
+
+  let msg;
+  try {
+    msg = await send(useTools, '');
+  } catch (e) {
+    // The model tried to call a tool it was not given (or Groq rejected the
+    // tool call): retry once. With tools -> plain chat; without -> forbid tools.
+    if (/tool/i.test(e.message || '')) {
+      msg = await send(false, 'Reply in plain text only. Do not call any function or tool.');
+    } else {
+      throw e;
+    }
+  }
+
+  if (useTools && Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
+    const tc = msg.tool_calls[0];
+    if (GROQ_TOOL_NAMES.has(tc.function.name)) {
+      let args = {};
+      try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) { args = {}; }
+      return { functionCall: { name: tc.function.name, args } };
+    }
+  }
+  return typeof msg.content === 'string' ? msg.content : '';
+}
+
+// ---------- Coding mode: Gemini + Groq answer together, then get merged ----------
+// Both brains answer the same request in parallel; a final review pass merges
+// them into one answer. If either brain is rate-limited / down, the other one
+// still answers — the user only sees an error if BOTH fail.
+let PROJECT_CONTEXT = '';
+try {
+  PROJECT_CONTEXT = require('fs').readFileSync(require('path').join(__dirname, 'coding-context.md'), 'utf8').slice(0, 9000);
+} catch (e) { /* optional file */ }
+
+const CODING_PROMPT = `You are Aureon's app-development brain: a senior engineer who builds apps (Android, web, Node.js/backend, Firebase, APIs) and finds and fixes bugs in them — like a teammate pair-programming with the owner.
+
+SCOPE: app development and bug finding/debugging only. If the user asks for something unrelated (general chat, recipes, news, etc.), reply in one or two lines that Coding mode is only for app development and bug fixing, and suggest switching the model to a normal mode for that.
+
+UNDERSTANDING THE USER:
+- The user writes short Hinglish, often with typos or voice-typing mistakes (for example "feathers" means features, "assamble" means assemble, "gitpull" means git pull). Work out what they mean from context and from the whole conversation so far. Ask a question only if two readings would lead to different work — otherwise state your assumption in one line and proceed.
+- Do not ask again for things already said earlier in the conversation. Remember what was built, what was tried and what failed.
+- Screenshots are primary evidence: read the exact error text, terminal output or UI in them and point to what shows the problem.
+
+HOW TO ANSWER (phone screen):
+- Lead with the answer or the fix. Short paragraphs. Numbered steps in the order to do them.
+- Give copy-paste commands in code blocks and say which folder to run them in.
+- Say honestly what you could not test (for example Java that was never compiled) and what error text to send back if it fails.
+
+BUILDING:
+- Give complete, working code — whole files when asked, never fragments with "..." placeholders. Say which file each block belongs to and where it goes.
+- Put every code block in a fenced block with its language.
+- After the code, say briefly how to run/test it.
+
+BUG FINDING:
+- Read the code or error carefully before answering. If an error log or stack trace is missing and needed, ask for it in one short line.
+- Reply in this order: Root cause (what is wrong and why, pointing at the exact file/line/function) -> Fix (the corrected code, minimal changes) -> How to verify.
+- When reviewing pasted code for bugs, list real problems by severity (crash, wrong behaviour, security, performance). Do not invent bugs: if you are not sure, label it "possible" and say how to confirm.
+- Prefer the smallest correct fix over a rewrite.
+
+Explain in the user's language (Hinglish or English); keep code and code comments in English.
+${PROJECT_CONTEXT ? '\nPROJECT CONTEXT (the app you are helping build — use it to understand what the user refers to):\n' + PROJECT_CONTEXT : ''}`;
+
+const MERGE_PROMPT = `You are the final reviewer. Two senior app engineers answered the same app-development or bug-finding request. Write ONE final answer for the user that is better than either: keep correct, complete code; fix any bugs or contradictions you notice; where they disagree, choose the more standard and safer approach. For bug reports keep only findings that the code or error actually supports — drop speculative ones or mark them "possible" — and if they disagree on the root cause, state the most likely one and how to confirm it. Keep the structure Root cause -> Fix -> How to verify when it is a bug. Keep the short, phone-friendly style: lead with the answer, numbered steps, copy-paste commands. Remove duplicated explanations. Output the final answer directly. Never mention the two engineers, "answer A/B", or this review process. Keep the user's language for explanations and English for code.`;
+
+function isTransient(e) {
+  return /429|rate limit|overload|503|502|500|unavailable|timeout|timed out|fetch failed|ECONN|ETIMEDOUT/i.test((e && e.message) || '');
+}
+
+async function withRetry(fn, tries = 2, delayMs = 1500) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      if (i < tries - 1 && isTransient(e)) await new Promise(r => setTimeout(r, delayMs));
+      else break;
+    }
+  }
+  throw lastErr;
+}
+
+const asText = v => (typeof v === 'string' ? v.trim() : '');
+
+// Groq cannot see images. If the latest user turn has a screenshot, the Gemini
+// brain reads it first and its transcript is handed to Groq as text — so both
+// brains work from the same screenshot.
+async function shareScreenshot(messages) {
+  let idx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === 'user' && m.image && m.image.data) { idx = i; break; }
+  }
+  if (idx < 0) return { groqMessages: messages, vision: '' };
+  let vision = '';
+  try {
+    vision = asText(await withRetry(() => callGemini(
+      [{ role: 'user', content: 'Read this screenshot for a developer. Transcribe ALL visible text exactly (error messages, terminal output, code, button labels) and briefly describe the UI/layout and anything highlighted. Do not guess.', image: messages[idx].image }],
+      'You are a precise screenshot reader.', false)));
+  } catch (e) { vision = ''; }
+  const note = vision
+    ? `\n\n[Screenshot attached — its contents, read by the vision brain:]\n${vision}`
+    : '\n\n[A screenshot was attached but could not be read right now.]';
+  const groqMessages = messages.map((x, i) => (i === idx ? { ...x, image: undefined, content: (x.content || '') + note } : x));
+  return { groqMessages, vision };
+}
+
+async function callCoding(messages, systemPrompt) {
+  const sys = [CODING_PROMPT, systemPrompt].filter(Boolean).join('\n\n');
+  const { groqMessages, vision } = await shareScreenshot(messages);
+  const [g, q] = await Promise.allSettled([
+    withRetry(() => callGemini(messages, sys, false)),
+    withRetry(() => callGroq(groqMessages, sys, false))
+  ]);
+  const a = g.status === 'fulfilled' ? asText(g.value) : '';
+  const b = q.status === 'fulfilled' ? asText(q.value) : '';
+
+  if (!a && !b) {
+    const why = x => (x.status === 'rejected' ? (x.reason && x.reason.message) || 'failed' : 'empty reply');
+    watchdog.recordError('coding_fail', new Error(`Gemini: ${why(g)} | Groq: ${why(q)}`));
+    throw new Error(`Dono brains abhi busy hain — Gemini: ${why(g)} | Groq: ${why(q)}`);
+  }
+  if (!a || !b) return a || b; // one brain is down — the other answers alone
+
+  const lastUser = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string');
+  const mergeInput = `USER REQUEST:\n${(lastUser && lastUser.content) || ''}${vision ? '\n\nSCREENSHOT CONTENTS:\n' + vision : ''}\n\n--- ANSWER A ---\n${a}\n\n--- ANSWER B ---\n${b}`;
+  const longer = a.length >= b.length ? a : b;
+  let merged = '';
+  try {
+    merged = asText(await withRetry(() => callGemini([{ role: 'user', content: mergeInput }], MERGE_PROMPT, false)));
+  } catch (e1) {
+    try { merged = asText(await withRetry(() => callGroq([{ role: 'user', content: mergeInput }], MERGE_PROMPT, false))); }
+    catch (e2) { merged = ''; }
+  }
+  // Review pass failed or returned something suspiciously thin: keep the fuller original.
+  if (!merged || merged.length < longer.length * 0.4) return longer;
+  return merged;
+}
+
+const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal, coding: callCoding };
 
 // ==================== Phase 5: Personal Knowledge (RAG) ====================
 
@@ -1170,12 +1353,6 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     const provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
     const workingMessages = [...messages];
     let activePrompt = finalSystemPrompt;
-    if (geminiAutoHealing && tools) {
-      // Same disclaimer as the reactive Gemini→Groq fallback below — Groq
-      // has no tool-calling here, so be upfront instead of letting it
-      // cheerfully claim to have saved/done something it didn't.
-      activePrompt += `\n\nIMPORTANT — right now you can only chat: you can NOT save reminders or memory, and you can NOT control the phone (alarms, calls, opening apps, etc.). If the user asks for any of that, tell them plainly that you can't do it at this moment and to try again in a little while. Never say you've saved, noted, done, or will remember anything.`;
-    }
 
     // save_reminder / recall_reminders are handled right here on the
     // backend (Firestore), not passed out to the client like every other
@@ -1186,7 +1363,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     for (let round = 0; round < 5; round++) {
       let reply;
       try {
-        reply = await provider(workingMessages, activePrompt, !!tools);
+        reply = await provider(workingMessages, activePrompt, model === 'coding' ? false : !!tools);
         // A direct, non-healing Gemini call just succeeded — if it had
         // previously tripped the cooldown, clear it immediately rather
         // than waiting out the rest of the window. Recovery detected as
@@ -1206,13 +1383,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
         if (model === 'gemini' && !geminiAutoHealing && process.env.GROQ_API_KEY) {
           console.warn('Gemini failed, falling back to Groq:', providerErr.message);
           let fallbackPrompt = finalSystemPrompt;
-          if (tools) {
-            // Groq has no tool-calling here — without this it happily says
-            // "yaad rakhunga" / "alarm laga diya" while nothing was actually
-            // saved or done. Better to be plain about it.
-            fallbackPrompt += `\n\nIMPORTANT — right now you can only chat: you can NOT save reminders or memory, and you can NOT control the phone (alarms, calls, opening apps, etc.). If the user asks for any of that, tell them plainly that you can't do it at this moment and to try again in a little while. Never say you've saved, noted, done, or will remember anything.`;
-          }
-          reply = await callGroq(workingMessages, fallbackPrompt);
+          reply = await callGroq(workingMessages, fallbackPrompt, !!tools);
         } else {
           throw providerErr;
         }

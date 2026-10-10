@@ -11,7 +11,13 @@ const state = {
   user: null
 };
 
-const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', local: 'Private' };
+// Coding mode is chat-only: no phone actions, no local intent shortcuts.
+function isAgentOn() {
+  if (state.model === 'coding') return false;
+  return $('toggle-agent') ? $('toggle-agent').checked : true;
+}
+
+const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', local: 'Private' };
 
 const $ = (id) => document.getElementById(id);
 
@@ -648,7 +654,7 @@ async function sendMessage() {
   // Offline-capable shortcut: battery / open app / set alarm never need the
   // AI backend at all — if the message clearly asks for one of these, do it
   // natively right away, with zero network involved.
-  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  const agentOn = isAgentOn();
   const localIntent = (!image && !fileText && !fileName && agentOn) ? matchLocalIntent(text) : null;
 
   if (localIntent) {
@@ -771,7 +777,7 @@ const SENSITIVE_AGENT_ACTIONS = new Set(['make_call', 'send_sms', 'send_instagra
 const AGENT_LOOP_LIMIT = 4; // safety cap so a confused model can't loop forever
 
 async function runAgentTurn(wantsPdf, depth = 0) {
-  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  const agentOn = isAgentOn();
   const result = await callBackend(state.currentMessages, state.model, agentOn);
 
   if (result.functionCall) {
@@ -1025,7 +1031,7 @@ IMPORTANT: never write out a fake tool call as plain text (e.g. never type somet
 // Fix: always pull the latest from the backend first — see getFreshMemory.
 async function buildSystemPrompt() {
   const memory = await getFreshMemory();
-  const agentOn = $('toggle-agent') ? $('toggle-agent').checked : true;
+  const agentOn = isAgentOn();
   let prompt = agentOn ? `${BASE_PERSONALITY}\n\n${AGENT_CAPABILITIES}` : BASE_PERSONALITY;
   if (memory.trim()) {
     prompt += `\n\nThings to remember about this user (stated by them):\n${memory.trim()}`;

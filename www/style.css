@@ -1141,3 +1141,22 @@ html, body {
 .row-ico { color: var(--charcoal); filter: none; }
 .row-chev { color: var(--charcoal-soft); }
 .settings-title { text-shadow: none; }
+
+/* ===== Fix: text typed/saved in settings boxes was dark-on-dark (invisible) ===== */
+.text-input,
+.settings-card textarea,
+.settings-card select,
+.settings-card input[type="text"],
+.settings-card input[type="password"] {
+  color: var(--charcoal);
+  -webkit-text-fill-color: var(--charcoal);
+  caret-color: var(--gold);
+}
+.text-input::placeholder,
+.settings-card textarea::placeholder,
+.settings-card input::placeholder {
+  color: var(--charcoal-soft);
+  -webkit-text-fill-color: var(--charcoal-soft);
+  opacity: 0.85;
+}
+.settings-card select option { color: #F2EEE3; background: #161512; }

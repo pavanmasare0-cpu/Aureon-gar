@@ -94,8 +94,58 @@ public class LoveCameraActivity extends AppCompatActivity {
     // which is far too slow for a live "read the question, show the
     // answer" flow. "gemini-flash-latest" is the same fast-model alias the
     // backend prefers (see rankCandidates() in server.js).
-    private static final String GEMINI_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=" + BuildConfig.GEMINI_API_KEY;
+    private static String geminiUrl(String apiKey) {
+        return "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=" + apiKey;
+    }
+
+    // ---- Key ring: every configured key is used; a failing key hands over to the next ----
+    private static String[] splitKeys(String csv) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (csv != null) {
+            for (String k : csv.split(",")) {
+                String t = k.trim();
+                if (!t.isEmpty() && !out.contains(t)) out.add(t);
+            }
+        }
+        return out.toArray(new String[0]);
+    }
+    private static final String[] GEMINI_KEYS = splitKeys(BuildConfig.GEMINI_API_KEYS);
+    private static final String[] GROQ_KEYS = splitKeys(BuildConfig.GROQ_API_KEYS);
+    private static volatile int geminiKeyStart = 0; // last key that worked — tried first next time
+    private static volatile int groqKeyStart = 0;
+
+    private interface KeyAttempt {
+        String run(String apiKey) throws Exception;
+    }
+
+    private static String withKeys(String provider, String[] keys, boolean isGemini, KeyAttempt attempt) throws Exception {
+        if (keys.length == 0) {
+            throw new IllegalStateException("No " + provider + " API key configured on this build.");
+        }
+        int start = isGemini ? geminiKeyStart : groqKeyStart;
+        StringBuilder failures = new StringBuilder();
+        Exception last = null;
+        int tried = 0;
+        for (int i = 0; i < keys.length; i++) {
+            int idx = (start + i) % keys.length;
+            tried++;
+            try {
+                String out = attempt.run(keys[idx]);
+                if (isGemini) geminiKeyStart = idx; else groqKeyStart = idx;
+                return out;
+            } catch (Exception e) {
+                last = e;
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                if (failures.length() > 0) failures.append(" / ");
+                failures.append("key").append(idx + 1).append(": ").append(msg);
+                Log.w(TAG, provider + " key #" + (idx + 1) + " failed: " + msg);
+                // No network / timeout is not the key's fault — another key won't help.
+                if (e instanceof java.net.SocketTimeoutException || e instanceof java.net.UnknownHostException) break;
+            }
+        }
+        if (tried == 1 && last != null) throw last;
+        throw new IOException(provider + " — " + tried + " keys failed (" + failures + ")");
+    }
     // Fallback when Gemini errors out — Groq's own inference hardware, so
     // still fast. Groq's only current vision-capable model is this Qwen
     // model (they don't have a Llama vision model any more); check
@@ -489,9 +539,10 @@ public class LoveCameraActivity extends AppCompatActivity {
     // Throws on any failure (network error, non-2xx response, empty reply) so
     // fetchAnswerForImage's catch block can fall through to Groq.
     private String callGeminiVision(byte[] jpegBytes) throws Exception {
-        if (BuildConfig.GEMINI_API_KEY == null || BuildConfig.GEMINI_API_KEY.isEmpty()) {
-            throw new IllegalStateException("No Gemini API key configured on this build.");
-        }
+        return withKeys("Gemini", GEMINI_KEYS, true, key -> callGeminiVisionWithKey(jpegBytes, key));
+    }
+
+    private String callGeminiVisionWithKey(byte[] jpegBytes, String apiKey) throws Exception {
         String base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP);
         JSONObject framePart = new JSONObject().put("inlineData", new JSONObject()
                 .put("mimeType", "image/jpeg")
@@ -511,7 +562,7 @@ public class LoveCameraActivity extends AppCompatActivity {
         JSONObject userContent = new JSONObject().put("role", "user").put("parts", parts);
         JSONObject payload = new JSONObject().put("contents", new JSONArray().put(userContent));
 
-        URL url = new URL(GEMINI_URL);
+        URL url = new URL(geminiUrl(apiKey));
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
@@ -548,9 +599,10 @@ public class LoveCameraActivity extends AppCompatActivity {
     // request/response shape (image as a data: URL) since that's what
     // Groq's API expects.
     private String callGroqVision(byte[] jpegBytes) throws Exception {
-        if (BuildConfig.GROQ_API_KEY == null || BuildConfig.GROQ_API_KEY.isEmpty()) {
-            throw new IllegalStateException("No Groq API key configured on this build.");
-        }
+        return withKeys("Groq", GROQ_KEYS, false, key -> callGroqVisionWithKey(jpegBytes, key));
+    }
+
+    private String callGroqVisionWithKey(byte[] jpegBytes, String apiKey) throws Exception {
         String base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP);
 
         String prompt = VISION_PROMPT_BASE;
@@ -573,7 +625,7 @@ public class LoveCameraActivity extends AppCompatActivity {
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.GROQ_API_KEY);
+        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
         conn.setDoOutput(true);
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(30000);
@@ -747,9 +799,10 @@ public class LoveCameraActivity extends AppCompatActivity {
     }
 
     private String chatWithGemini(String text, byte[] imageJpeg, List<String[]> history) throws Exception {
-        if (BuildConfig.GEMINI_API_KEY == null || BuildConfig.GEMINI_API_KEY.isEmpty()) {
-            throw new IllegalStateException("No Gemini API key configured on this build.");
-        }
+        return withKeys("Gemini", GEMINI_KEYS, true, key -> chatWithGeminiKey(text, imageJpeg, history, key));
+    }
+
+    private String chatWithGeminiKey(String text, byte[] imageJpeg, List<String[]> history, String apiKey) throws Exception {
         JSONArray contents = new JSONArray();
         for (String[] turn : history) {
             contents.put(new JSONObject()
@@ -770,7 +823,7 @@ public class LoveCameraActivity extends AppCompatActivity {
                 .put("systemInstruction", new JSONObject().put("parts",
                         new JSONArray().put(new JSONObject().put("text", CHAT_SYSTEM_PROMPT))));
 
-        JSONObject json = postJson(GEMINI_URL, payload, null);
+        JSONObject json = postJson(geminiUrl(apiKey), payload, null);
         JSONArray candidates = json.optJSONArray("candidates");
         JSONObject first = candidates != null && candidates.length() > 0 ? candidates.optJSONObject(0) : null;
         JSONObject content = first != null ? first.optJSONObject("content") : null;
@@ -784,9 +837,10 @@ public class LoveCameraActivity extends AppCompatActivity {
     }
 
     private String chatWithGroq(String text, byte[] imageJpeg, List<String[]> history) throws Exception {
-        if (BuildConfig.GROQ_API_KEY == null || BuildConfig.GROQ_API_KEY.isEmpty()) {
-            throw new IllegalStateException("No Groq API key configured on this build.");
-        }
+        return withKeys("Groq", GROQ_KEYS, false, key -> chatWithGroqKey(text, imageJpeg, history, key));
+    }
+
+    private String chatWithGroqKey(String text, byte[] imageJpeg, List<String[]> history, String apiKey) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject().put("role", "system").put("content", CHAT_SYSTEM_PROMPT));
         for (String[] turn : history) {
@@ -803,7 +857,7 @@ public class LoveCameraActivity extends AppCompatActivity {
         }
 
         JSONObject payload = new JSONObject().put("model", GROQ_VISION_MODEL).put("messages", messages);
-        JSONObject json = postJson(GROQ_URL, payload, BuildConfig.GROQ_API_KEY);
+        JSONObject json = postJson(GROQ_URL, payload, apiKey);
         JSONArray choices = json.optJSONArray("choices");
         JSONObject first = choices != null && choices.length() > 0 ? choices.optJSONObject(0) : null;
         JSONObject message = first != null ? first.optJSONObject("message") : null;

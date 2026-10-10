@@ -485,3 +485,10 @@ expect karna.
 - Auto mode mein queue khud chalti hai; pause hone par user "ho gaya" bolta hai -> `next_job_application`.
 - Voice overlay ("Hey Aureon, form bhar do") abhi bhi sirf fill karta hai, submit nahi.
 - Backend `/api/form-fill` ab `autoSubmit` leta hai: Auto ON mein terms/consent checkbox tick hote hain; eligibility sawaal tabhi jab profile mein clearly likha ho; EEO mein "prefer not to say" chunta hai.
+
+## Love Camera: multiple API keys with automatic fallback
+- `android/local.properties` mein ab kai keys: `GEMINI_API_KEY`, `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3`, `GEMINI_API_KEY_4` (Groq ke liye bhi same), ya ek line `GEMINI_API_KEYS=a,b,c`.
+- Love Camera (camera + chat) har key ko order mein try karta hai; key reject ho ya quota khatam ho to agli key, phir Groq ki keys. Jo key chali wahi agli baar pehle try hoti hai.
+- Network/timeout error par keys nahi badalta (usse key ka koi fayda nahi).
+- Build ke baad check: `grep -E 'GEMINI_API_KEYS|GROQ_API_KEYS' android/app/build/generated/source/buildConfig/debug/com/aureon/ai/BuildConfig.java | cut -c1-90`
+- Backend (Render) abhi ek hi `GEMINI_API_KEY` use karta hai.
