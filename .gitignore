@@ -7,3 +7,6 @@ android/.gradle/
 *.apk
 .DS_Store
 android/local.properties
+
+local.properties
+**/local.properties
