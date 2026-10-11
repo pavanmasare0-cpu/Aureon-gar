@@ -12,8 +12,28 @@ const state = {
 };
 
 // Coding mode is chat-only: no phone actions, no local intent shortcuts.
+// Coding mode is chat-only. But when the user asks Aureon to MAKE a zip / pdf /
+// file, that one turn runs in Research mode with the file tools instead of
+// answering with "how to do it yourself" instructions.
+let turnOverrideModel = null;
+function effectiveModel() { return turnOverrideModel || state.model; }
+
+function wantsFileOrZip(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  const verb = '(bana|banao|banakar|bana\\s*kar|bana\\s*do|create|generate|make|dena|de\\s*do|download)';
+  const thing = '(zip|pdf|file|document)';
+  const hit = new RegExp(`\\b${thing}\\b[^.?!\\n]{0,40}\\b${verb}\\b|\\b${verb}\\b[^.?!\\n]{0,30}\\b${thing}\\b`, 'i').test(t)
+    || /\.zip\b/i.test(t);
+  if (!hit) return false;
+  // Plain "zip"/"pdf" requests always count; a bare "file" request is skipped when it is
+  // clearly a programming question (e.g. "python mein file kaise banate hain").
+  if (/\b(zip|pdf)\b|\.zip\b/i.test(t)) return true;
+  return !/(kaise|how to|python|javascript|\bjava\b|\bcode\b|function|script)/i.test(t);
+}
+
 function isAgentOn() {
-  if (state.model === 'coding') return false;
+  if (effectiveModel() === 'coding') return false;
   return $('toggle-agent') ? $('toggle-agent').checked : true;
 }
 
@@ -209,6 +229,23 @@ function appendPlainSegment(container, str, role) {
   const lines = str.split('\n');
   let i = 0;
   while (i < lines.length) {
+    // "### Title" -> a plain bold heading (no raw # characters on screen)
+    const headingMatch = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(lines[i]);
+    if (headingMatch) {
+      const h = document.createElement('div');
+      h.className = 'msg-heading h' + Math.min(headingMatch[1].length, 3);
+      appendInlineFormatted(h, headingMatch[2].replace(/\s*#+\s*$/, ''));
+      container.appendChild(h);
+      i++;
+      continue;
+    }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])) {
+      const hr = document.createElement('div');
+      hr.className = 'msg-hr';
+      container.appendChild(hr);
+      i++;
+      continue;
+    }
     const bulletMatch = /^\s*[-*]\s+(.*)/.exec(lines[i]);
     if (bulletMatch) {
       const ul = document.createElement('ul');
@@ -232,19 +269,25 @@ function appendPlainSegment(container, str, role) {
   }
 }
 
-// Handles **bold** only — enough to fix the common "**Garima**" raw-asterisk
-// look without building a full markdown parser. Bold text is still just a
-// <strong> wrapping a text node (textContent), never innerHTML.
+// Handles **bold** and `inline code`. Everything still lands via textContent
+// (never innerHTML).
 function appendInlineFormatted(el, text) {
-  const boldRe = /\*\*(.+?)\*\*/g;
+  const re = /\*\*(.+?)\*\*|`([^`\n]+?)`/g;
   let last = 0;
   let m;
-  while ((m = boldRe.exec(text)) !== null) {
+  while ((m = re.exec(text)) !== null) {
     if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
-    const strong = document.createElement('strong');
-    strong.textContent = m[1];
-    el.appendChild(strong);
-    last = boldRe.lastIndex;
+    if (m[1] !== undefined) {
+      const strong = document.createElement('strong');
+      strong.textContent = m[1];
+      el.appendChild(strong);
+    } else {
+      const code = document.createElement('code');
+      code.className = 'inline-code';
+      code.textContent = m[2];
+      el.appendChild(code);
+    }
+    last = re.lastIndex;
   }
   if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
 }
@@ -462,7 +505,7 @@ $('image-input')?.addEventListener('change', (e) => {
       $('image-preview-thumb').src = result;
       $('image-preview-thumb').classList.remove('hidden');
       $('file-preview-label').classList.add('hidden');
-      $('attach-name').textContent = file.name;
+      $('attach-name').textContent = '';
       $('image-preview-bar').classList.remove('hidden');
     };
     reader.readAsDataURL(file);
@@ -654,6 +697,10 @@ async function sendMessage() {
   // Offline-capable shortcut: battery / open app / set alarm never need the
   // AI backend at all — if the message clearly asks for one of these, do it
   // natively right away, with zero network involved.
+  turnOverrideModel = (state.model === 'coding' && wantsFileOrZip(text)) ? 'gemini' : null;
+  if (turnOverrideModel) {
+    addMessage('ai', '⚙️ Zip/file banane ke liye is baar Research mode use ho raha hai (Coding mode sirf chat ke liye hai).');
+  }
   const agentOn = isAgentOn();
   const localIntent = (!image && !fileText && !fileName && agentOn) ? matchLocalIntent(text) : null;
 
@@ -667,6 +714,7 @@ async function sendMessage() {
     } catch (err) {
       addMessage('error', `Couldn't ${localIntent.name.replace(/_/g, ' ')}: ${err.message || err}`);
     }
+    turnOverrideModel = null;
     return;
   }
 
@@ -688,6 +736,8 @@ async function sendMessage() {
         addMessage('error', `AI backend ne error diya. ${m}`);
       }
     }
+  } finally {
+    turnOverrideModel = null;
   }
 }
 
@@ -778,7 +828,7 @@ const AGENT_LOOP_LIMIT = 4; // safety cap so a confused model can't loop forever
 
 async function runAgentTurn(wantsPdf, depth = 0) {
   const agentOn = isAgentOn();
-  const result = await callBackend(state.currentMessages, state.model, agentOn);
+  const result = await callBackend(state.currentMessages, effectiveModel(), agentOn);
 
   if (result.functionCall) {
     if (depth >= AGENT_LOOP_LIMIT) {
@@ -801,7 +851,7 @@ async function runAgentTurn(wantsPdf, depth = 0) {
     try {
       actionResult = await executeAgentAction(name, args);
       if (name === 'create_zip') {
-        const label = `ZIP · ${actionResult.fileCount} file${actionResult.fileCount === 1 ? '' : 's'}`;
+        const label = `Zip · ${actionResult.fileCount} file${actionResult.fileCount === 1 ? '' : 's'}`;
         addFileCardMessage(actionResult.zipped, label, actionResult.dataBase64, 'application/zip');
       } else {
         addMessage('ai', describeAgentAction(name, args, actionResult));
@@ -905,6 +955,24 @@ async function deliverFile(filename, dataBase64, mimeType) {
 // the "here's a file, open it when you want" pattern instead of a share
 // sheet popping up unasked. Tap triggers deliverFile (save/share or
 // download, depending on platform) right then, not before.
+// Static SVGs (no user data) so file cards look like normal app file cards
+// instead of emoji.
+const FILE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+const DOWNLOAD_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const CHECK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+
+function base64ByteLength(b64) {
+  if (!b64) return 0;
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor(b64.length * 3 / 4) - pad;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function addFileCardMessage(filename, typeLabel, dataBase64, mimeType) {
   const div = document.createElement('div');
   div.className = 'msg ai';
@@ -914,7 +982,7 @@ function addFileCardMessage(filename, typeLabel, dataBase64, mimeType) {
 
   const icon = document.createElement('div');
   icon.className = 'file-card-icon';
-  icon.textContent = '🗂️';
+  icon.innerHTML = FILE_ICON_SVG;
   card.appendChild(icon);
 
   const info = document.createElement('div');
@@ -924,26 +992,25 @@ function addFileCardMessage(filename, typeLabel, dataBase64, mimeType) {
   nameEl.textContent = filename;
   const typeEl = document.createElement('div');
   typeEl.className = 'file-card-type';
-  typeEl.textContent = typeLabel;
+  typeEl.textContent = `${typeLabel} · ${formatBytes(base64ByteLength(dataBase64))}`;
   info.appendChild(nameEl);
   info.appendChild(typeEl);
   card.appendChild(info);
 
   const actionIcon = document.createElement('div');
   actionIcon.className = 'file-card-action';
-  actionIcon.textContent = '⬇️';
+  actionIcon.innerHTML = DOWNLOAD_ICON_SVG;
   card.appendChild(actionIcon);
 
   card.onclick = async () => {
     if (card.classList.contains('busy')) return;
     card.classList.add('busy');
-    actionIcon.textContent = '⏳';
     try {
       await deliverFile(filename, dataBase64, mimeType);
-      actionIcon.textContent = '✓';
-      setTimeout(() => { actionIcon.textContent = '⬇️'; }, 1500);
+      actionIcon.innerHTML = CHECK_ICON_SVG;
+      setTimeout(() => { actionIcon.innerHTML = DOWNLOAD_ICON_SVG; }, 1500);
     } catch (e) {
-      actionIcon.textContent = '⬇️';
+      actionIcon.innerHTML = DOWNLOAD_ICON_SVG;
       addMessage('error', `Couldn't open ${filename}: ${e.message || e}`);
     } finally {
       card.classList.remove('busy');

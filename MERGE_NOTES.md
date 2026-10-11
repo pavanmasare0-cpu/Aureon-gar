@@ -492,3 +492,8 @@ expect karna.
 - Network/timeout error par keys nahi badalta (usse key ka koi fayda nahi).
 - Build ke baad check: `grep -E 'GEMINI_API_KEYS|GROQ_API_KEYS' android/app/build/generated/source/buildConfig/debug/com/aureon/ai/BuildConfig.java | cut -c1-90`
 - Backend (Render) abhi ek hi `GEMINI_API_KEY` use karta hai.
+
+## Round 22 — Fast multi-key fallback (Love Camera + backend)
+- Love Camera: saari keys (Gemini phir Groq) ek race mein. Ek key fail ho to agli turant; sirf slow ho to 2.5s (camera) / 3.5s (chat) baad agli parallel start, jo pehle sahi jawab de wahi jeetta hai. Error text mein dikhta hai kaunsi keys fail hui.
+- Backend: `GEMINI_API_KEY`, `GEMINI_API_KEY_2.._4`, `GEMINI_API_KEYS=a,b,c` (aise hi GROQ_*). callGemini/callGroq last-good key se shuru, fail par agli, slow par 7s/4s baad parallel hedge. Coding mode (Gemini+Groq dono brains) inhi ko use karta hai.
+- Render par 2nd keys: Environment mein `GEMINI_API_KEY_2` aur `GROQ_API_KEY_2` add karo.

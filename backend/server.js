@@ -385,9 +385,59 @@ function extractVersion(name) {
   return match ? parseFloat(match[1]) : -1;
 }
 
-async function fetchCandidateModels() {
+// ---------- Multiple API keys: every key is used, a failing key hands over ----------
+// Keys come from GEMINI_API_KEY, GEMINI_API_KEY_2.._4 and/or a comma-separated
+// GEMINI_API_KEYS (same for GROQ_*). A request goes to the key that worked last;
+// if it errors, the next key starts at once. If it is merely slow, the next key
+// is started in parallel after hedgeMs and the first good answer wins.
+function envKeys(base) {
+  const list = [];
+  const add = v => { const k = (v || '').trim(); if (k && !list.includes(k)) list.push(k); };
+  add(process.env[base]);
+  ['_2', '_3', '_4'].forEach(s => add(process.env[base + s]));
+  (process.env[base + 'S'] || '').split(',').forEach(v => add(v));
+  return list;
+}
+const geminiKeys = () => envKeys('GEMINI_API_KEY');
+const groqKeys = () => envKeys('GROQ_API_KEY');
+const firstGeminiKey = () => geminiKeys()[0] || '';
+let geminiKeyStart = 0;
+let groqKeyStart = 0;
+
+function hedgedByKey(keys, startIdx, setStart, hedgeMs, run) {
+  return new Promise((resolve, reject) => {
+    const n = keys.length;
+    let started = 0, failed = 0, done = false, timer = null;
+    const errs = [];
+    const launch = () => {
+      if (done || started >= n) return;
+      const idx = (startIdx + started) % n;
+      started++;
+      clearTimeout(timer);
+      if (started < n) timer = setTimeout(launch, hedgeMs);
+      Promise.resolve().then(() => run(keys[idx])).then(
+        r => { if (done) return; done = true; clearTimeout(timer); setStart(idx); resolve(r); },
+        e => {
+          if (done) return;
+          failed++;
+          errs.push(`key${idx + 1}: ${(e && e.message) || e}`);
+          if (failed >= n) {
+            done = true;
+            clearTimeout(timer);
+            reject(n === 1 ? e : new Error(`All ${n} keys failed (${errs.join(' / ')})`));
+          } else {
+            launch();
+          }
+        }
+      );
+    };
+    launch();
+  });
+}
+
+async function fetchCandidateModels(key = firstGeminiKey()) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Could not list Gemini models');
@@ -415,18 +465,18 @@ function rankCandidates(candidates) {
   return [...latestAlias, ...stableFlash, ...otherFlash, ...rest];
 }
 
-async function resolveModelList(forceRefresh = false) {
+async function resolveModelList(forceRefresh = false, key = firstGeminiKey()) {
   const isFresh = Date.now() - cachedAt < MODEL_CACHE_MS;
   if (cachedGeminiModel && isFresh && !forceRefresh) {
     return cachedGeminiModel;
   }
-  const candidates = await fetchCandidateModels();
+  const candidates = await fetchCandidateModels(key);
   cachedGeminiModel = rankCandidates(candidates);
   cachedAt = Date.now();
   return cachedGeminiModel;
 }
 
-async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) {
+async function callGeminiWithModel(modelName, messages, systemPrompt, useTools, key = firstGeminiKey()) {
   const payload = {
     contents: messages.map(m => {
       // A turn where Aureon (the model) previously requested a tool call.
@@ -464,7 +514,7 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
   }
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -497,9 +547,14 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools) 
 }
 
 async function callGemini(messages, systemPrompt, useTools) {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set in backend/.env');
+  const keys = geminiKeys();
+  if (!keys.length) throw new Error('GEMINI_API_KEY is not set in backend/.env');
+  return hedgedByKey(keys, geminiKeyStart, i => { geminiKeyStart = i; }, 7000,
+    key => callGeminiWithKey(key, messages, systemPrompt, useTools));
+}
 
-  let ranked = await resolveModelList();
+async function callGeminiWithKey(key, messages, systemPrompt, useTools) {
+  let ranked = await resolveModelList(false, key);
   let lastErr;
   const triedThisCall = new Set();
 
@@ -509,7 +564,7 @@ async function callGemini(messages, systemPrompt, useTools) {
     triedThisCall.add(model);
 
     try {
-      return await callGeminiWithModel(model, messages, systemPrompt, useTools);
+      return await callGeminiWithModel(model, messages, systemPrompt, useTools, key);
     } catch (err) {
       lastErr = err;
       const msg = err.message || '';
@@ -520,7 +575,7 @@ async function callGemini(messages, systemPrompt, useTools) {
       if (isPermanentIssue) {
         console.warn(`Gemini model "${model}" permanently unavailable, blacklisting:`, msg);
         blacklistedModels.add(model);
-        ranked = await resolveModelList(true);
+        ranked = await resolveModelList(true, key);
       } else if (isTemporaryOverload) {
         console.warn(`Gemini model "${model}" temporarily overloaded, trying next candidate:`, msg);
       } else {
@@ -576,7 +631,13 @@ const GROQ_TOOL_NAMES = new Set(GROQ_TOOLS.map(x => x.function.name));
 // quota the same device actions still work. Returns a string, or
 // { functionCall: { name, args } } exactly like callGemini does.
 async function callGroq(messages, systemPrompt, useTools = false) {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set in backend/.env');
+  const keys = groqKeys();
+  if (!keys.length) throw new Error('GROQ_API_KEY is not set in backend/.env');
+  return hedgedByKey(keys, groqKeyStart, i => { groqKeyStart = i; }, 4000,
+    key => callGroqWithKey(key, messages, systemPrompt, useTools));
+}
+
+async function callGroqWithKey(key, messages, systemPrompt, useTools = false) {
 
   const out = [];
   let pendingId = null;
@@ -609,7 +670,7 @@ async function callGroq(messages, systemPrompt, useTools = false) {
     if (withTools) { body.tools = GROQ_TOOLS; body.tool_choice = 'auto'; }
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(body)
     });
     const data = await res.json();
@@ -759,9 +820,9 @@ const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, 
 // ==================== Phase 5: Personal Knowledge (RAG) ====================
 
 async function embedText(text) {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set — needed for embeddings too.');
+  if (!firstGeminiKey()) throw new Error('GEMINI_API_KEY is not set — needed for embeddings too.');
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${process.env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${firstGeminiKey()}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1140,7 +1201,7 @@ app.post('/api/generate-image', verifyAuth, async (req, res) => {
   try {
     const { prompt, sourceImage } = req.body; // sourceImage (optional): { mimeType, dataBase64 } — presence turns this into an edit request
     if (!prompt || !prompt.trim()) return res.status(400).json({ error: 'prompt is required' });
-    if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'GEMINI_API_KEY is not set on the server.' });
+    if (!firstGeminiKey()) return res.status(503).json({ error: 'GEMINI_API_KEY is not set on the server.' });
 
     const parts = [{ text: prompt }];
     if (sourceImage && sourceImage.dataBase64 && sourceImage.mimeType) {
@@ -1150,7 +1211,7 @@ app.post('/api/generate-image', verifyAuth, async (req, res) => {
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${firstGeminiKey()}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1380,7 +1441,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
         // automatically — fast, and keeps the user's chat moving instead of
         // showing an error. Function-calling (device actions) isn't
         // available on this fallback reply, only plain text.
-        if (model === 'gemini' && !geminiAutoHealing && process.env.GROQ_API_KEY) {
+        if (model === 'gemini' && !geminiAutoHealing && groqKeys().length) {
           console.warn('Gemini failed, falling back to Groq:', providerErr.message);
           let fallbackPrompt = finalSystemPrompt;
           reply = await callGroq(workingMessages, fallbackPrompt, !!tools);

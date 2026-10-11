@@ -114,6 +114,121 @@ public class LoveCameraActivity extends AppCompatActivity {
     private static volatile int geminiKeyStart = 0; // last key that worked — tried first next time
     private static volatile int groqKeyStart = 0;
 
+
+    // ---- Fast fallback: all keys race. The next key starts the moment one fails;
+    // if one is merely slow, the next starts in parallel after hedgeMs and the
+    // first good answer wins. Order: Gemini keys, then Groq keys. ----
+    private interface Attempt {
+        String run() throws Exception;
+    }
+
+    private static final class Named {
+        final String label;
+        final Attempt attempt;
+        Named(String label, Attempt attempt) { this.label = label; this.attempt = attempt; }
+    }
+
+    private static final class Outcome {
+        String label;
+        String value;
+        String error;
+    }
+
+    private static int submitNext(java.util.concurrent.ExecutorCompletionService<Outcome> ecs, java.util.List<Named> attempts, int idx) {
+        final Named n = attempts.get(idx);
+        ecs.submit(() -> {
+            Outcome o = new Outcome();
+            o.label = n.label;
+            try {
+                o.value = n.attempt.run();
+            } catch (Exception e) {
+                o.error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                Log.w(TAG, n.label + " failed: " + o.error);
+            }
+            return o;
+        });
+        return idx + 1;
+    }
+
+    private static String race(java.util.List<Named> attempts, long hedgeMs, long totalMs) throws Exception {
+        if (attempts.isEmpty()) throw new IllegalStateException("No API keys configured on this build.");
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newCachedThreadPool();
+        java.util.concurrent.ExecutorCompletionService<Outcome> ecs = new java.util.concurrent.ExecutorCompletionService<>(pool);
+        final long deadline = System.currentTimeMillis() + totalMs;
+        int started = 0;
+        int finished = 0;
+        StringBuilder failures = new StringBuilder();
+        try {
+            started = submitNext(ecs, attempts, started);
+            while (finished < started) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) break;
+                long wait = started < attempts.size() ? Math.min(hedgeMs, remaining) : remaining;
+                java.util.concurrent.Future<Outcome> f = ecs.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (f == null) {
+                    // previous attempt still running — hedge with the next key
+                    if (started < attempts.size()) started = submitNext(ecs, attempts, started);
+                    continue;
+                }
+                finished++;
+                Outcome o = f.get();
+                if (o.value != null) return o.value;
+                if (failures.length() > 0) failures.append(" / ");
+                failures.append(o.label).append(": ").append(o.error);
+                if (started < attempts.size()) started = submitNext(ecs, attempts, started);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        throw new IOException("All " + attempts.size() + " keys failed (" + (failures.length() > 0 ? failures : "timed out") + ")");
+    }
+
+    private String raceVision(byte[] jpegBytes) throws Exception {
+        java.util.List<Named> list = new ArrayList<>();
+        for (int i = 0; i < GEMINI_KEYS.length; i++) {
+            final int idx = (geminiKeyStart + i) % GEMINI_KEYS.length;
+            final String key = GEMINI_KEYS[idx];
+            list.add(new Named("Gemini#" + (idx + 1), () -> {
+                String r = callGeminiVisionWithKey(jpegBytes, key);
+                geminiKeyStart = idx;
+                return r;
+            }));
+        }
+        for (int i = 0; i < GROQ_KEYS.length; i++) {
+            final int idx = (groqKeyStart + i) % GROQ_KEYS.length;
+            final String key = GROQ_KEYS[idx];
+            list.add(new Named("Groq#" + (idx + 1), () -> {
+                String r = callGroqVisionWithKey(jpegBytes, key);
+                groqKeyStart = idx;
+                return r;
+            }));
+        }
+        return race(list, 2500, 40000);
+    }
+
+    private String raceChat(String text, byte[] imageJpeg, List<String[]> history) throws Exception {
+        java.util.List<Named> list = new ArrayList<>();
+        for (int i = 0; i < GEMINI_KEYS.length; i++) {
+            final int idx = (geminiKeyStart + i) % GEMINI_KEYS.length;
+            final String key = GEMINI_KEYS[idx];
+            list.add(new Named("Gemini#" + (idx + 1), () -> {
+                String r = chatWithGeminiKey(text, imageJpeg, history, key);
+                geminiKeyStart = idx;
+                return r;
+            }));
+        }
+        for (int i = 0; i < GROQ_KEYS.length; i++) {
+            final int idx = (groqKeyStart + i) % GROQ_KEYS.length;
+            final String key = GROQ_KEYS[idx];
+            list.add(new Named("Groq#" + (idx + 1), () -> {
+                String r = chatWithGroqKey(text, imageJpeg, history, key);
+                groqKeyStart = idx;
+                return r;
+            }));
+        }
+        return race(list, 3500, 45000);
+    }
+
     private interface KeyAttempt {
         String run(String apiKey) throws Exception;
     }
@@ -493,17 +608,11 @@ public class LoveCameraActivity extends AppCompatActivity {
         new Thread(() -> {
             String rawReply;
             try {
-                rawReply = callGeminiVision(jpegBytes);
-            } catch (Exception geminiErr) {
-                String geminiMsg = geminiErr.getMessage() != null ? geminiErr.getMessage() : geminiErr.getClass().getSimpleName();
-                Log.w(TAG, "Gemini vision failed, falling back to Groq", geminiErr);
-                try {
-                    rawReply = callGroqVision(jpegBytes);
-                } catch (Exception groqErr) {
-                    String groqMsg = groqErr.getMessage() != null ? groqErr.getMessage() : groqErr.getClass().getSimpleName();
-                    Log.e(TAG, "Groq vision fallback also failed", groqErr);
-                    rawReply = jsonError("Gemini: " + geminiMsg + " | Groq: " + groqMsg);
-                }
+                rawReply = raceVision(jpegBytes);
+            } catch (Exception err) {
+                String msg = err.getMessage() != null ? err.getMessage() : err.getClass().getSimpleName();
+                Log.e(TAG, "All vision keys failed", err);
+                rawReply = jsonError(msg);
             }
 
             requestInFlight = false;
@@ -760,19 +869,12 @@ public class LoveCameraActivity extends AppCompatActivity {
 
         new Thread(() -> {
             String reply = null;
-            String geminiErrMsg = null;
-            String groqErrMsg = null;
+            String chatErrMsg = null;
             try {
-                reply = chatWithGemini(text, imageJpeg, history);
-            } catch (Exception geminiErr) {
-                geminiErrMsg = geminiErr.getMessage() != null ? geminiErr.getMessage() : geminiErr.getClass().getSimpleName();
-                Log.w(TAG, "Gemini chat failed, falling back to Groq", geminiErr);
-                try {
-                    reply = chatWithGroq(text, imageJpeg, history);
-                } catch (Exception groqErr) {
-                    groqErrMsg = groqErr.getMessage() != null ? groqErr.getMessage() : groqErr.getClass().getSimpleName();
-                    Log.e(TAG, "Groq chat fallback also failed", groqErr);
-                }
+                reply = raceChat(text, imageJpeg, history);
+            } catch (Exception err) {
+                chatErrMsg = err.getMessage() != null ? err.getMessage() : err.getClass().getSimpleName();
+                Log.e(TAG, "All chat keys failed", err);
             }
 
             if (reply != null) {
@@ -786,7 +888,7 @@ public class LoveCameraActivity extends AppCompatActivity {
             // is undebuggable without logcat, which isn't available in this
             // Codespace-only, no-PC workflow.
             final String shown = reply != null ? reply
-                    : "Error — Gemini: " + geminiErrMsg + " | Groq: " + groqErrMsg;
+                    : "Error — " + chatErrMsg;
             chatInFlight = false;
             mainHandler.post(() -> {
                 loadingSpinner.setVisibility(View.GONE);

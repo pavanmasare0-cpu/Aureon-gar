@@ -1160,3 +1160,130 @@ html, body {
   opacity: 0.85;
 }
 .settings-card select option { color: #F2EEE3; background: #161512; }
+
+/* ===== Plain, simple message text (like the Claude app) ===== */
+#screen-chat .msg.ai strong { color: inherit; font-weight: 700; }
+.msg-heading { font-weight: 700; margin: 12px 0 4px; line-height: 1.35; }
+.msg-heading.h1 { font-size: 1.22em; }
+.msg-heading.h2 { font-size: 1.12em; }
+.msg-heading.h3 { font-size: 1.04em; }
+.msg-hr { height: 1px; background: var(--border-gold); margin: 12px 0; opacity: 0.6; }
+code.inline-code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.92em;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--charcoal-soft);
+}
+
+/* Code blocks: neutral, wrapped (nothing cut off), small quiet Copy */
+.code-block {
+  margin: 10px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1A1A1A;
+  border: none;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 0;
+  background: transparent;
+  border-bottom: none;
+}
+.code-lang { font-size: 11px; text-transform: lowercase; letter-spacing: 0; color: var(--charcoal-soft); opacity: 1; }
+.code-copy-btn {
+  font-size: 12px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--charcoal-soft);
+  cursor: pointer;
+}
+.code-copy-btn:active { background: transparent; color: var(--charcoal); }
+.code-block pre { margin: 0; padding: 6px 12px 12px; overflow-x: visible; }
+.code-block code {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #E3DED2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.tok-keyword { color: #C8A86B; font-weight: 400; }
+.tok-string { color: #9DBB86; }
+.tok-comment { color: #7E786B; font-style: normal; }
+
+/* Attachment preview: small thumbnail with a tiny round X, no long filename */
+.image-preview-bar { display: flex; align-items: center; gap: 10px; padding: 2px 2px 8px; }
+.image-preview-bar.hidden { display: none; }
+.attach-file-icon.hidden { display: none; }
+.attach-file-icon:not(.hidden) {
+  display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; border-radius: 12px;
+  background: var(--white); font-size: 24px;
+}
+.attach-remove-btn {
+  position: absolute;
+  top: -7px; right: -7px;
+  width: 22px; height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #3A3A3A;
+  color: #F2EEE3;
+  font-size: 11px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.attach-name {
+  font-size: 12px;
+  color: var(--charcoal-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 62%;
+}
+.attach-name:empty { display: none; }
+
+/* ===== File cards (zip / pdf): plain and neutral, like the Claude app ===== */
+.file-card {
+  gap: 12px;
+  max-width: 340px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.file-card:active { background: #1F1D19; }
+.file-card-icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: #242424;
+  color: var(--charcoal-soft);
+}
+.file-card-icon svg { width: 20px; height: 20px; }
+.file-card-name { font-size: 14.5px; font-weight: 500; color: var(--charcoal); }
+.file-card-type {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--charcoal-soft);
+  margin-top: 2px;
+}
+.file-card-action { display: flex; color: var(--charcoal-soft); }
+.file-card-action svg { width: 18px; height: 18px; }
+
+/* Attached file in the composer: same plain look */
+.attach-file-icon:not(.hidden) {
+  width: 56px; height: 56px;
+  border-radius: 12px;
+  background: #242424;
+  color: var(--charcoal-soft);
+}
+.attach-file-icon svg { width: 24px; height: 24px; }
+.attach-name { font-size: 13px; font-weight: 500; color: var(--charcoal); }
