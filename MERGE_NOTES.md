@@ -497,3 +497,11 @@ expect karna.
 - Love Camera: saari keys (Gemini phir Groq) ek race mein. Ek key fail ho to agli turant; sirf slow ho to 2.5s (camera) / 3.5s (chat) baad agli parallel start, jo pehle sahi jawab de wahi jeetta hai. Error text mein dikhta hai kaunsi keys fail hui.
 - Backend: `GEMINI_API_KEY`, `GEMINI_API_KEY_2.._4`, `GEMINI_API_KEYS=a,b,c` (aise hi GROQ_*). callGemini/callGroq last-good key se shuru, fail par agli, slow par 7s/4s baad parallel hedge. Coding mode (Gemini+Groq dono brains) inhi ko use karta hai.
 - Render par 2nd keys: Environment mein `GEMINI_API_KEY_2` aur `GROQ_API_KEY_2` add karo.
+
+## Round 23 — zip/APK reading, attachment chip, Groq token guard
+- Zip attach: ab poora text dump nahi. Server `buildZipDigest` = file list + sabse zaroori files (README/MERGE_NOTES/package.json/gradle/server.js/app.js...) 55k chars ke budget mein; baaki "NOT INCLUDED" list mein. node_modules/build/.git skip.
+- APK attach (.apk): `buildApkDigest` = manifest permissions/components (binary XML se approx), dex class list, native ABIs, aur assets ke andar ka readable web code (app.js/index.html/css). Compiled Java logic padhna possible nahi — crash ke liye Logcat + source zip chahiye.
+- Chat mein attach kiya hua file ab chhota file chip dikhta hai (text nahi). Purani chats reopen par bhi chip dikhta hai.
+- Sirf sabse naya attachment poore text ke saath AI ko jaata hai; purane sirf ek line ka note (112k-token request wali dikkat yahin se thi).
+- Groq: free tier ~8000 tokens/request. Tools ka slim copy (13k -> 8k chars), system prompt cap, aur "too large" par chhote input ke saath ek retry.
+- Check keys: https://aureone.onrender.com/api/keys-status (counts dikhata hai, keys nahi).

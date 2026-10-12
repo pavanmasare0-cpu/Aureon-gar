@@ -376,6 +376,64 @@ function highlightInto(codeEl, code) {
   }
 }
 
+// ---------- Attachments: shown as a small file chip, never as a dump of the file's text ----------
+const ATTACH_MARK = '[Attached file:';
+
+function splitAttachment(content) {
+  const s = String(content || '');
+  const i = s.indexOf(ATTACH_MARK);
+  if (i === -1) return { text: s, file: null };
+  const m = /\[Attached file: ([^\]\n]+?)(?: — [^\]]*)?\]/.exec(s.slice(i));
+  return { text: s.slice(0, i).trim(), file: m ? m[1] : 'file' };
+}
+
+// Only the newest attached file keeps its text in what is sent to the AI. Older
+// attachments are replaced by a one-line note, so a long chat never grows past
+// the models' limits (one 112k-token request is what broke Groq before).
+function messagesForBackend(messages) {
+  let last = -1;
+  messages.forEach((m, i) => {
+    if (m && m.role === 'user' && typeof m.content === 'string' && m.content.includes(ATTACH_MARK)) last = i;
+  });
+  return messages.map((m, i) => {
+    if (m && m.role === 'user' && typeof m.content === 'string' && i !== last && m.content.includes(ATTACH_MARK)) {
+      const { text, file } = splitAttachment(m.content);
+      return { ...m, content: `${text}${text ? '\n\n' : ''}[Attached file: ${file || 'file'} — its contents were in an earlier message and are left out here to save space]` };
+    }
+    return m;
+  });
+}
+
+function attachmentKind(name) {
+  const ext = String(name || '').split('.').pop().toUpperCase();
+  return ext && ext.length <= 5 ? ext : 'FILE';
+}
+
+function addAttachmentChip(name) {
+  const div = document.createElement('div');
+  div.className = 'msg user msg-attachment';
+  const card = document.createElement('div');
+  card.className = 'file-card attach-chip';
+  const icon = document.createElement('div');
+  icon.className = 'file-card-icon';
+  icon.innerHTML = FILE_ICON_SVG;
+  const info = document.createElement('div');
+  info.className = 'file-card-info';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'file-card-name';
+  nameEl.textContent = name;
+  const kindEl = document.createElement('div');
+  kindEl.className = 'file-card-type';
+  kindEl.textContent = attachmentKind(name);
+  info.appendChild(nameEl);
+  info.appendChild(kindEl);
+  card.appendChild(icon);
+  card.appendChild(info);
+  div.appendChild(card);
+  $('messages').appendChild(div);
+  $('messages').scrollTop = $('messages').scrollHeight;
+}
+
 function addMessage(role, text, wantsPdf = false, imageDataUrl = null, videoDataUrl = null) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
@@ -549,8 +607,18 @@ $('image-input')?.addEventListener('change', (e) => {
     file.type === 'application/pdf' ||
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     file.type === 'application/zip' || file.type === 'application/x-zip-compressed' ||
-    file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.zip')
+    file.type === 'application/vnd.android.package-archive' ||
+    file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.zip') || file.name.endsWith('.apk')
   ) {
+    if (file.size > 70 * 1024 * 1024) {
+      $('image-preview-thumb').classList.add('hidden');
+      $('file-preview-label').classList.remove('hidden');
+      $('attach-name').textContent = `${file.name} (bahut bada hai — 70 MB se chhota chahiye)`;
+      $('image-preview-bar').classList.remove('hidden');
+      state.pendingFileText = null;
+      e.target.value = '';
+      return;
+    }
     // PDF / DOCX / ZIP — send to the backend's extractor (same one the
     // Knowledge upload uses) so the actual content reaches the AI instead
     // of just the filename with nothing behind it.
@@ -565,6 +633,7 @@ $('image-input')?.addEventListener('change', (e) => {
         const [, data] = reader.result.split(',');
         const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf'
           : file.name.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : file.name.endsWith('.apk') ? 'application/vnd.android.package-archive'
           : 'application/zip');
         const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/extract-text`, {
           method: 'POST',
@@ -678,7 +747,11 @@ async function sendMessage() {
 
   let effectiveText = text;
   if (fileText) {
-    effectiveText = `${text ? text + '\n\n' : ''}[Attached file: ${fileName}]\n${fileText}`;
+    const MAX_ATTACH = 40000; // keeps one big file from making every later message too large
+    const shownText = fileText.length > MAX_ATTACH
+      ? fileText.slice(0, MAX_ATTACH) + `\n[... file truncated: first ${MAX_ATTACH} of ${fileText.length} characters shown ...]`
+      : fileText;
+    effectiveText = `${text ? text + '\n\n' : ''}[Attached file: ${fileName}]\n${shownText}`;
   } else if (fileName && !image) {
     effectiveText = `${text ? text + '\n\n' : ''}[Attached file: ${fileName} — content could not be read]`;
   }
@@ -688,8 +761,9 @@ async function sendMessage() {
     $('chat-title-text').textContent = titleSource.slice(0, 28) + (titleSource.length > 28 ? '…' : '');
   }
 
-  addMessage('user', text || (image ? '(sent an image)' : `(sent ${fileName})`));
-  const userMessage = { role: 'user', content: effectiveText };
+  if (text || image) addMessage('user', text || '(sent an image)');
+  if (fileName) addAttachmentChip(fileName);
+  const userMessage = { role: 'user', content: effectiveText, display: text || (image ? '(sent an image)' : ''), file: fileName || null };
   if (image) userMessage.image = image;
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
@@ -805,7 +879,10 @@ async function callBackend(messages, model, tools) {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({
-      messages,
+      // older chats may still hold a huge attachment — cap each entry before sending
+      messages: messagesForBackend(messages).map(m => (m && typeof m.content === 'string' && m.content.length > 40000)
+        ? { ...m, content: m.content.slice(0, 40000) + '\n[... truncated ...]' }
+        : m),
       model,
       tools: !!tools,
       systemPrompt,
@@ -1271,7 +1348,18 @@ function renderRecent() {
         $('messages').innerHTML = '';
         messages
           .filter(m => m && m.content) // skip internal agent turns (functionCall/functionResponse have no content)
-          .forEach(m => addMessage(m.role === 'user' ? 'user' : 'ai', m.content));
+          .forEach(m => {
+            if (m.role === 'user') {
+              // show what the user typed + a file chip — not the file's text
+              const sp = splitAttachment(m.content);
+              const shown = (m.display !== undefined) ? m.display : sp.text;
+              const file = m.file || sp.file;
+              if (shown) addMessage('user', shown);
+              if (file) addAttachmentChip(file);
+            } else {
+              addMessage('ai', m.content);
+            }
+          });
         $('chat-title-text').textContent = chat.title || 'Chat';
         showScreen('screen-chat');
       } catch (err) {

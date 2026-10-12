@@ -1287,3 +1287,13 @@ code.inline-code {
 }
 .attach-file-icon svg { width: 24px; height: 24px; }
 .attach-name { font-size: 13px; font-weight: 500; color: var(--charcoal); }
+
+/* Attached file in a sent message: a plain file chip, no bubble */
+#screen-chat .msg.user.msg-attachment {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  max-width: 80%;
+}
+.attach-chip { cursor: default; }

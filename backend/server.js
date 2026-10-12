@@ -627,6 +627,28 @@ const GROQ_TOOLS = AGENT_TOOLS.flatMap(g => g.functionDeclarations || []).map(d 
 }));
 const GROQ_TOOL_NAMES = new Set(GROQ_TOOLS.map(x => x.function.name));
 
+// Groq's free tier caps a request at ~8000 tokens. The full tool list is ~13k
+// characters on its own, so Groq gets a slim copy (short descriptions).
+const cutAt = (s, n) => {
+  s = String(s || '');
+  if (s.length <= n) return s;
+  const dot = s.lastIndexOf('. ', n);
+  return (dot > n * 0.5 ? s.slice(0, dot + 1) : s.slice(0, n)).trim();
+};
+const slimSchema = s => {
+  if (Array.isArray(s)) return s.map(slimSchema);
+  if (s && typeof s === 'object') {
+    const o = {};
+    for (const [k, v] of Object.entries(s)) o[k] = (k === 'description' && typeof v === 'string') ? cutAt(v, 70) : slimSchema(v);
+    return o;
+  }
+  return s;
+};
+const GROQ_TOOLS_SLIM = GROQ_TOOLS.map(x => ({
+  type: 'function',
+  function: { name: x.function.name, description: cutAt(x.function.description, 150), parameters: slimSchema(x.function.parameters) }
+}));
+
 // Groq (OpenAI-compatible) with real tool-calling, so when Gemini is out of
 // quota the same device actions still work. Returns a string, or
 // { functionCall: { name, args } } exactly like callGemini does.
@@ -635,6 +657,31 @@ async function callGroq(messages, systemPrompt, useTools = false) {
   if (!keys.length) throw new Error('GROQ_API_KEY is not set in backend/.env');
   return hedgedByKey(keys, groqKeyStart, i => { groqKeyStart = i; }, 4000,
     key => callGroqWithKey(key, messages, systemPrompt, useTools));
+}
+
+// Groq's free/on_demand tier allows ~8000 tokens per request for gpt-oss-120b.
+// A huge attachment (a whole zip's text) made every request "too large", so the
+// newest messages are kept whole and older / oversized ones are trimmed to fit.
+const GROQ_MAX_CHARS = 20000;
+const GROQ_TOOLS_CHARS = JSON.stringify(GROQ_TOOLS_SLIM).length;
+
+function trimMessagesForGroq(msgs, budgetChars) {
+  const keep = [];
+  let used = 0;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    const len = typeof m.content === 'string' ? m.content.length : 300;
+    if (used + len <= budgetChars) { keep.unshift(m); used += len; continue; }
+    const room = budgetChars - used;
+    if (room > 800 && typeof m.content === 'string') {
+      const head = Math.floor(room * 0.6);
+      const tail = room - head - 60;
+      keep.unshift({ ...m, content: m.content.slice(0, head) + '\n[... trimmed to fit the model limit ...]\n' + m.content.slice(-tail) });
+    }
+    break;
+  }
+  while (keep.length && keep[0].role === 'tool') keep.shift(); // never start on an orphan tool reply
+  return keep.length ? keep : msgs.slice(-1);
 }
 
 async function callGroqWithKey(key, messages, systemPrompt, useTools = false) {
@@ -661,13 +708,17 @@ async function callGroqWithKey(key, messages, systemPrompt, useTools = false) {
     }
   }
 
-  const send = async (withTools, extraSystem) => {
-    const sys = [systemPrompt, extraSystem].filter(Boolean).join('\n\n');
+  const send = async (withTools, extraSystem, scale = 1) => {
+    let sys = [systemPrompt, extraSystem].filter(Boolean).join('\n\n');
+    const sysCap = Math.floor((withTools ? 6500 : 9000) * scale);
+    if (sys.length > sysCap) sys = sys.slice(0, sysCap);
+    const budget = Math.max(3000, Math.floor(GROQ_MAX_CHARS * scale) - sys.length - (withTools ? GROQ_TOOLS_CHARS : 0));
+    const fitted = trimMessagesForGroq(out, budget);
     const body = {
       model: 'openai/gpt-oss-120b',
-      messages: sys ? [{ role: 'system', content: sys }, ...out] : out
+      messages: sys ? [{ role: 'system', content: sys }, ...fitted] : fitted
     };
-    if (withTools) { body.tools = GROQ_TOOLS; body.tool_choice = 'auto'; }
+    if (withTools) { body.tools = GROQ_TOOLS_SLIM; body.tool_choice = 'auto'; }
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
@@ -682,9 +733,13 @@ async function callGroqWithKey(key, messages, systemPrompt, useTools = false) {
   try {
     msg = await send(useTools, '');
   } catch (e) {
+    const m = e.message || '';
+    if (/too large|tokens per minute|TPM/i.test(m)) {
+      // Over Groq's per-minute token cap: retry once with a much smaller input and no tools.
+      msg = await send(false, '', 0.45);
     // The model tried to call a tool it was not given (or Groq rejected the
     // tool call): retry once. With tools -> plain chat; without -> forbid tools.
-    if (/tool/i.test(e.message || '')) {
+    } else if (/tool/i.test(m)) {
       msg = await send(false, 'Reply in plain text only. Do not call any function or tool.');
     } else {
       throw e;
@@ -861,13 +916,109 @@ function resolveMimeType(mimeType, filename) {
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     txt: 'text/plain',
     md: 'text/plain',
-    zip: 'application/zip'
+    zip: 'application/zip',
+    apk: 'application/vnd.android.package-archive'
   };
   return byExt[ext] || mimeType;
 }
 
+// ---------- Archive digests (zip / apk): a map + the important files, never a raw dump ----------
+const ARCHIVE_SKIP_DIR = /(^|\/)(node_modules|\.git|\.gradle|\.idea|build|dist|out|Pods|__pycache__|venv|\.next|\.dart_tool)\//i;
+const ARCHIVE_TEXT_EXT = /\.(txt|md|json|js|jsx|mjs|ts|tsx|css|scss|html?|xml|ya?ml|java|kt|kts|gradle|properties|py|sh|c|cc|cpp|h|go|rs|php|rb|sql|toml|ini|cfg|gitignore)$/i;
+const ARCHIVE_PRIORITY = [
+  /(^|\/)readme/i, /merge_notes/i, /(^|\/)package\.json$/i, /build\.gradle$/i, /androidmanifest\.xml$/i,
+  /capacitor\.config/i, /(^|\/)server\.js$/i, /(^|\/)app\.js$/i, /(^|\/)index\.html$/i, /main(activity)?\.(java|kt)$/i
+];
+const archivePriority = p => { const i = ARCHIVE_PRIORITY.findIndex(re => re.test(p)); return i === -1 ? 99 : i; };
+const fmtSize = n => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const ARCHIVE_DIGEST_MAX = 75000;
+
+function pickReadable(entries, { maxTotal, perFile }) {
+  const cand = entries
+    .filter(e => !ARCHIVE_SKIP_DIR.test(e.entryName) && ARCHIVE_TEXT_EXT.test(e.entryName) && e.header.size <= 600 * 1024)
+    .sort((a, b) => archivePriority(a.entryName) - archivePriority(b.entryName)
+      || a.entryName.split('/').length - b.entryName.split('/').length
+      || a.header.size - b.header.size);
+  let used = 0;
+  const included = [];
+  const left = [];
+  for (const e of cand) {
+    if (used >= maxTotal) { left.push(e); continue; }
+    let txt;
+    try { txt = e.getData().toString('utf-8'); } catch (err) { continue; }
+    if (txt.includes('\u0000')) continue; // binary, not source
+    const cut = txt.length > perFile;
+    const body = cut ? `${txt.slice(0, perFile)}\n[... cut: ${txt.length - perFile} more characters ...]` : txt;
+    included.push(`--- ${e.entryName} (${fmtSize(e.header.size)}) ---\n${body.trim()}`);
+    used += body.length;
+  }
+  return { included, left };
+}
+
+function buildZipDigest(buffer, filename, ZipClass = AdmZip) {
+  const zip = new ZipClass(buffer);
+  const all = zip.getEntries().filter(e => !e.isDirectory);
+  const files = all.filter(e => !ARCHIVE_SKIP_DIR.test(e.entryName));
+  const byTop = {};
+  files.forEach(e => { const k = e.entryName.split('/')[0]; byTop[k] = (byTop[k] || 0) + 1; });
+  const topLine = Object.entries(byTop).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k, v]) => `${k} (${v})`).join(', ');
+  const tree = files.slice(0, 300).map(e => `${e.entryName}  [${fmtSize(e.header.size)}]`).join('\n');
+  const { included, left } = pickReadable(files, { maxTotal: 55000, perFile: 9000 });
+  return [
+    `ZIP: ${filename || 'archive.zip'} — ${all.length} files (${all.length - files.length} inside node_modules/build/.git-type folders were skipped).`,
+    `Top-level: ${topLine}`,
+    `FILE LIST (first ${Math.min(300, files.length)} of ${files.length}):\n${tree}`,
+    `FILE CONTENTS (most important first, ${included.length} files):\n\n${included.join('\n\n')}`,
+    left.length ? `NOT INCLUDED to keep this small (ask the user to attach any of these if needed): ${left.slice(0, 80).map(e => e.entryName).join(', ')}` : ''
+  ].filter(Boolean).join('\n\n').slice(0, ARCHIVE_DIGEST_MAX);
+}
+
+const uniqueMatches = (str, re) => [...new Set(str.match(re) || [])];
+
+function buildApkDigest(buffer, filename, ZipClass = AdmZip) {
+  const zip = new ZipClass(buffer);
+  const all = zip.getEntries().filter(e => !e.isDirectory);
+  const dex = all.filter(e => /^classes\d*\.dex$/.test(e.entryName));
+  const abis = [...new Set(all.filter(e => /^lib\//.test(e.entryName)).map(e => e.entryName.split('/')[1]))];
+  const out = [];
+  out.push(`APK: ${filename || 'app.apk'} — ${all.length} files, ${dex.length} dex file(s), native ABIs: ${abis.join(', ') || 'none'}.`);
+  out.push('NOTE: this is a compiled APK. The Java/Kotlin logic in classes.dex cannot be read as source here. Below is what CAN be read: manifest strings, the class list and the web/asset files. To find a crash, the Logcat stack trace plus the source zip are needed.');
+
+  const mf = zip.getEntry('AndroidManifest.xml');
+  if (mf) {
+    const mb = mf.getData();
+    const joined = `${mb.toString('utf16le')}\n${mb.toString('latin1')}`;
+    const perms = uniqueMatches(joined, /(?:android|com\.google\.[a-z.]+)\.permission\.[A-Z_]+/g).sort();
+    const comps = uniqueMatches(joined, /(?:[a-z][a-z0-9_]*\.){2,}[A-Z][A-Za-z0-9_$]*/g).filter(n => !/^android\.|^androidx\./.test(n)).slice(0, 60);
+    out.push(`MANIFEST (approximate, read from the binary XML strings):\nPermissions (${perms.length}): ${perms.join(', ') || 'none found'}\nComponents/classes mentioned: ${comps.join(', ') || 'none found'}`);
+  }
+
+  const classes = new Set();
+  for (const d of dex) {
+    const txt = d.getData().toString('latin1');
+    for (const m of txt.matchAll(/L((?:[A-Za-z0-9_$]+\/)+[A-Za-z0-9_$]+);/g)) classes.add(m[1].replace(/\//g, '.'));
+  }
+  const FRAMEWORK = /^(android|androidx|kotlin|kotlinx|java|javax|dalvik|sun|org\.(apache|json|xml|w3c|intellij|jetbrains)|com\.(google|android))\./;
+  const appClasses = [...classes].filter(c => !FRAMEWORK.test(c));
+  const groups = {};
+  appClasses.forEach(c => { const g = c.split('.').slice(0, 3).join('.'); groups[g] = (groups[g] || 0) + 1; });
+  const ranked = Object.entries(groups).sort((a, b) => b[1] - a[1]);
+  const mainPrefix = ranked.length ? ranked[0][0] : '';
+  const mine = mainPrefix ? appClasses.filter(c => c.startsWith(mainPrefix)).sort() : [];
+  out.push(`CLASSES: ${classes.size} total. Package groups (app + libraries): ${ranked.slice(0, 12).map(([k, v]) => `${k} (${v})`).join(', ')}\nApp classes (${mainPrefix || 'n/a'}, ${mine.length}):\n${mine.slice(0, 250).join('\n')}`);
+
+  const assets = all.filter(e => /^assets\//.test(e.entryName));
+  const { included, left } = pickReadable(assets, { maxTotal: 45000, perFile: 12000 });
+  out.push(`ASSETS (${assets.length} files). Readable web/app files:\n\n${included.join('\n\n') || '(none readable)'}${left.length ? `\n\nNOT INCLUDED: ${left.slice(0, 60).map(e => e.entryName).join(', ')}` : ''}`);
+  out.push(`META-INF: ${all.filter(e => /^META-INF\//.test(e.entryName)).map(e => e.entryName).slice(0, 6).join(', ') || 'none'}`);
+  return out.join('\n\n').slice(0, ARCHIVE_DIGEST_MAX);
+}
+
 async function extractText(mimeType, buffer, filename) {
   mimeType = resolveMimeType(mimeType, filename);
+  if (mimeType === 'application/vnd.android.package-archive' || /\.apk$/i.test(filename || '')) {
+    return buildApkDigest(buffer, filename);
+  }
   if (mimeType === 'application/pdf') {
     const data = await pdfParse(buffer);
     return data.text;
@@ -880,36 +1031,9 @@ async function extractText(mimeType, buffer, filename) {
     return buffer.toString('utf-8');
   }
   if (mimeType === 'application/zip' || mimeType === 'application/x-zip-compressed') {
-    // Extract whatever readable text we can from files inside the zip —
-    // .txt/.pdf/.docx entries get run back through extractText itself;
-    // everything else (images, binaries, node_modules, etc) is skipped
-    // rather than failing the whole upload.
-    const zip = new AdmZip(buffer);
-    const entries = zip.getEntries().filter(e => !e.isDirectory);
-    const pieces = [];
-    for (const entry of entries) {
-      const name = entry.entryName.toLowerCase();
-      let innerMime = null;
-      if (name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.json') || name.endsWith('.js') || name.endsWith('.css') || name.endsWith('.html')) {
-        innerMime = 'text/plain';
-      } else if (name.endsWith('.pdf')) {
-        innerMime = 'application/pdf';
-      } else if (name.endsWith('.docx')) {
-        innerMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      } else {
-        continue; // unsupported entry type inside the zip — skip, don't fail
-      }
-      try {
-        const innerText = await extractText(innerMime, entry.getData());
-        if (innerText && innerText.trim()) {
-          pieces.push(`--- ${entry.entryName} ---\n${innerText.trim()}`);
-        }
-      } catch (innerErr) {
-        // one bad file inside the zip shouldn't sink the whole upload
-        console.warn(`Skipping unreadable zip entry ${entry.entryName}:`, innerErr.message);
-      }
-    }
-    return pieces.join('\n\n');
+    // A map of the archive + the most important files within a size budget —
+    // never a raw dump of every file.
+    return buildZipDigest(buffer, filename);
   }
   throw new Error(`Unsupported file type for text extraction: ${mimeType}`);
 }
@@ -1715,6 +1839,43 @@ app.post('/api/find-jobs', verifyAuth, async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// How many keys does the backend actually see? Counts only — never the keys.
+// With ?test=1&code=<OWNER_CODE> it also pings every key once and reports
+// ok / quota / invalid per key (short status text, no key material).
+app.get('/api/keys-status', async (req, res) => {
+  const g = geminiKeys();
+  const q = groqKeys();
+  const out = { gemini: g.length, groq: q.length, geminiLastGood: g.length ? (geminiKeyStart % g.length) + 1 : 0, groqLastGood: q.length ? (groqKeyStart % q.length) + 1 : 0 };
+  const wantsTest = req.query.test === '1';
+  if (wantsTest) {
+    if (!process.env.OWNER_CODE || req.query.code !== process.env.OWNER_CODE) {
+      return res.status(403).json({ ...out, error: 'test needs ?code=<OWNER_CODE>' });
+    }
+    const short = s => String(s || '').replace(/\s+/g, ' ').slice(0, 90);
+    out.geminiKeys = await Promise.all(g.map(async (key, i) => {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 5 } })
+        });
+        const d = await r.json().catch(() => ({}));
+        return { key: i + 1, status: r.status, result: r.ok ? 'ok' : short(d.error && d.error.message) };
+      } catch (e) { return { key: i + 1, status: 0, result: short(e.message) }; }
+    }));
+    out.groqKeys = await Promise.all(q.map(async (key, i) => {
+      try {
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+          body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 })
+        });
+        const d = await r.json().catch(() => ({}));
+        return { key: i + 1, status: r.status, result: r.ok ? 'ok' : short(d.error && d.error.message) };
+      } catch (e) { return { key: i + 1, status: 0, result: short(e.message) }; }
+    }));
+  }
+  res.json(out);
+});
 app.get('/', (req, res) => res.send('Aureon AI backend is running. POST to /api/chat.'));
 
 // ---------- Save a conversation to chat history ----------
