@@ -766,9 +766,12 @@ try {
   PROJECT_CONTEXT = require('fs').readFileSync(require('path').join(__dirname, 'coding-context.md'), 'utf8').slice(0, 9000);
 } catch (e) { /* optional file */ }
 
-const CODING_PROMPT = `You are Aureon's app-development brain: a senior engineer who builds apps (Android, web, Node.js/backend, Firebase, APIs) and finds and fixes bugs in them — like a teammate pair-programming with the owner.
+const CODING_PROMPT_CORE = `You are Aureon in Coding mode. You are a full assistant — chat normally on any topic and do the same phone actions as the other modes — and you are an especially strong senior engineer who builds apps (Android, web, Node.js/backend, Firebase, APIs) and finds and fixes bugs, like a teammate pair-programming with the owner.
 
-SCOPE: app development and bug finding/debugging only. If the user asks for something unrelated (general chat, recipes, news, etc.), reply in one or two lines that Coding mode is only for app development and bug fixing, and suggest switching the model to a normal mode for that.
+WHAT YOU DO:
+- Normal conversation: answer any question naturally and briefly, in the user's language.
+- Actions: when the user asks you to DO something (call, message, alarm/timer/reminder, open an app, make a zip/PDF/file, apply to jobs, fill a form, ...), use your tools — do not explain how to do it manually.
+- Code and bugs: give complete, correct code and find real root causes (rules below).
 
 UNDERSTANDING THE USER:
 - The user writes short Hinglish, often with typos or voice-typing mistakes (for example "feathers" means features, "assamble" means assemble, "gitpull" means git pull). Work out what they mean from context and from the whole conversation so far. Ask a question only if two readings would lead to different work — otherwise state your assumption in one line and proceed.
@@ -792,7 +795,11 @@ BUG FINDING:
 - Prefer the smallest correct fix over a rewrite.
 
 Explain in the user's language (Hinglish or English); keep code and code comments in English.
-${PROJECT_CONTEXT ? '\nPROJECT CONTEXT (the app you are helping build — use it to understand what the user refers to):\n' + PROJECT_CONTEXT : ''}`;
+`;
+
+const CODING_PROMPT = CODING_PROMPT_CORE + (PROJECT_CONTEXT
+  ? '\n\nPROJECT CONTEXT (the app you are helping build — use it to understand what the user refers to):\n' + PROJECT_CONTEXT
+  : '');
 
 const MERGE_PROMPT = `You are the final reviewer. Two senior app engineers answered the same app-development or bug-finding request. Write ONE final answer for the user that is better than either: keep correct, complete code; fix any bugs or contradictions you notice; where they disagree, choose the more standard and safer approach. For bug reports keep only findings that the code or error actually supports — drop speculative ones or mark them "possible" — and if they disagree on the root cause, state the most likely one and how to confirm it. Keep the structure Root cause -> Fix -> How to verify when it is a bug. Keep the short, phone-friendly style: lead with the answer, numbered steps, copy-paste commands. Remove duplicated explanations. Output the final answer directly. Never mention the two engineers, "answer A/B", or this review process. Keep the user's language for explanations and English for code.`;
 
@@ -870,7 +877,65 @@ async function callCoding(messages, systemPrompt) {
   return merged;
 }
 
-const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal, coding: callCoding };
+async function mergeTwoAnswers(userText, a, b, vision = '') {
+  const mergeInput = `USER REQUEST:\n${userText || ''}${vision ? '\n\nSCREENSHOT CONTENTS:\n' + vision : ''}\n\n--- ANSWER A ---\n${a}\n\n--- ANSWER B ---\n${b}`;
+  const longer = a.length >= b.length ? a : b;
+  let merged = '';
+  try {
+    merged = asText(await withRetry(() => callGemini([{ role: 'user', content: mergeInput }], MERGE_PROMPT, false)));
+  } catch (e1) {
+    try { merged = asText(await withRetry(() => callGroq([{ role: 'user', content: mergeInput }], MERGE_PROMPT, false))); }
+    catch (e2) { merged = ''; }
+  }
+  if (!merged || merged.length < longer.length * 0.4) return longer;
+  return merged;
+}
+
+// Coding mode WITH tools (the app's normal setting): one brain answers fast with
+// the full tool list — Gemini keys race, then Groq keys. A tool call goes straight
+// back so the phone runs it (calls, alarms, zip, jobs...). Short chat answers
+// return at once. Only a substantial / code answer gets the OTHER brain's take
+// plus a merge — so actions and chat stay fast and coding keeps its quality.
+async function callCodingAgent(messages, systemPrompt) {
+  const sys = [CODING_PROMPT_CORE, systemPrompt].filter(Boolean).join('\n\n');
+  let first;
+  let firstBrain = 'gemini';
+  const errs = [];
+  try {
+    first = await callGemini(messages, sys, true);
+  } catch (e1) {
+    errs.push(`Gemini: ${(e1 && e1.message) || e1}`);
+    firstBrain = 'groq';
+    try {
+      first = await callGroq(messages, sys, true);
+    } catch (e2) {
+      errs.push(`Groq: ${(e2 && e2.message) || e2}`);
+      watchdog.recordError('coding_fail', new Error(errs.join(' | ')));
+      throw new Error(`Dono brains abhi busy hain — ${errs.join(' | ')}`);
+    }
+  }
+  if (first && typeof first === 'object' && first.functionCall) return first;
+  const text = asText(first);
+  if (!text || !(text.includes('```') || text.length > 900)) return text;
+
+  const fullSys = [CODING_PROMPT, systemPrompt].filter(Boolean).join('\n\n');
+  let second = '';
+  try {
+    second = asText(await withRetry(() => (firstBrain === 'gemini'
+      ? callGroq(messages, fullSys, false)
+      : callGemini(messages, fullSys, false))));
+  } catch (e) { return text; }
+  if (!second) return text;
+  const lastUser = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string');
+  const userText = (lastUser && lastUser.content) || '';
+  return firstBrain === 'gemini'
+    ? mergeTwoAnswers(userText, text, second)
+    : mergeTwoAnswers(userText, second, text);
+}
+
+const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal,
+  // Coding mode: with tools -> fast agent path; without tools -> two brains + merge
+  coding: (messages, systemPrompt, useTools) => (useTools ? callCodingAgent(messages, systemPrompt) : callCoding(messages, systemPrompt)) };
 
 // ==================== Phase 5: Personal Knowledge (RAG) ====================
 
@@ -1548,7 +1613,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     for (let round = 0; round < 5; round++) {
       let reply;
       try {
-        reply = await provider(workingMessages, activePrompt, model === 'coding' ? false : !!tools);
+        reply = await provider(workingMessages, activePrompt, !!tools);
         // A direct, non-healing Gemini call just succeeded — if it had
         // previously tripped the cooldown, clear it immediately rather
         // than waiting out the rest of the window. Recovery detected as

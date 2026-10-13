@@ -505,3 +505,9 @@ expect karna.
 - Sirf sabse naya attachment poore text ke saath AI ko jaata hai; purane sirf ek line ka note (112k-token request wali dikkat yahin se thi).
 - Groq: free tier ~8000 tokens/request. Tools ka slim copy (13k -> 8k chars), system prompt cap, aur "too large" par chhote input ke saath ek retry.
 - Check keys: https://aureone.onrender.com/api/keys-status (counts dikhata hai, keys nahi).
+
+## Round 24 — Coding mode = full assistant (chat + automation) with all keys
+- Coding mode ab normal modes jaisa hi sab kar sakta hai: tools/automation (call, alarm, zip, jobs, form fill...), PDF, normal chat. Faraq: saari Gemini + Groq keys race mein, aur code ke jawab par dono brains ka merge.
+- Server `callCodingAgent` (tools ke saath): Gemini keys race -> fail par Groq keys (tool-calling ke saath). Tool call seedha app ko jaata hai; chhota chat jawab turant; sirf lamba/code wala jawab doosre brain se milaya jaata hai.
+- Bina tools (agent toggle off): purana `callCoding` (dono brains parallel + merge).
+- Coding prompt se "sirf app dev" wala rule hata diya.

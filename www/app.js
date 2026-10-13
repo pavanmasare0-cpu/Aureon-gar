@@ -12,9 +12,8 @@ const state = {
 };
 
 // Coding mode is chat-only: no phone actions, no local intent shortcuts.
-// Coding mode is chat-only. But when the user asks Aureon to MAKE a zip / pdf /
-// file, that one turn runs in Research mode with the file tools instead of
-// answering with "how to do it yourself" instructions.
+// Coding mode has the same tools / automation as the other modes. The model for a
+// request is state.model (turnOverrideModel is kept only as an optional override).
 let turnOverrideModel = null;
 function effectiveModel() { return turnOverrideModel || state.model; }
 
@@ -33,7 +32,6 @@ function wantsFileOrZip(text) {
 }
 
 function isAgentOn() {
-  if (effectiveModel() === 'coding') return false;
   return $('toggle-agent') ? $('toggle-agent').checked : true;
 }
 
@@ -771,10 +769,6 @@ async function sendMessage() {
   // Offline-capable shortcut: battery / open app / set alarm never need the
   // AI backend at all — if the message clearly asks for one of these, do it
   // natively right away, with zero network involved.
-  turnOverrideModel = (state.model === 'coding' && wantsFileOrZip(text)) ? 'gemini' : null;
-  if (turnOverrideModel) {
-    addMessage('ai', '⚙️ Zip/file banane ke liye is baar Research mode use ho raha hai (Coding mode sirf chat ke liye hai).');
-  }
   const agentOn = isAgentOn();
   const localIntent = (!image && !fileText && !fileName && agentOn) ? matchLocalIntent(text) : null;
 
