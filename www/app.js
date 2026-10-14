@@ -1938,6 +1938,13 @@ function settingsOpenPane(name) {
 document.querySelectorAll('.list-row[data-open]').forEach(btn => {
   btn.addEventListener('click', () => settingsOpenPane(btn.dataset.open));
 });
+$('btn-open-sentinel')?.addEventListener('click', () => {
+  const code = prompt('Owner code daalo:');
+  if (code === null) return; // cancelled
+  if (!code.trim()) { alert('Code khaali nahi ho sakta.'); return; }
+  const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code.trim())}`;
+  window.open(url, '_blank');
+});
 settingsEl('settings-back')?.addEventListener('click', settingsShowList);
 $('btn-drawer-settings')?.addEventListener('click', () => setTimeout(() => { settingsShowList(); refreshLogins(); }, 0));
 $('toggle-auto-submit')?.addEventListener('change', updateSettingsSubs);

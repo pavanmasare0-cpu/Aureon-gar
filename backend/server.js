@@ -17,6 +17,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 const watchdog = require('./watchdog');
+const sentinelDashboard = require('./sentinel-dashboard');
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ const PORT = process.env.PORT || 3000;
 // Crash resilience + known-pattern/unknown-pattern alerting — see
 // watchdog.js and WATCHDOG-SETUP.md for what this does and doesn't do.
 watchdog.init(app);
+app.use('/api/sentinel', sentinelDashboard);
 
 // ---- Auth: verify Firebase ID tokens server-side, never trust a client-
 // supplied uid ----
