@@ -100,11 +100,111 @@ async function sendAlertEmail(subject, text) {
   }
 }
 
+// ---------------- GitHub repo access (for servers hosted elsewhere) ----------------
+// Reads/writes files in a remote GitHub repo via the Contents API — no
+// local clone needed. A write here IS a real commit on the target branch,
+// which is why it only ever happens inside the /approve route.
+function githubToken(server) {
+  return server.ghToken || process.env.GITHUB_TOKEN;
+}
+
+async function githubApi(server, pathSuffix, opts) {
+  const token = githubToken(server);
+  if (!token) throw new Error('No GitHub token configured (set one on the server or GITHUB_TOKEN env var)');
+  const res = await fetch(`https://api.github.com/repos/${server.ghRepo}${pathSuffix}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      ...(opts && opts.headers),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+async function githubListFiles(server) {
+  const folder = (server.ghPath || '').replace(/^\/|\/$/g, '');
+  const ref = server.ghBranch || 'main';
+  const listing = await githubApi(server, `/contents/${folder}?ref=${encodeURIComponent(ref)}`, { method: 'GET' });
+  if (!Array.isArray(listing)) return [];
+  return listing.filter((f) => f.type === 'file' && (f.name.endsWith('.js') || f.name.endsWith('.ts')));
+}
+
+async function githubReadFile(server, repoFilePath) {
+  const ref = server.ghBranch || 'main';
+  const data = await githubApi(server, `/contents/${repoFilePath}?ref=${encodeURIComponent(ref)}`, { method: 'GET' });
+  const content = Buffer.from(data.content, 'base64').toString('utf8');
+  return { content, sha: data.sha };
+}
+
+async function githubWriteFile(server, repoFilePath, newContent, sha, message) {
+  const ref = server.ghBranch || 'main';
+  return githubApi(server, `/contents/${repoFilePath}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: message || 'Aureon Sentinel: approved fix',
+      content: Buffer.from(newContent, 'utf8').toString('base64'),
+      sha,
+      branch: ref,
+    }),
+  });
+}
+
 function hasPendingProposalFor(serverId, kind, key) {
   return proposals.some(
     (p) => p.status === 'pending' && p.serverId === serverId && p.kind === kind &&
       (kind === 'patch' ? p.filePath === key : p.webhookUrl === key)
   );
+}
+
+// ---------------- Unified code-source access ----------------
+// Both "self" (local filesystem) and "github" (remote repo via API) servers
+// go through these three functions, so the AI-diagnosis and proactive-scan
+// logic below doesn't need to care which one it's dealing with.
+async function listServerFiles(server) {
+  if (server.type === 'github') {
+    try { return (await githubListFiles(server)).map((f) => f.name); }
+    catch (e) { console.warn('[sentinel] github list failed:', e.message); return []; }
+  }
+  const dir = server.localPath;
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.js') || f.endsWith('.ts'));
+}
+
+async function readServerFile(server, name) {
+  if (server.type === 'github') {
+    const folder = (server.ghPath || '').replace(/^\/|\/$/g, '');
+    const repoFilePath = folder ? `${folder}/${name}` : name;
+    const { content, sha } = await githubReadFile(server, repoFilePath);
+    return { content, key: `github:${server.ghRepo}:${repoFilePath}`, meta: { repoFilePath, sha } };
+  }
+  const filePath = path.join(server.localPath, name);
+  const content = fs.readFileSync(filePath, 'utf8');
+  return { content, key: filePath, meta: { filePath } };
+}
+
+function buildPatchProposal(server, source, name, explanation, oldFile, newContent) {
+  const base = {
+    id: newId(),
+    serverId: server.id,
+    serverName: server.name,
+    kind: 'patch',
+    source,
+    description: `${source === 'proactive-ai' ? 'Proactive review found a bug in' : 'AI-diagnosed fix for'} ${name}: ${explanation}`,
+    oldContent: oldFile.content,
+    newContent,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  if (server.type === 'github') {
+    return { ...base, target: 'github', filePath: `${server.ghRepo}/${oldFile.meta.repoFilePath}`, ghRepo: server.ghRepo, ghBranch: server.ghBranch || 'main', ghFilePath: oldFile.meta.repoFilePath, ghSha: oldFile.meta.sha };
+  }
+  return { ...base, target: 'local', filePath: oldFile.meta.filePath };
 }
 
 // Tries real AI diagnosis first (reads the error + the server's own code,
@@ -113,22 +213,22 @@ function hasPendingProposalFor(serverId, kind, key) {
 // visible in the code shown (e.g. a network blip, a missing env var, an
 // external service being down) — those return null here and the caller
 // falls back to the narrower pattern-match check below. Either way, this
-// function only ever returns a *proposal*; nothing is written to disk.
+// function only ever returns a *proposal*; nothing is written/committed.
 async function generateAIFixProposal(server, errorMessage) {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey || !server.localPath) return null;
-  const dir = server.localPath;
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
-
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js') || f.endsWith('.ts'));
+  if (!apiKey) return null;
+  const files = await listServerFiles(server);
   if (!files.length) return null;
 
   let combined = '';
-  for (const file of files) {
-    const content = fs.readFileSync(path.join(dir, file), 'utf8');
-    combined += `\n\n----- FILE: ${file} -----\n${content}`;
-    if (combined.length > 14000) break; // keep the prompt a sane size
+  for (const name of files) {
+    try {
+      const f = await readServerFile(server, name);
+      combined += `\n\n----- FILE: ${name} -----\n${f.content}`;
+    } catch (e) { continue; }
+    if (combined.length > 14000) break;
   }
+  if (!combined) return null;
 
   const prompt = `You are a careful senior backend engineer. A server just failed with this error:
 
@@ -146,11 +246,7 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-      }),
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
     });
     const data = await res.json();
     let raw = data?.choices?.[0]?.message?.content || '';
@@ -158,25 +254,12 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
     const parsed = JSON.parse(raw);
 
     if (!parsed.confident || !parsed.file || !parsed.newContent) return null;
-    if (!files.includes(parsed.file)) return null; // only ever a file we actually showed it
+    if (!files.includes(parsed.file)) return null;
 
-    const filePath = path.join(dir, parsed.file);
-    if (hasPendingProposalFor(server.id, 'patch', filePath)) return null;
-    const oldContent = fs.readFileSync(filePath, 'utf8');
+    const oldFile = await readServerFile(server, parsed.file);
+    if (hasPendingProposalFor(server.id, 'patch', oldFile.key)) return null;
 
-    return {
-      id: newId(),
-      serverId: server.id,
-      serverName: server.name,
-      kind: 'patch',
-      source: 'reactive-ai',
-      description: `AI-diagnosed fix for ${parsed.file}: ${parsed.explanation}`,
-      filePath,
-      oldContent,
-      newContent: parsed.newContent,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
+    return buildPatchProposal(server, 'reactive-ai', parsed.file, parsed.explanation, oldFile, parsed.newContent);
   } catch (e) {
     console.warn('[sentinel] AI diagnosis skipped/failed:', e.message);
     return null;
@@ -187,22 +270,22 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
 // code for real bugs (not style nitpicks), and proposes fixes for the
 // ones it's confident about. Same rule as reactive diagnosis: if it isn't
 // sure, it reports nothing rather than inventing minor complaints. Only
-// ever produces proposals — never writes a file on its own.
+// ever produces proposals — never writes/commits on its own.
 async function generateProactiveFindings(server) {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey || !server.localPath) return [];
-  const dir = server.localPath;
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
-
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js') || f.endsWith('.ts'));
+  if (!apiKey) return [];
+  const files = await listServerFiles(server);
   if (!files.length) return [];
 
   let combined = '';
-  for (const file of files) {
-    const content = fs.readFileSync(path.join(dir, file), 'utf8');
-    combined += `\n\n----- FILE: ${file} -----\n${content}`;
+  for (const name of files) {
+    try {
+      const f = await readServerFile(server, name);
+      combined += `\n\n----- FILE: ${name} -----\n${f.content}`;
+    } catch (e) { continue; }
     if (combined.length > 14000) break;
   }
+  if (!combined) return [];
 
   const prompt = `You are a careful senior backend engineer doing a routine code review (the server is currently running fine — you are looking for bugs BEFORE they cause an outage, not reacting to one).
 
@@ -218,11 +301,7 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-      }),
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
     });
     const data = await res.json();
     let raw = data?.choices?.[0]?.message?.content || '';
@@ -233,22 +312,9 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
     const proposals = [];
     for (const f of findings) {
       if (!f.file || !f.newContent || !files.includes(f.file)) continue;
-      const filePath = path.join(dir, f.file);
-      if (hasPendingProposalFor(server.id, 'patch', filePath)) continue;
-      const oldContent = fs.readFileSync(filePath, 'utf8');
-      proposals.push({
-        id: newId(),
-        serverId: server.id,
-        serverName: server.name,
-        kind: 'patch',
-        source: 'proactive-ai',
-        description: `Proactive review found a bug in ${f.file}: ${f.explanation}`,
-        filePath,
-        oldContent,
-        newContent: f.newContent,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      });
+      const oldFile = await readServerFile(server, f.file);
+      if (hasPendingProposalFor(server.id, 'patch', oldFile.key)) continue;
+      proposals.push(buildPatchProposal(server, 'proactive-ai', f.file, f.explanation, oldFile, f.newContent));
     }
     return proposals;
   } catch (e) {
@@ -260,7 +326,7 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
 async function runProactiveScanCycle() {
   let changed = false;
   for (const server of servers) {
-    if (server.type !== 'self') continue;
+    if (server.type !== 'self' && server.type !== 'github') continue;
     const found = await generateProactiveFindings(server);
     if (found.length) {
       proposals.push(...found);
@@ -280,13 +346,11 @@ setInterval(() => {
   runProactiveScanCycle().catch((e) => console.error('[sentinel] proactive cycle failed:', e.message));
 }, PROACTIVE_SCAN_INTERVAL_MS);
 
-// Deliberately narrow and explainable: same single known-pattern check as
-// the earlier standalone sentinel tools — used as a fallback when AI
-// diagnosis above isn't configured, isn't confident, or fails. NEVER
-// applied automatically — only ever proposed, with the full before/after
-// content shown.
+// Deliberately narrow and explainable fallback for "self" (local) servers
+// only, used when AI diagnosis above isn't configured, isn't confident, or
+// fails. NEVER applied automatically — only ever proposed.
 function scanForProposals(server) {
-  if (!server.localPath) return [];
+  if (server.type !== 'self' || !server.localPath) return [];
   const dir = server.localPath;
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
 
@@ -305,6 +369,7 @@ function scanForProposals(server) {
         serverName: server.name,
         kind: 'patch',
         source: 'reactive-pattern',
+        target: 'local',
         description: `Add missing unhandledRejection guard to ${file}`,
         filePath,
         oldContent: content,
@@ -341,7 +406,7 @@ async function runMonitorCycle() {
   for (const server of servers) {
     const ok = await checkServer(server);
     if (!ok) {
-      if (server.type === 'self') {
+      if (server.type === 'self' || server.type === 'github') {
         const aiProposal = await generateAIFixProposal(server, server.lastError || server.lastStatus);
         const newProposals = aiProposal ? [aiProposal] : scanForProposals(server);
         if (newProposals.length) {
@@ -406,12 +471,15 @@ router.use((req, res, next) => {
 router.get('/servers', (req, res) => res.json(servers));
 
 router.post('/servers', (req, res) => {
-  const { name, healthUrl, type, localPath, restartWebhookUrl } = req.body || {};
+  const { name, healthUrl, type, localPath, restartWebhookUrl, ghRepo, ghBranch, ghPath, ghToken } = req.body || {};
   if (!name || !healthUrl || !type) {
     return res.status(400).json({ error: 'name, healthUrl, type are required' });
   }
-  if (type !== 'self' && type !== 'external') {
-    return res.status(400).json({ error: "type must be 'self' or 'external'" });
+  if (!['self', 'external', 'github'].includes(type)) {
+    return res.status(400).json({ error: "type must be 'self', 'external', or 'github'" });
+  }
+  if (type === 'github' && !ghRepo) {
+    return res.status(400).json({ error: "ghRepo (owner/repo) is required for type 'github'" });
   }
   const server = {
     id: newId(),
@@ -420,6 +488,10 @@ router.post('/servers', (req, res) => {
     type,
     localPath: type === 'self' ? (localPath || null) : null,
     restartWebhookUrl: type === 'external' ? (restartWebhookUrl || null) : null,
+    ghRepo: type === 'github' ? ghRepo : null,
+    ghBranch: type === 'github' ? (ghBranch || 'main') : null,
+    ghPath: type === 'github' ? (ghPath || '') : null,
+    ghToken: type === 'github' ? (ghToken || null) : null, // optional per-repo override of GITHUB_TOKEN env var
     lastStatus: 'UNKNOWN',
   };
   servers.push(server);
@@ -442,7 +514,14 @@ router.post('/proposals/:id/approve', async (req, res) => {
   if (!p) return res.status(404).json({ error: 'not found' });
   if (p.status !== 'pending') return res.status(400).json({ error: `already ${p.status}` });
   try {
-    if (p.kind === 'patch') {
+    if (p.kind === 'patch' && p.target === 'github') {
+      const server = servers.find((s) => s.id === p.serverId) || { ghRepo: p.ghRepo };
+      await githubWriteFile(
+        { ...server, ghRepo: p.ghRepo, ghBranch: p.ghBranch },
+        p.ghFilePath, p.newContent, p.ghSha,
+        `Aureon Sentinel: ${p.description}`
+      );
+    } else if (p.kind === 'patch') {
       fs.writeFileSync(p.filePath, p.newContent, 'utf8');
     } else if (p.kind === 'restart') {
       await fetch(p.webhookUrl, { method: 'POST' });
@@ -473,7 +552,7 @@ router.post('/check-now', async (req, res) => {
 router.post('/servers/:id/scan-now', async (req, res) => {
   const server = servers.find((s) => s.id === req.params.id);
   if (!server) return res.status(404).json({ error: 'not found' });
-  if (server.type !== 'self') return res.status(400).json({ error: 'proactive scan only works on self-hosted servers (needs code access)' });
+  if (server.type !== 'self' && server.type !== 'github') return res.status(400).json({ error: 'proactive scan only works on servers with code access (self-hosted or GitHub)' });
   const found = await generateProactiveFindings(server);
   if (found.length) {
     proposals.push(...found);
@@ -609,12 +688,17 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
         <div class="grid">
           <input id="s-name" placeholder="Name (e.g. Aureon backend)">
           <input id="s-url" placeholder="Health check URL (https://.../health)">
-          <select id="s-type">
+          <select id="s-type" onchange="toggleTypeFields()">
             <option value="self">Self-hosted — code access (full diagnosis)</option>
+            <option value="github">GitHub repo — code access via API (full diagnosis)</option>
             <option value="external">External — monitor only</option>
           </select>
           <input id="s-local" placeholder="Local path (self-hosted only, e.g. ./ )">
           <input id="s-webhook" placeholder="Restart webhook URL (external only, optional)">
+          <input id="s-gh-repo" placeholder="owner/repo (GitHub only, e.g. pavan/omnisell-backend)" style="display:none">
+          <input id="s-gh-branch" placeholder="Branch (GitHub only, default: main)" style="display:none">
+          <input id="s-gh-path" placeholder="Folder in repo (GitHub only, optional, e.g. backend)" style="display:none">
+          <input id="s-gh-token" type="password" placeholder="GitHub token (optional — else uses GITHUB_TOKEN env)" style="display:none">
         </div>
         <div style="margin-top:12px"><button onclick="addServer()">+ Add server</button></div>
       </div>
@@ -670,13 +754,14 @@ function renderServers(servers) {
   el.innerHTML = servers.map(s => \`
     <div class="card row">
       <div>
-        <div class="name"><span class="dot \${s.lastStatus || 'UNKNOWN'}"></span>\${s.name} <span class="meta">(\${s.type === 'self' ? 'self-hosted' : 'external'})</span></div>
+        <div class="name"><span class="dot \${s.lastStatus || 'UNKNOWN'}"></span>\${s.name} <span class="meta">(\${s.type === 'self' ? 'self-hosted' : s.type === 'github' ? 'GitHub repo' : 'external'})</span></div>
         <div class="meta">\${s.healthUrl}</div>
+        \${s.type === 'github' ? \`<div class="meta">\${s.ghRepo} @ \${s.ghBranch}\${s.ghPath ? '/' + s.ghPath : ''}</div>\` : ''}
         \${s.lastCheckedAt ? \`<div class="meta">checked \${new Date(s.lastCheckedAt).toLocaleString()}</div>\` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="badge \${s.lastStatus || 'UNKNOWN'}">\${s.lastStatus || 'UNKNOWN'}</span>
-        \${s.type === 'self' ? \`<button class="reject" onclick="scanNow('\${s.id}')">Review now</button>\` : ''}
+        \${(s.type === 'self' || s.type === 'github') ? \`<button class="reject" onclick="scanNow('\${s.id}')">Review now</button>\` : ''}
         <button class="reject" onclick="removeServer('\${s.id}')">Remove</button>
       </div>
     </div>\`).join('');
@@ -715,17 +800,33 @@ function renderProposals(proposals) {
 
 function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
+function toggleTypeFields() {
+  const type = document.getElementById('s-type').value;
+  document.getElementById('s-local').style.display = type === 'self' ? '' : 'none';
+  document.getElementById('s-webhook').style.display = type === 'external' ? '' : 'none';
+  ['s-gh-repo','s-gh-branch','s-gh-path','s-gh-token'].forEach(id => {
+    document.getElementById(id).style.display = type === 'github' ? '' : 'none';
+  });
+}
+
 async function addServer() {
+  const type = document.getElementById('s-type').value;
   const body = {
     name: document.getElementById('s-name').value,
     healthUrl: document.getElementById('s-url').value,
-    type: document.getElementById('s-type').value,
+    type,
     localPath: document.getElementById('s-local').value,
     restartWebhookUrl: document.getElementById('s-webhook').value,
+    ghRepo: document.getElementById('s-gh-repo').value,
+    ghBranch: document.getElementById('s-gh-branch').value,
+    ghPath: document.getElementById('s-gh-path').value,
+    ghToken: document.getElementById('s-gh-token').value,
   };
   if (!body.name || !body.healthUrl) { alert('Name and health URL are required'); return; }
-  await authFetch(API + '/servers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  ['s-name','s-url','s-local','s-webhook'].forEach(id => document.getElementById(id).value = '');
+  if (type === 'github' && !body.ghRepo) { alert('owner/repo is required for GitHub type'); return; }
+  const res = await authFetch(API + '/servers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Could not add server'); return; }
+  ['s-name','s-url','s-local','s-webhook','s-gh-repo','s-gh-branch','s-gh-path','s-gh-token'].forEach(id => document.getElementById(id).value = '');
   load();
 }
 

@@ -71,23 +71,46 @@ nahi hogi, koi webhook call nahi hoga.**
   provider deta ho) to wahi daal do, warna khali chhod do (sirf monitoring
   hogi, fix khud nahi propose hoga kyunki code access hi nahi hai).
 
-## Owner code (naya — zaroori)
-Ab dashboard aur uske saare actions (approve/reject/add-server/scan-now)
-**owner code ke bina lock rahenge**. Render → Environment me ek naya
-variable add karo:
-```
-SENTINEL_OWNER_CODE=jo-bhi-secret-code-tumhe-yaad-rahega
-```
-Agar ye set nahi karoge, dashboard **khula** rahega (koi bhi link jaan ke
-access kar sakta hai) — is case me dashboard ke upar ek laal warning banner
-dikhega taaki bhoolna na ho.
+## GitHub repo add karna (OmniSell jaise dusre apps ke liye)
+Ab ek teesra server-type hai — **"GitHub repo"**. Isse dusre projects
+(jinka code is Codespace me nahi hai, jaise OmniSell) ko bhi full
+code-level diagnosis + AI-fix mil sakta hai, bina unko yahan clone kiye.
 
-Code set karne ke baad:
-- **Browser se dashboard kholna ho**: `https://aureone.onrender.com/api/sentinel/dashboard`
-  par jaate hi ek chhota login form aayega, code daalo, unlock ho jayega.
-- **Aureon app ke andar se kholna ho**: Settings → "Sentinel Dashboard" row
-  pe tap karo, ek popup me owner code poochega, sahi code dalte hi dashboard
-  phone ke browser me naye tab me khul jayega.
+**1. GitHub Personal Access Token banao** (ek baar ka kaam):
+   - GitHub.com → Settings → Developer settings → Personal access tokens →
+     **Fine-grained tokens** → Generate new token
+   - **Repository access:** "Only select repositories" → wahi repo(s)
+     chuno jo Sentinel ko dikhne/edit karne hain (jaise OmniSell) —
+     poore account ka access mat do
+   - **Permissions:** Repository → **Contents: Read and write** (bas yahi
+     chahiye, baaki sab default/No access rakho)
+   - Token generate hote hi copy kar lo (dobara nahi dikhega)
+
+2. Render → Environment me daal do:
+   ```
+   GITHUB_TOKEN=ghp_... (ya github_pat_... jo bhi mila)
+   ```
+   (Ye sab GitHub-type servers ke liye shared token hai. Agar kisi ek
+   server ke liye alag token chahiye, dashboard pe us server ko add karte
+   waqt "GitHub token" field me daal do — wahi use hoga, env var ignore
+   ho jayegi usi server ke liye.)
+
+3. Dashboard pe "+ Add server" me type **"GitHub repo"** choose karo, aur
+   bharo:
+   - **owner/repo** — jaise `pavan/omnisell-backend`
+   - **Branch** — jaise `main` (khali chhodo to `main` hi maanega)
+   - **Folder in repo** — agar backend code kisi subfolder me hai (jaise
+     `backend/`), wahi daalo; root me hi hai to khali chhodo
+   - **GitHub token** — khali chhodo agar upar wala env var set kar diya
+
+4. Ab ye repo bhi down hone pe AI-diagnose hoga, aur Approve dabane par
+   Sentinel seedha **us repo me commit kar dega** (GitHub API se). Agar
+   OmniSell ka Render us repo se "auto-deploy on push" connected hai, to
+   commit hote hi khud redeploy bhi ho jayega.
+
+**Security note:** token ko sirf us ek repo tak limited rakhna (fine-grained
+token, "Only select repositories") — poore GitHub account ka access kabhi
+mat dena.
 
 ## Proactive bug-scanning (naya)
 Sirf down hone pe react karne ke alawa, Aureon ab **har 24 ghante** apne
