@@ -18,16 +18,9 @@
 //                  for it, a failure proposes calling that webhook — again
 //                  gated behind Approve, never automatic.
 //
-// Data persists to Firestore (same Firebase project Aureon already uses
-// for Knowledge/RAG — no new credentials needed) so it survives Render
-// redeploys, which wipe the local disk. If FIREBASE_SERVICE_ACCOUNT isn't
-// set, this module falls back to local JSON files under
-// backend/sentinel-data/*.json — still works, just won't survive a deploy.
-//
-// This whole file is exported as a function that takes the already-
-// initialized Firestore `db` (or null) from server.js:
-//   const sentinelDashboard = require('./sentinel-dashboard')(db);
-//   app.use('/api/sentinel', sentinelDashboard);
+// Data persists to Firestore (collection aureon_persist) so it survives
+// Render deploys, and is mirrored to backend/sentinel-data/*.json as a
+// fallback when Firestore isn't configured. See persist.js.
 //
 // Env vars reused from watchdog.js's email setup (same values, nothing new
 // to configure if you already set those up): RESEND_API_KEY, ALERT_EMAIL_TO,
@@ -38,20 +31,15 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-module.exports = function (db) {
-
 const router = express.Router();
-const USE_FIRESTORE = !!db;
-if (!USE_FIRESTORE) {
-  console.warn('[sentinel] No Firestore db passed in — falling back to local JSON files (data will NOT survive a Render redeploy).');
-}
 
 const DATA_DIR = path.join(__dirname, 'sentinel-data');
 const SERVERS_PATH = path.join(DATA_DIR, 'servers.json');
 const PROPOSALS_PATH = path.join(DATA_DIR, 'proposals.json');
 const SNAPSHOTS_PATH = path.join(DATA_DIR, 'snapshots.json');
 const CHANGELOG_PATH = path.join(DATA_DIR, 'changelog.json');
-if (!USE_FIRESTORE && !fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadJSON(p, fallback) {
   try {
@@ -66,63 +54,57 @@ function saveJSON(p, data) {
   fs.writeFileSync(p, JSON.stringify(data, null, 2));
 }
 
-// In-memory working copies (every route reads these synchronously, same
-// as before) — kept in sync with Firestore via write-through persist*()
-// calls below, and hydrated from Firestore once at startup.
-let servers = USE_FIRESTORE ? [] : loadJSON(SERVERS_PATH, []);
-let proposals = USE_FIRESTORE ? [] : loadJSON(PROPOSALS_PATH, []);
-let snapshots = USE_FIRESTORE ? {} : loadJSON(SNAPSHOTS_PATH, {}); // key -> sha256 hash of last-seen content
-let changeLog = USE_FIRESTORE ? [] : loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, changedAt}], newest first
+let servers = loadJSON(SERVERS_PATH, []);
+let proposals = loadJSON(PROPOSALS_PATH, []);
+let snapshots = loadJSON(SNAPSHOTS_PATH, {}); // key -> sha256 hash of last-seen content
+let changeLog = loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, changedAt}], newest first
 
-async function hydrateFromFirestore() {
-  if (!USE_FIRESTORE) return;
-  try {
-    const [serversSnap, proposalsSnap, metaSnap] = await Promise.all([
-      db.collection('sentinel_servers').get(),
-      db.collection('sentinel_proposals').get(),
-      db.collection('sentinel_meta').get(),
-    ]);
-    servers = serversSnap.docs.map((d) => d.data());
-    proposals = proposalsSnap.docs.map((d) => d.data());
-    metaSnap.docs.forEach((d) => {
-      if (d.id === 'snapshots') snapshots = d.data().map || {};
-      if (d.id === 'changelog') changeLog = d.data().entries || [];
-    });
-    console.log(`[sentinel] Loaded from Firestore: ${servers.length} server(s), ${proposals.length} proposal(s).`);
-  } catch (e) {
-    console.error('[sentinel] Firestore hydrate failed, starting empty:', e.message);
+// ---- Firestore hydration ----
+// On a fresh Render deploy the local files are gone, so the real copy lives
+// in Firestore. Until it has been read, nothing is allowed to write (that
+// would overwrite good data with an empty list) and the monitor loops wait.
+const store = require('./persist');
+const { THEME_TAGS } = require('./ui-theme');
+
+const PERSISTED = {
+  servers:   { file: SERVERS_PATH,   get: () => servers,   set: (v) => { servers = v; } },
+  proposals: { file: PROPOSALS_PATH, get: () => proposals, set: (v) => { proposals = v; } },
+  snapshots: { file: SNAPSHOTS_PATH, get: () => snapshots, set: (v) => { snapshots = v; } },
+  changelog: { file: CHANGELOG_PATH, get: () => changeLog, set: (v) => { changeLog = v; } },
+};
+const isEmptyVal = (v) => (Array.isArray(v) ? v.length === 0 : !v || Object.keys(v).length === 0);
+
+// Old, decided proposals don't need their full file contents stored forever
+// (Firestore docs are limited to 1 MiB) — pending ones keep everything.
+function slimProposals(list) {
+  return list.slice(-200).map((p) => {
+    if (p.status === 'pending') return p;
+    const { oldContent, newContent, ...rest } = p;
+    return rest;
+  });
+}
+
+const ready = (async () => {
+  await store.whenFirestore(20000);
+  for (const key of Object.keys(PERSISTED)) {
+    const cfg = PERSISTED[key];
+    const r = await store.load(key, cfg.file);
+    if (r.source === 'firestore') cfg.set(r.value);
+    else if (!isEmptyVal(cfg.get())) await store.save(key, key === 'proposals' ? slimProposals(cfg.get()) : cfg.get(), cfg.file); // one-time migration of existing local data
   }
-}
-hydrateFromFirestore();
+  console.log('[sentinel] data loaded — servers:', servers.length, 'proposals:', proposals.length);
+})().catch((e) => console.error('[sentinel] hydrate failed:', e.message));
 
-// Fire-and-forget writes (matches this file's existing style elsewhere) —
-// fine for an admin tool like this; errors are logged, not thrown.
-function persistServers() {
-  if (!USE_FIRESTORE) return saveJSON(SERVERS_PATH, servers);
-  const batch = db.batch();
-  servers.forEach((s) => batch.set(db.collection('sentinel_servers').doc(s.id), s));
-  batch.commit().catch((e) => console.error('[sentinel] Firestore persistServers failed:', e.message));
+function persist(key) {
+  ready.then(() => {
+    const cfg = PERSISTED[key];
+    return store.save(key, key === 'proposals' ? slimProposals(cfg.get()) : cfg.get(), cfg.file);
+  }).catch((e) => console.error('[sentinel] persist failed:', key, e.message));
 }
-function persistProposals() {
-  if (!USE_FIRESTORE) return saveJSON(PROPOSALS_PATH, proposals);
-  const batch = db.batch();
-  proposals.forEach((p) => batch.set(db.collection('sentinel_proposals').doc(p.id), p));
-  batch.commit().catch((e) => console.error('[sentinel] Firestore persistProposals failed:', e.message));
-}
-function persistSnapshots() {
-  if (!USE_FIRESTORE) return saveJSON(SNAPSHOTS_PATH, snapshots);
-  db.collection('sentinel_meta').doc('snapshots').set({ map: snapshots })
-    .catch((e) => console.error('[sentinel] Firestore persistSnapshots failed:', e.message));
-}
-function persistChangelog() {
-  if (!USE_FIRESTORE) return saveJSON(CHANGELOG_PATH, changeLog);
-  db.collection('sentinel_meta').doc('changelog').set({ entries: changeLog })
-    .catch((e) => console.error('[sentinel] Firestore persistChangelog failed:', e.message));
-}
-async function deleteServerDoc(id) {
-  if (!USE_FIRESTORE) return;
-  await db.collection('sentinel_servers').doc(id).delete().catch((e) => console.error('[sentinel] Firestore delete failed:', e.message));
-}
+function persistServers() { persist('servers'); }
+function persistProposals() { persist('proposals'); }
+function persistSnapshots() { persist('snapshots'); }
+function persistChangelog() { persist('changelog'); }
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -137,7 +119,10 @@ function checkOwnerCode(req) {
   const configured = process.env.SENTINEL_OWNER_CODE;
   if (!configured) return 'unprotected';
   const provided = req.header('x-owner-code') || req.query.code;
-  return provided === configured ? 'ok' : 'denied';
+  if (typeof provided !== 'string') return 'denied';
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(configured).digest();
+  return crypto.timingSafeEqual(a, b) ? 'ok' : 'denied';
 }
 
 // Brute-force protection: too many wrong owner-code attempts from one IP
@@ -151,8 +136,9 @@ const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const BLOCK_DURATION_MS = 30 * 60 * 1000;
 
 function getClientIp(req) {
-  const xf = req.headers['x-forwarded-for'];
-  if (xf) return xf.split(',')[0].trim();
+  // req.ip honours Express' 'trust proxy' setting (set in server.js), so it is
+  // the real client address. Reading X-Forwarded-For directly would let an
+  // attacker send a fresh fake value each request and never get locked out.
   return req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
 }
 
@@ -215,8 +201,37 @@ async function sendAlertEmail(subject, text) {
 // Reads/writes files in a remote GitHub repo via the Contents API — no
 // local clone needed. A write here IS a real commit on the target branch,
 // which is why it only ever happens inside the /approve route.
+// A per-server token is encrypted at rest (AES-256-GCM) with a key derived from
+// SENTINEL_ENC_KEY (or, if that's not set, SENTINEL_OWNER_CODE). It is never
+// sent back to the dashboard — only a "token set" flag is.
+function encKey() {
+  const secret = process.env.SENTINEL_ENC_KEY || process.env.SENTINEL_OWNER_CODE;
+  return secret ? crypto.createHash('sha256').update(secret).digest() : null;
+}
+function encryptToken(t) {
+  const k = encKey();
+  if (!k) return null;
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', k, iv);
+  const enc = Buffer.concat([c.update(t, 'utf8'), c.final()]);
+  return 'v1:' + [iv, c.getAuthTag(), enc].map((b) => b.toString('base64')).join(':');
+}
+function decryptToken(str) {
+  try {
+    const k = encKey();
+    if (!k || !str || !str.startsWith('v1:')) return null;
+    const [iv, tag, enc] = str.slice(3).split(':').map((x) => Buffer.from(x, 'base64'));
+    const d = crypto.createDecipheriv('aes-256-gcm', k, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
+  } catch (e) { return null; }
+}
+function publicServer(sv) {
+  const { ghToken, ghTokenEnc, ...rest } = sv;
+  return { ...rest, ghTokenSet: !!(ghToken || ghTokenEnc) };
+}
 function githubToken(server) {
-  return server.ghToken || process.env.GITHUB_TOKEN;
+  return (server.ghTokenEnc && decryptToken(server.ghTokenEnc)) || server.ghToken || process.env.GITHUB_TOKEN;
 }
 
 async function githubApi(server, pathSuffix, opts) {
@@ -248,7 +263,13 @@ async function githubListFiles(server) {
 async function githubReadFile(server, repoFilePath) {
   const ref = server.ghBranch || 'main';
   const data = await githubApi(server, `/contents/${repoFilePath}?ref=${encodeURIComponent(ref)}`, { method: 'GET' });
-  const content = Buffer.from(data.content, 'base64').toString('utf8');
+  let b64 = data.content;
+  if (!b64 && data.sha) {
+    // Contents API returns no body for files over 1 MB — fetch the git blob instead.
+    const blob = await githubApi(server, `/git/blobs/${data.sha}`, { method: 'GET' });
+    b64 = blob.content;
+  }
+  const content = Buffer.from(b64 || '', 'base64').toString('utf8');
   return { content, sha: data.sha };
 }
 
@@ -458,6 +479,7 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
 }
 
 async function runProactiveScanCycle() {
+  await ready;
   let changed = false;
   for (const server of servers) {
     if (server.type !== 'self' && server.type !== 'github') continue;
@@ -536,6 +558,7 @@ async function checkServer(server) {
 }
 
 async function runMonitorCycle() {
+  await ready;
   let changed = false;
   for (const server of servers) {
     const ok = await checkServer(server);
@@ -602,7 +625,7 @@ router.use((req, res, next) => {
   return requireOwnerCode(req, res, next);
 });
 
-router.get('/servers', (req, res) => res.json(servers));
+router.get('/servers', (req, res) => res.json(servers.map(publicServer)));
 
 router.post('/servers', (req, res) => {
   const { name, healthUrl, type, localPath, restartWebhookUrl, ghRepo, ghBranch, ghPath, ghToken } = req.body || {};
@@ -625,17 +648,22 @@ router.post('/servers', (req, res) => {
     ghRepo: type === 'github' ? ghRepo : null,
     ghBranch: type === 'github' ? (ghBranch || 'main') : null,
     ghPath: type === 'github' ? (ghPath || '') : null,
-    ghToken: type === 'github' ? (ghToken || null) : null, // optional per-repo override of GITHUB_TOKEN env var
+    ghToken: null,
+    ghTokenEnc: null,
     lastStatus: 'UNKNOWN',
   };
+  if (type === 'github' && ghToken) {
+    // optional per-repo override of the GITHUB_TOKEN env var
+    const enc = encryptToken(ghToken);
+    if (enc) server.ghTokenEnc = enc; else server.ghToken = ghToken; // no secret configured -> can't encrypt
+  }
   servers.push(server);
   persistServers();
-  res.json(server);
+  res.json(publicServer(server));
 });
 
 router.delete('/servers/:id', (req, res) => {
   servers = servers.filter((s) => s.id !== req.params.id);
-  deleteServerDoc(req.params.id); // no-op when not using Firestore
   persistServers();
   res.json({ ok: true });
 });
@@ -653,11 +681,14 @@ router.post('/proposals/:id/approve', async (req, res) => {
   try {
     if (p.kind === 'patch' && p.target === 'github') {
       const server = servers.find((s) => s.id === p.serverId) || { ghRepo: p.ghRepo };
-      await githubWriteFile(
-        { ...server, ghRepo: p.ghRepo, ghBranch: p.ghBranch },
-        p.ghFilePath, p.newContent, p.ghSha,
-        `Aureon Sentinel: ${p.description}`
-      );
+      const target = { ...server, ghRepo: p.ghRepo, ghBranch: p.ghBranch };
+      // Re-read the file right now: if someone pushed since this proposal was
+      // made, committing our old-based version would silently undo their work.
+      const cur = await githubReadFile(target, p.ghFilePath);
+      if (p.oldContent !== undefined && cur.content !== p.oldContent) {
+        return res.status(409).json({ error: 'GitHub par ye file proposal ke baad badal chuki hai — proposal purana hai. Reject karo aur "Review now" dobara chalao.' });
+      }
+      await githubWriteFile(target, p.ghFilePath, p.newContent, cur.sha, `Aureon Sentinel: ${p.description}`);
     } else if (p.kind === 'patch') {
       fs.writeFileSync(p.filePath, p.newContent, 'utf8');
     } else if (p.kind === 'restart') {
@@ -736,7 +767,7 @@ const LOGIN_HTML = (wrongAttempt, blocked) => `<!DOCTYPE html>
   button { width:100%; background:#d4af37; color:#141414; border:none; border-radius:8px; padding:10px; font-weight:600; font-size:14px; cursor:pointer; }
   button:disabled { opacity:.5; }
   .err { color:#ff6b6b; font-size:12px; margin:-6px 0 12px; }
-</style></head>
+</style>${THEME_TAGS}</head>
 <body>
   <form method="GET" action="/api/sentinel/dashboard">
     <h1>🛡️ Aureon Sentinel</h1>
@@ -814,11 +845,13 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .history-section { margin-top:32px; }
   .ai-tag { font-size:10px; color:var(--gold); background:rgba(212,175,55,.1); border:1px solid rgba(212,175,55,.3); border-radius:5px; padding:2px 6px; margin-left:6px; vertical-align:middle; }
 </style>
+${THEME_TAGS}
 </head>
 <body>
   <header>
     <h1>🛡️ Aureon Sentinel</h1>
     <div class="sub">Every fix is diagnosed and proposed — never applied — until you click Approve.</div>
+    <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
       ⚠️ SENTINEL_OWNER_CODE set nahi hai Render pe — ye page abhi kisi ke liye bhi locked nahi hai. Render → Environment me add karo.
     </div>
@@ -870,6 +903,7 @@ const API = '/api/sentinel';
 const OWNER_CODE = '__OWNER_CODE__';
 const UNPROTECTED = __UNPROTECTED__;
 if (UNPROTECTED) document.getElementById('unprotected-banner').style.display = 'block';
+document.getElementById('sec-link').href = '/api/security/dashboard?code=' + encodeURIComponent(OWNER_CODE);
 
 function authFetch(url, opts) {
   opts = opts || {};
@@ -948,7 +982,7 @@ function renderProposals(proposals) {
           <button class="reject" onclick="decide('\${p.id}','reject')">Reject</button>
         </div>
       </div>
-      \${p.kind === 'patch' ? \`<details style="margin-top:8px"><summary>View proposed change</summary><pre>\${escapeHtml(p.newContent.slice(-800))}</pre></details>\` : ''}
+      \${p.kind === 'patch' ? \`<details style="margin-top:8px"><summary>View proposed change</summary><pre>\${escapeHtml((p.newContent || "").slice(-800))}</pre></details>\` : ''}
     </div>\`).join('') : '<div class="empty">Nothing pending.</div>';
 
   const histEl = document.getElementById('history');
@@ -1018,5 +1052,4 @@ setInterval(load, 10000);
 </body>
 </html>`;
 
-return router;
-}; // end module.exports = function (db) { ... }
+module.exports = router;

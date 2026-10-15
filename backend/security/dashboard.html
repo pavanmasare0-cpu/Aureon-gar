@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aureon Security</title>
+<style>
+  :root { --gold:#d4af37; --gold-dim:rgba(212,175,55,.5); --bg:#0a0a0d; --bg2:#101014; --card:#15151b; --card-border:#24242e;
+          --danger:#ff6b6b; --ok:#4ade80; --warn:#f5a524; --muted:#8b8f99; --text:#f0f0f2; }
+  * { box-sizing:border-box; }
+  html, body { min-height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+         padding:20px 16px calc(70px + env(safe-area-inset-bottom,0px)); max-width:1100px; margin-left:auto; margin-right:auto; padding-top:calc(20px + env(safe-area-inset-top,0px)); }
+  h1 { color:var(--gold); font-size:21px; margin:0 0 4px; }
+  h2 { font-size:13px; font-weight:700; color:var(--gold); margin:0 0 12px; text-transform:uppercase; letter-spacing:.6px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .nav a { display:inline-block; margin:0 0 14px; font-size:12px; font-weight:600; color:var(--gold); text-decoration:none; border:1px solid var(--card-border); border-radius:999px; padding:6px 12px; }
+  .chips { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .chip { background:var(--card); border:1px solid var(--card-border); border-radius:8px; padding:8px 14px; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .chip b { color:var(--text); font-size:15px; }
+  .card { background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--card-border); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .columns { display:grid; grid-template-columns:1fr; gap:24px; margin-top:22px; }
+  @media(min-width:800px){ .columns { grid-template-columns:1fr 1fr; } }
+  .col { min-width:0; }
+  .meta { font-size:12px; color:var(--muted); margin-top:3px; word-break:break-word; }
+  .name { font-weight:600; font-size:14px; word-break:break-all; }
+  .badge { font-size:10px; padding:3px 9px; border-radius:20px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; display:inline-block; }
+  .HIGH { background:rgba(255,107,107,.13); color:var(--danger); border:1px solid rgba(255,107,107,.3); }
+  .MEDIUM { background:rgba(245,165,36,.13); color:var(--warn); border:1px solid rgba(245,165,36,.3); }
+  .LOW, .INFO { background:rgba(139,143,153,.13); color:var(--muted); border:1px solid rgba(139,143,153,.3); }
+  .BLOCKED { background:rgba(255,107,107,.13); color:var(--danger); border:1px solid rgba(255,107,107,.3); }
+  .ALERT { background:rgba(255,107,107,.13); color:var(--danger); border:1px solid rgba(255,107,107,.3); }
+  .apptag { font-size:10px; padding:2px 8px; border-radius:20px; background:rgba(139,143,153,.15); color:var(--muted); margin-left:6px; font-weight:600; }
+  details.help { margin:6px 0 12px; font-size:12px; color:var(--muted); } details.help summary { cursor:pointer; color:var(--gold); } details.help code { background:var(--bg2); padding:2px 6px; border-radius:4px; word-break:break-all; }
+  .FLAGGED, .MONITORED { background:rgba(245,165,36,.13); color:var(--warn); border:1px solid rgba(245,165,36,.3); }
+  button { background:var(--gold); color:#141414; border:none; border-radius:8px; padding:8px 14px; font-weight:600; font-size:13px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--card-border); }
+  input { background:var(--bg2); border:1px solid var(--card-border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:13px; width:100%; }
+  .empty { color:var(--muted); font-size:13px; padding:12px 0; }
+  .addrow { display:grid; grid-template-columns:1fr 90px auto; gap:8px; margin-bottom:12px; }
+  .mode { text-transform:uppercase; font-weight:700; }
+  .mode.off { color:var(--danger); } .mode.monitor { color:var(--warn); } .mode.protect, .mode.strict { color:var(--ok); }
+</style>
+<!--THEME-->
+</head>
+<body>
+  <h1>🔐 Aureon Security Operations</h1>
+  <div class="sub">Mode: <span class="mode __MODE__">__MODE__</span> · auto-refresh 15s · defensive only (blocks requests, never attacks back)</div>
+  <div class="nav"><a id="sentinel-link" href="#">🛡️ Sentinel Dashboard →</a></div>
+  <div class="chips" id="chips"></div>
+
+  <div class="columns">
+    <div class="col">
+      <h2>Blocked IPs</h2>
+      <div class="addrow">
+        <input id="b-ip" placeholder="IP to block (e.g. 203.0.113.9)">
+        <input id="b-min" type="number" min="1" value="60" title="minutes">
+        <button onclick="blockNow()">Block</button>
+      </div>
+      <div id="blocked"></div>
+
+      <h2 style="margin-top:24px">GitHub Guard</h2>
+      <div class="sub" style="margin-bottom:8px">Koi tumhare repo ko touch kare (push, force-push, collaborator add, public, deploy key, fork, clone spike) to alert + email.</div>
+      <div class="addrow" style="grid-template-columns:1fr auto">
+        <input id="g-repo" placeholder="owner/repo  ya  github.com URL">
+        <button onclick="addRepo()">Watch</button>
+      </div>
+      <input id="g-token" type="password" placeholder="GitHub token (optional — warna Render ka GITHUB_TOKEN)" style="margin-bottom:8px">
+      <input id="g-trusted" placeholder="Trusted GitHub usernames (comma) — optional" style="margin-bottom:10px">
+      <div id="gh"></div>
+      <div style="margin-bottom:10px"><button class="ghost" onclick="checkGithub()" id="gh-btn">Check now</button></div>
+      <details class="help"><summary>Real-time ke liye webhook setup</summary>
+        GitHub repo → Settings → Webhooks → Add webhook<br>
+        Payload URL: <code id="wh-url"></code><br>
+        Content type: <code>application/json</code> · Secret: <code>GITHUB_WEBHOOK_SECRET</code> (wahi Render par bhi)<br>
+        Events: <b>Send me everything</b>.
+      </details>
+
+      <h2 style="margin-top:24px">Security posture</h2>
+      <div style="margin-bottom:10px"><button onclick="runScan()" id="scan-btn">Run scan</button></div>
+      <div id="scan"><div class="empty">Config, dependencies aur source mein hardcoded secrets check karta hai.</div></div>
+    </div>
+    <div class="col">
+      <h2>Recent incidents</h2>
+      <div class="chips" id="apps" style="margin-bottom:10px"></div>
+      <div id="incidents"></div>
+    </div>
+  </div>
+
+<script>
+const API = '/api/security';
+const OWNER_CODE = __OWNER_CODE_JSON__;
+document.getElementById('sentinel-link').href = '/api/sentinel/dashboard?code=' + encodeURIComponent(OWNER_CODE);
+
+function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+function authFetch(url, opts) { opts = opts || {}; opts.headers = Object.assign({ 'x-owner-code': OWNER_CODE }, opts.headers); return fetch(url, opts); }
+function ago(t) { const s = Math.max(1, Math.round((Date.now() - (typeof t === 'number' ? t : Date.parse(t))) / 1000)); return s < 90 ? s + 's ago' : s < 5400 ? Math.round(s/60) + 'm ago' : s < 129600 ? Math.round(s/3600) + 'h ago' : Math.round(s/86400) + 'd ago'; }
+function left(t) { const m = Math.max(0, Math.round((t - Date.now()) / 60000)); return m >= 90 ? Math.round(m/60) + 'h left' : m + 'm left'; }
+
+async function load() {
+  try {
+    const r = await authFetch(API + '/stats');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    document.getElementById('chips').innerHTML =
+      '<div class="chip"><b>' + d.blocked.length + '</b> blocked now</div>' +
+      '<div class="chip"><b>' + d.incidents24h + '</b> incidents / 24h</div>' +
+      '<div class="chip"><b>' + d.counters.blocked + '</b> requests blocked</div>' +
+      '<div class="chip"><b>' + d.counters.requests + '</b> requests seen</div>' +
+      '<div class="chip">your IP <b style="font-size:12px">' + esc(d.yourIp) + '</b></div>' +
+      (d.topRules.length ? '<div class="chip">top: <b style="font-size:12px">' + esc(d.topRules[0][0]) + ' ×' + d.topRules[0][1] + '</b></div>' : '');
+    document.getElementById('apps').innerHTML = (d.apps.length || d.ingestApps.length) ? d.apps.map(a => '<div class="chip"><b>' + a.count + '</b> ' + esc(a.app) + '</div>').join('') + d.ingestApps.filter(n => !d.apps.some(a => a.app === n)).map(n => '<div class="chip">' + esc(n) + ' · connected</div>').join('') : '';
+    document.getElementById('blocked').innerHTML = d.blocked.length ? d.blocked.map(b =>
+      '<div class="card row"><div><div class="name">' + esc(b.ip) + '</div><div class="meta">' + esc(b.reason) + ' · ' + esc(b.by) + ' · ' + left(b.until) + '</div></div>' +
+      '<button class="ghost" data-ip="' + esc(b.ip) + '" onclick="unblock(this.dataset.ip)">Unblock</button></div>').join('')
+      : '<div class="empty">Abhi koi IP blocked nahi.</div>';
+    document.getElementById('incidents').innerHTML = d.incidents.length ? d.incidents.map(i =>
+      '<div class="card"><div class="row"><div class="name">' + esc(i.rule) + (i.app && i.app !== 'aureon-backend' ? '<span class="apptag">' + esc(i.app) + '</span>' : '') + '</div><div><span class="badge ' + esc(i.severity) + '">' + esc(i.severity) + '</span> <span class="badge ' + esc(i.action) + '">' + esc(i.action) + '</span></div></div>' +
+      '<div class="meta">' + esc(i.ip) + ' · ' + esc(i.method) + ' ' + esc(i.path) + '</div>' +
+      '<div class="meta">' + esc(i.detail) + ' · ' + ago(i.t) + '</div></div>').join('')
+      : '<div class="empty">Koi incident nahi — sab shaant hai ✅</div>';
+  } catch (e) {
+    document.getElementById('chips').innerHTML = '<div class="chip">Load failed: ' + esc(e.message) + '</div>';
+  }
+}
+
+async function unblock(ip) { await authFetch(API + '/unblock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ip }) }); load(); }
+async function blockNow() {
+  const ip = document.getElementById('b-ip').value.trim(); const minutes = document.getElementById('b-min').value;
+  if (!ip) return;
+  const r = await authFetch(API + '/block', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ip, minutes }) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'failed'); return; }
+  document.getElementById('b-ip').value = ''; load();
+}
+async function runScan() {
+  const btn = document.getElementById('scan-btn'); btn.disabled = true; btn.textContent = 'Scanning…';
+  try {
+    const d = await (await authFetch(API + '/scan')).json();
+    const c = d.counts;
+    document.getElementById('scan').innerHTML =
+      '<div class="chips" style="margin-bottom:10px"><div class="chip"><b>' + c.HIGH + '</b> high</div><div class="chip"><b>' + c.MEDIUM + '</b> medium</div><div class="chip"><b>' + c.LOW + '</b> low</div><div class="chip"><b>' + d.filesScanned + '</b> files scanned</div></div>' +
+      (d.findings.length ? d.findings.map(f => '<div class="card"><div class="row"><div class="name" style="word-break:normal">' + esc(f.title) + '</div><span class="badge ' + esc(f.severity) + '">' + esc(f.severity) + '</span></div><div class="meta">' + esc(f.detail) + '</div>' + (f.fix ? '<div class="meta">Fix: ' + esc(f.fix) + '</div>' : '') + '</div>').join('') : '<div class="empty">Koi issue nahi mila ✅</div>');
+  } catch (e) { document.getElementById('scan').innerHTML = '<div class="empty">Scan failed: ' + esc(e.message) + '</div>'; }
+  btn.disabled = false; btn.textContent = 'Run scan';
+}
+function ghLine(r) {
+  const s = r.status || {}, p = s.posture;
+  const bits = [];
+  bits.push(r.hasToken ? 'own token' : 'shared token');
+  if (p) bits.push(p.visibility + (p.protected === true ? ' · protected' : p.protected === false ? ' · NOT protected' : '') + (p.collaborators != null ? ' · ' + p.collaborators + ' collaborators' : ''));
+  if (s.lastPush) bits.push('last push ' + esc(s.lastPush.actor) + ' ' + ago(s.lastPush.at));
+  if (s.traffic && s.traffic.lastDay) bits.push('clones today ' + s.traffic.lastDay.unique + ' unique');
+  return bits.join(' · ');
+}
+async function loadGithub() {
+  document.getElementById('wh-url').textContent = location.origin + API + '/github-webhook';
+  try {
+    const d = await (await authFetch(API + '/github')).json();
+    let h = '';
+    if (!d.tokenConfigured) h += '<div class="meta" style="margin-bottom:8px">⚠️ Render par GITHUB_TOKEN set nahi hai (ya har repo ko apna token do).</div>';
+    if (!d.webhookConfigured) h += '<div class="meta" style="margin-bottom:8px">ℹ️ GITHUB_WEBHOOK_SECRET set nahi — abhi sirf 5-min polling chal rahi hai, real-time nahi.</div>';
+    h += d.repos.length ? d.repos.map(r => '<div class="card"><div class="row"><div><div class="name">' + esc(r.repo) + '</div><div class="meta">' + ghLine(r) + '</div></div><button class="ghost" data-id="' + esc(r.id) + '" onclick="rmRepo(this.dataset.id)">Remove</button></div>' +
+      ((r.status.warnings || []).length ? '<div class="meta" style="color:var(--warn)">Blind spots: ' + esc(r.status.warnings.join(' · ')) + '</div>' : '') +
+      (r.status.lastError ? '<div class="meta" style="color:var(--danger)">' + esc(r.status.lastError) + '</div>' : '') +
+      '<div class="meta">checked ' + (r.status.lastCheck ? ago(r.status.lastCheck) : 'not yet') + '</div></div>').join('') : '<div class="empty">Koi repo watch nahi ho raha.</div>';
+    document.getElementById('gh').innerHTML = h;
+  } catch (e) { document.getElementById('gh').innerHTML = '<div class="empty">GitHub status load nahi hua</div>'; }
+}
+async function addRepo() {
+  const repo = document.getElementById('g-repo').value.trim(); if (!repo) return;
+  const r = await authFetch(API + '/github', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ repo, token: document.getElementById('g-token').value, trusted: document.getElementById('g-trusted').value }) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'failed'); return; }
+  ['g-repo','g-token','g-trusted'].forEach(i => document.getElementById(i).value = ''); loadGithub(); setTimeout(loadGithub, 4000);
+}
+async function rmRepo(id) { if (!confirm('Is repo ki monitoring band karein?')) return; await authFetch(API + '/github/' + id, { method:'DELETE' }); loadGithub(); }
+async function checkGithub() { const b = document.getElementById('gh-btn'); b.disabled = true; b.textContent = 'Checking…'; await authFetch(API + '/github/check', { method:'POST' }); b.disabled = false; b.textContent = 'Check now'; loadGithub(); load(); }
+load(); loadGithub(); setInterval(load, 15000); setInterval(loadGithub, 60000);
+</script>
+</body>
+</html>

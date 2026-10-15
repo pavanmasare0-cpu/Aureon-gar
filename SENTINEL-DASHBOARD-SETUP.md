@@ -71,28 +71,6 @@ nahi hogi, koi webhook call nahi hoga.**
   provider deta ho) to wahi daal do, warna khali chhod do (sirf monitoring
   hogi, fix khud nahi propose hoga kyunki code access hi nahi hai).
 
-## Permanent storage (Firestore) — naya
-Pehle Sentinel ka data (servers list, pending proposals) ek local JSON
-file me save hota tha, jo **har Render redeploy pe wipe ho jaati thi**.
-Ab wahi data **Firestore me save hota hai** — same Firebase project jo
-Aureon already Knowledge/RAG ke liye use karta hai. **Koi nayi API key ya
-setup nahi chahiye** — `FIREBASE_SERVICE_ACCOUNT` jo already Render pe set
-hai, wahi reuse hota hai.
-
-Isse ek integration-pattern change bhi aaya hai: `sentinel-dashboard.js`
-ab ek function export karta hai (pehle seedha router export karta tha),
-jisko `server.js` me `db` (Firebase Firestore instance) pass karke call
-karna hota hai:
-```js
-app.use('/api/sentinel', sentinelDashboardFactory(db));
-```
-(Ye pehle se zip me kiya hua hai — bas poora naya `server.js` overwrite
-karna hai, koi manual edit nahi karni.)
-
-Agar `FIREBASE_SERVICE_ACCOUNT` set nahi hai, Sentinel apne aap purane
-local-JSON-file tareeke pe fallback kar jaata hai (kaam karta rahega, bas
-deploy pe wipe hoga jaisa pehle tha).
-
 ## Owner code (zaroori)
 Ab dashboard aur uske saare actions (approve/reject/add-server/scan-now)
 **owner code ke bina lock rahenge**. Render → Environment me ek naya
@@ -181,7 +159,40 @@ karta hai, sirf asli bugs.
 Dashboard pe har self-hosted server ke row me ek **"Review now"** button
 bhi hai — 24-ghante wait kiye bina turant check karwa sakte ho.
 
-## Data kahan save hota hai
-`backend/sentinel-data/servers.json` aur `proposals.json` — ye git me commit
-NAHI karna (`.gitignore` me `sentinel-data/` add kar lena), warna purani
-history baar-baar overwrite hoti rahegi jab bhi naya zip apply karoge.
+## Data kahan save hota hai (v5: Firestore)
+Servers, proposals, snapshots aur changelog ab **Firestore** mein save hote hain
+(collection `aureon_persist`) — isliye Render ke har deploy par **wipe nahi
+hote**. Local `backend/sentinel-data/*.json` sirf backup/fallback hai.
+
+- Pehli baar v5 chalne par purana local data **apne aap Firestore mein migrate**
+  ho jaata hai. Kuch karna nahi.
+- Iske liye `FIREBASE_SERVICE_ACCOUNT` Render par set hona chahiye (jo Aureon
+  already use karta hai). Set nahi hai to purane tarah files par hi chalega.
+- Purane (approved/rejected) proposals ka poora file-content Firestore mein
+  nahi rakha jaata (1 MB doc limit) — sirf pending proposals ka rakha jaata hai.
+- `.gitignore` mein `sentinel-data/` aur `security-data/` add kar lena.
+
+## v5 mein GitHub-side fixes
+- **Token ab dashboard ko wapas nahi bhejta.** Per-repo token AES-256-GCM se
+  encrypt hokar save hota hai. Key `SENTINEL_ENC_KEY` se banti hai (set nahi
+  ho to `SENTINEL_OWNER_CODE` se). Alag `SENTINEL_ENC_KEY` set karna better
+  hai, warna owner code badalne par saved tokens padhe nahi jaayenge (dobara
+  daalne padenge).
+- **Approve se pehle conflict check:** agar GitHub par wo file proposal ke baad
+  badal gayi ho, Sentinel commit nahi karta (warna kisi ka naya kaam overwrite
+  ho jata) — "proposal purana hai" bolta hai. Reject karke "Review now" chalao.
+- **1 MB se badi file** ab bhi padhi jaati hai (blob API se).
+- **Brute-force lockout bypass band:** pehle `X-Forwarded-For` header se IP
+  liya jaata tha jo attacker khud fake bhej sakta tha. Ab sahi client IP
+  (`trust proxy`) use hota hai.
+- Owner-code compare constant-time hai.
+
+## Security Dashboard
+Naya dashboard: `https://aureone.onrender.com/api/security/dashboard?code=TUMHARA_CODE`
+(Sentinel dashboard ke upar "🔐 Security Dashboard →" link bhi hai). Poori
+detail `SECURITY-SETUP.md` mein.
+
+## Themes
+Dashboard mein neeche-right ek dropdown hai (Nebula, Deep Ocean, Cyberpunk,
+Emerald, White+Purple, Classic Gold). Aureon app se kholne par app wali theme
+apne aap lag jaati hai.
