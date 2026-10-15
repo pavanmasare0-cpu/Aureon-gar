@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
 <title>Aureon AI</title>
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="themes.css" />
+<script>(function(){try{var t=localStorage.getItem("aureon_theme")||"nebula";if(t!=="classic")document.documentElement.setAttribute("data-theme",t);}catch(e){document.documentElement.setAttribute("data-theme","nebula");}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -209,6 +211,13 @@
       <div class="settings-scroll" id="settings-scroll">
         <div id="settings-list">
           <div class="list-group">
+          <button class="list-row" data-open="theme">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
+            <span class="row-text"><span class="row-title">Theme</span><span class="row-sub" id="sub-theme">Nebula Aurora</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+          <div class="list-group">
           <button class="list-row" data-open="general">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
             <span class="row-text"><span class="row-title">General</span><span class="row-sub">Streaming, language, voice</span></span>
@@ -257,6 +266,13 @@
           </button>
           </div>
         </div>
+
+        <section class="settings-card settings-pane hidden" data-pane="theme" data-title="Theme">
+          <p class="card-sub">Aureon ka look chuno. Turant lagta hai aur yaad rehta hai.</p>
+          <button class="theme-opt" data-theme="nebula"><span class="sw nebula"></span><span class="t"><b>Nebula Aurora</b><span>Purple + Cyan + Aurora Green</span></span><span class="tick">&#10003;</span></button>
+          <button class="theme-opt" data-theme="cyber"><span class="sw cyber"></span><span class="t"><b>Cyberpunk Neon</b><span>Violet + Pink + Blue</span></span><span class="tick">&#10003;</span></button>
+          <button class="theme-opt" data-theme="classic"><span class="sw classic"></span><span class="t"><b>Classic Gold</b><span>Purani black + gold theme</span></span><span class="tick">&#10003;</span></button>
+        </section>
 
         <section class="settings-card settings-pane hidden" data-pane="general" data-title="General">
           <div class="setting-row">
@@ -334,5 +350,6 @@
   <script src="firebase-config.js"></script>
   <script src="capacitor-shim.js"></script>
   <script src="app.js"></script>
+  <script src="theme.js"></script>
 </body>
 </html>
