@@ -1942,7 +1942,7 @@ $('btn-open-sentinel')?.addEventListener('click', () => {
   const code = prompt('Owner code daalo:');
   if (code === null) return; // cancelled
   if (!code.trim()) { alert('Code khaali nahi ho sakta.'); return; }
-  const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code.trim())}`;
+  const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code.trim())}&theme=${encodeURIComponent(localStorage.getItem('aureon_theme') || 'nebula')}`;
   window.open(url, '_blank');
 });
 settingsEl('settings-back')?.addEventListener('click', settingsShowList);

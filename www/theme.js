@@ -1,7 +1,7 @@
 /* Aureon theme manager — Nebula Aurora / Cyberpunk Neon / Classic Gold */
 (function () {
   var KEY = 'aureon_theme';
-  var NAMES = { nebula: 'Nebula Aurora', cyber: 'Cyberpunk Neon', classic: 'Classic Gold' };
+  var NAMES = { nebula: 'Nebula Aurora', ocean: 'Deep Ocean', cyber: 'Cyberpunk Neon', emerald: 'Emerald Intelligence', light: 'White + Electric Purple', classic: 'Classic Gold' };
   function get() { try { return localStorage.getItem(KEY) || 'nebula'; } catch (e) { return 'nebula'; } }
   function apply(t) {
     if (!NAMES[t]) t = 'nebula';
