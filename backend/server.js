@@ -17,11 +17,18 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 const watchdog = require('./watchdog');
-const sentinelDashboardFactory = require('./sentinel-dashboard'); // called further down, once `db` exists
+const sentinelDashboard = require('./sentinel-dashboard');
+const security = require('./security');
 
 const app = express();
+// Render sits behind one proxy hop: trust exactly that, so req.ip is the real client address.
+app.set('trust proxy', 1);
 app.use(cors());
+app.use(security.guard);      // IP block-list, rate-limit, URL signatures
+// GitHub webhook needs the RAW body for signature checking, so it is mounted before express.json()
+app.post('/api/security/github-webhook', express.raw({ type: '*/*', limit: '5mb' }), security.githubWebhook);
 app.use(express.json({ limit: '100mb' }));
+app.use(security.bodyGuard);  // payload patterns (flagged by default)
 
 const PORT = process.env.PORT || 3000;
 
@@ -72,7 +79,8 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 // credentials) so its servers/proposals survive a Render redeploy. If
 // FIREBASE_SERVICE_ACCOUNT isn't set, it falls back to local JSON files
 // (still works, just won't survive a deploy — see SENTINEL-DASHBOARD-SETUP.md).
-app.use('/api/sentinel', sentinelDashboardFactory(db));
+app.use('/api/sentinel', sentinelDashboard);
+app.use('/api/security', security.router);
 
 function requireDb(res) {
   if (!db) {
