@@ -71,6 +71,64 @@ nahi hogi, koi webhook call nahi hoga.**
   provider deta ho) to wahi daal do, warna khali chhod do (sirf monitoring
   hogi, fix khud nahi propose hoga kyunki code access hi nahi hai).
 
+## Permanent storage (Firestore) — naya
+Pehle Sentinel ka data (servers list, pending proposals) ek local JSON
+file me save hota tha, jo **har Render redeploy pe wipe ho jaati thi**.
+Ab wahi data **Firestore me save hota hai** — same Firebase project jo
+Aureon already Knowledge/RAG ke liye use karta hai. **Koi nayi API key ya
+setup nahi chahiye** — `FIREBASE_SERVICE_ACCOUNT` jo already Render pe set
+hai, wahi reuse hota hai.
+
+Isse ek integration-pattern change bhi aaya hai: `sentinel-dashboard.js`
+ab ek function export karta hai (pehle seedha router export karta tha),
+jisko `server.js` me `db` (Firebase Firestore instance) pass karke call
+karna hota hai:
+```js
+app.use('/api/sentinel', sentinelDashboardFactory(db));
+```
+(Ye pehle se zip me kiya hua hai — bas poora naya `server.js` overwrite
+karna hai, koi manual edit nahi karni.)
+
+Agar `FIREBASE_SERVICE_ACCOUNT` set nahi hai, Sentinel apne aap purane
+local-JSON-file tareeke pe fallback kar jaata hai (kaam karta rahega, bas
+deploy pe wipe hoga jaisa pehle tha).
+
+## Owner code (zaroori)
+Ab dashboard aur uske saare actions (approve/reject/add-server/scan-now)
+**owner code ke bina lock rahenge**. Render → Environment me ek naya
+variable add karo:
+```
+SENTINEL_OWNER_CODE=jo-bhi-secret-code-tumhe-yaad-rahega
+```
+Agar ye set nahi karoge, dashboard **khula** rahega (koi bhi link jaan ke
+access kar sakta hai) — is case me dashboard ke upar ek laal warning banner
+dikhega taaki bhoolna na ho.
+
+Code set karne ke baad:
+- **Browser se dashboard kholna ho**: `https://aureone.onrender.com/api/sentinel/dashboard?code=TUMHARA_CODE`
+  — seedha khul jayega. Bina `?code=` ke khologe to ek chhota login form
+  aayega.
+- **Aureon app ke andar se kholna ho**: Settings → "Sentinel Dashboard" row
+  pe tap karo, ek popup me owner code poochega, sahi code dalte hi dashboard
+  phone ke browser me naye tab me khul jayega.
+
+## Diff/version tracking
+Sentinel ab har file ka hash yaad rakhta hai jab bhi wo use padhta hai
+(scan/diagnose ke dauraan). Agli baar content badla hua mile, to dashboard
+ke **"Recent code changes detected"** section me entry aa jaati hai — file
+ka naam + kab change hua. Ye sirf "change hua" batata hai (line-by-line
+diff nahi dikhata).
+
+## Brute-force protection (real security)
+Owner-code field pe **5 galat try ke baad IP 30 minute ke liye block** ho
+jaata hai, aur email alert milti hai. Ye sirf defensive hai — attacker ke
+system pe koi wapas-action nahi leta (wo illegal hoga), bas unhe guess
+karte rehne se rokta hai.
+
+AI code-review (reactive + proactive) ab security vulnerabilities bhi
+explicitly dhoondta hai (hardcoded keys/passwords, injection risk, missing
+auth checks, path traversal) — same approval-gate ke saath.
+
 ## GitHub repo add karna (OmniSell jaise dusre apps ke liye)
 Ab ek teesra server-type hai — **"GitHub repo"**. Isse dusre projects
 (jinka code is Codespace me nahi hai, jaise OmniSell) ko bhi full

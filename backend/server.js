@@ -17,7 +17,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 ffmpeg.setFfmpegPath(ffmpegPath);
 const watchdog = require('./watchdog');
-const sentinelDashboard = require('./sentinel-dashboard');
+const sentinelDashboardFactory = require('./sentinel-dashboard'); // called further down, once `db` exists
 
 const app = express();
 app.use(cors());
@@ -28,7 +28,6 @@ const PORT = process.env.PORT || 3000;
 // Crash resilience + known-pattern/unknown-pattern alerting — see
 // watchdog.js and WATCHDOG-SETUP.md for what this does and doesn't do.
 watchdog.init(app);
-app.use('/api/sentinel', sentinelDashboard);
 
 // ---- Auth: verify Firebase ID tokens server-side, never trust a client-
 // supplied uid ----
@@ -68,6 +67,12 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 } else {
   console.warn('FIREBASE_SERVICE_ACCOUNT not set — Knowledge/RAG endpoints will return an error until configured.');
 }
+
+// Sentinel dashboard — reuses this same Firebase project (no new
+// credentials) so its servers/proposals survive a Render redeploy. If
+// FIREBASE_SERVICE_ACCOUNT isn't set, it falls back to local JSON files
+// (still works, just won't survive a deploy — see SENTINEL-DASHBOARD-SETUP.md).
+app.use('/api/sentinel', sentinelDashboardFactory(db));
 
 function requireDb(res) {
   if (!db) {
