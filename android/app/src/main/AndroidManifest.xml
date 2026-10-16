@@ -31,6 +31,18 @@
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
 
+        <!-- Ava's own transparent chat screen (opened by tapping the floating Ava
+             orb over other apps). Own task so Aureon's main screen is not pulled forward. -->
+        <activity
+            android:name=".AvaPanelActivity"
+            android:theme="@style/AppTheme.AvaPanel"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.aureon.ai.avapanel"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|density|locale|layoutDirection|navigation|fontScale"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

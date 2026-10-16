@@ -110,6 +110,21 @@ public class AureonActionsPlugin extends Plugin {
         call.resolve(r);
     }
 
+    // ---- Ava's transparent chat screen (AvaPanelActivity) ----
+    @PluginMethod
+    public void avaPanelMode(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("panel", getActivity() instanceof AvaPanelActivity);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void closeAvaPanel(PluginCall call) {
+        final android.app.Activity a = getActivity();
+        if (a instanceof AvaPanelActivity) a.runOnUiThread(a::finish);
+        call.resolve();
+    }
+
     // ---- Ava floating on the phone screen (over other apps) ----
     @PluginMethod
     public void getAvaOverlay(PluginCall call) {

@@ -249,17 +249,25 @@ public class AvaOverlayService extends Service {
 
     private void onTapped() {
         orb.hop();
-        // Best experience: Aureon is the Default Assistant -> its voice session
-        // opens right over whatever app is on screen (listens, answers aloud,
-        // runs phone actions). Otherwise just open the app.
-        if (!AureonVoiceInteractionService.showFromOverlay()) {
-            try {
-                Intent i = getPackageManager().getLaunchIntentForPackage(getPackageName());
-                if (i != null) {
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(i);
-                }
-            } catch (Exception ignored) { }
+        // Open Ava's own transparent chat screen right over whatever app is on
+        // screen (AvaPanelActivity). Aureon itself does NOT open.
+        try {
+            Intent i = new Intent(this, AvaPanelActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            startActivity(i);
+        } catch (Exception e) {
+            // Last-resort fallback: open the assistant session / the app.
+            if (!AureonVoiceInteractionService.showFromOverlay()) {
+                try {
+                    Intent i = getPackageManager().getLaunchIntentForPackage(getPackageName());
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                    }
+                } catch (Exception ignored) { }
+            }
         }
     }
 

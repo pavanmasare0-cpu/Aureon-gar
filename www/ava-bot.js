@@ -74,11 +74,11 @@
 #ava-panel:after{content:"";position:absolute;top:-9px;right:34px;width:15px;height:15px;transform:rotate(45deg);background:#0b1636;border-left:1.5px solid #22d3ee;border-top:1.5px solid #6a7cf0}\
 #ava-panel.on{display:flex;animation:avaPop .22s ease-out}\
 @keyframes avaPop{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}\
-.ava-head{display:flex;align-items:center;gap:6px;padding:9px 10px 6px}\
-.ava-head b{font-size:14px;letter-spacing:.5px;color:#aef9ff;text-shadow:0 0 8px #22d3ee}\
-.ava-head small{display:block;font-size:10.5px;color:#8fb7d6}\
+.ava-head{display:flex;align-items:center;gap:4px;padding:7px 8px 4px}\
+.ava-head b{font-size:12.5px;letter-spacing:.5px;color:#aef9ff;text-shadow:0 0 8px #22d3ee}\
+.ava-head small{display:block;font-size:9.5px;color:#8fb7d6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:112px}\
 .ava-head .sp{flex:1}\
-#ava-root .ava-ib{width:26px;height:26px;border-radius:50%;border:1px solid rgba(34,211,238,.5);background:rgba(34,211,238,.08);color:#e9fbff;font-size:12px;line-height:1;cursor:pointer;padding:0;box-shadow:none}\
+#ava-root .ava-ib{width:22px;height:22px;border-radius:50%;border:1px solid rgba(34,211,238,.5);background:rgba(34,211,238,.08);color:#e9fbff;font-size:10.5px;line-height:1;cursor:pointer;padding:0;box-shadow:none;flex:none}\
 #ava-root .ava-ib.off{opacity:.45}\
 #ava-msgs{flex:1;overflow-y:auto;padding:4px 10px 6px;display:flex;flex-direction:column;gap:7px;-webkit-overflow-scrolling:touch}\
 .ava-m{max-width:90%;padding:7px 10px;border-radius:13px;font-size:13px;line-height:1.38;white-space:pre-wrap;overflow-wrap:anywhere}\
@@ -145,7 +145,10 @@
 .ava-ear:before{inset:2.5px 1.5px;border-radius:5px;border:1px solid rgba(174,249,255,.55);box-shadow:0 0 4px rgba(34,211,238,.7)}\
 .ava-ear:after{top:2.5px;width:2.5px;height:2.5px;margin-left:-1.25px;box-shadow:0 0 4px 1px #aef9ff}\
 .ava-ear.l{left:-8px}.ava-ear.r{right:-8px}\
-#ava-root .ava-ib.on{background:rgba(255,60,172,.3);border-color:#ff3cac;box-shadow:0 0 8px #ff3cac;opacity:1}';
+#ava-root .ava-ib.on{background:rgba(255,60,172,.3);border-color:#ff3cac;box-shadow:0 0 8px #ff3cac;opacity:1}\
+html.ava-panel,html.ava-panel body{background:transparent!important;background-image:none!important}\
+html.ava-panel body::before,html.ava-panel body::after{display:none!important}\
+html.ava-panel body>*:not(#ava-root){display:none!important}';
   var style = el('style'); style.id = 'ava-style'; style.textContent = css; document.head.appendChild(style);
 
   // ---------- DOM ----------
@@ -183,6 +186,24 @@
   var seeOn = false, vis = true, panelOpen = false, interacted = false, lastSpoke = 0, bubbleTimer = 0, busy = false, learning = false;
   var W = innerWidth, H = innerHeight;
   var o = { x: W - SIZE - 14, y: H * 0.45, vx: 0, vy: 0, tx: W * 0.5, ty: H * 0.3, mode: 'roam', wait: 1.5, nextThought: Date.now() + 9000 };
+  // ---------- phone-overlay panel mode ----------
+  // When Ava's floating orb (over other apps) is tapped, Android opens a transparent
+  // activity (AvaPanelActivity) that hosts this same page. In that mode we hide the
+  // whole Aureon UI and show ONLY Ava's chat, so Aureon itself never "opens".
+  var PANEL = false;
+  var AAp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+  function closePanelMode() { try { AAp && AAp.closeAvaPanel && AAp.closeAvaPanel(); } catch (e) {} }
+  function enterPanelMode() {
+    PANEL = true; hidden = false; off = false; vis = true; interacted = true;
+    document.documentElement.classList.add('ava-panel');
+    orbEl.style.display = ''; nubEl.style.display = 'none';
+    W = innerWidth; H = innerHeight; o.x = W - SIZE - 14; o.y = H * 0.3;
+    openPanel();
+    window.addEventListener('pointerdown', function (e) { if (!root.contains(e.target)) closePanelMode(); }, true);
+  }
+  if (!IS_SENTINEL && AAp && AAp.avaPanelMode) {
+    try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
+  }
   function setState(s) { root.className = 's-' + s + (root.classList.contains('happy') ? ' happy' : ''); }
   function flash(cls, ms) { root.classList.add(cls); setTimeout(function () { root.classList.remove(cls); }, ms); }
   function happy() { flash('hop', 650); flash('happy', 1500); try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
@@ -242,6 +263,7 @@
 
   // visibility gate (app only shows Ava after login, never on splash/auth screens)
   function shouldShow() {
+    if (PANEL) return true;
     if (hidden || off) return false;
     if (IS_SENTINEL) return true;
     return !document.querySelector('#screen-splash.active,#screen-login.active,#screen-signup.active,#screen-verify.active,#screen-forgot.active');
@@ -389,7 +411,16 @@
   // ---------- chat ----------
   var hist = []; try { hist = JSON.parse(lsGet(K.hist, '[]')) || []; } catch (e) { hist = []; }
   function saveHist() { lsSet(K.hist, JSON.stringify(hist.slice(-20))); }
+  function friendlyErr(m) {
+    m = String(m || '');
+    var quota = /RESOURCE_EXHAUSTED|rate.?limit|quota|\b429\b/i.test(m), badKey = /api key not valid|invalid api key|key\d?: API key/i.test(m);
+    if (quota && badKey) return '⏳ Gemini ki limit khatam hai aur ek API key invalid hai (Render me GEMINI keys check karo). Thodi der baad try karo.';
+    if (quota) return '⏳ AI ki limit abhi khatam hai (Gemini quota). Thodi der baad try karo.';
+    if (badKey) return '🔑 AI ki API key me dikkat hai — Render me GEMINI keys check karo.';
+    return m.length > 220 ? m.slice(0, 217) + '…' : m;
+  }
   function addMsg(kind, text, title, bar) {
+    if (kind === 'err') { try { console.warn('[ava]', text); } catch (e) {} text = friendlyErr(text); }
     var m = el('div', 'ava-m ' + kind);
     if (title) { var t = el('span', 't'); t.textContent = title; m.appendChild(t); }
     m.appendChild(document.createTextNode(text));
@@ -640,12 +671,12 @@
     }
     status(); setTimeout(function () { msgsEl.scrollTop = msgsEl.scrollHeight; }, 30);
   }
-  function closePanel() { if (!panelOpen) return; panelOpen = false; talk = false; syncTalk(); panelEl.classList.remove('on'); o.mode = 'roam'; o.wait = 2; pickTarget(); inEl.blur(); }
+  function closePanel() { if (PANEL) { closePanelMode(); return; } if (!panelOpen) return; panelOpen = false; talk = false; syncTalk(); panelEl.classList.remove('on'); o.mode = 'roam'; o.wait = 2; pickTarget(); inEl.blur(); }
   function togglePanel() { panelOpen ? closePanel() : openPanel(); }
 
   root.querySelector('#ava-close').onclick = closePanel;
   root.querySelector('#ava-learn').onclick = learnNow;
-  root.querySelector('#ava-hide').onclick = function () { hidden = true; lsSet(K.hidden, '1'); closePanel(); hideBubble(); };
+  root.querySelector('#ava-hide').onclick = function () { if (PANEL) { closePanelMode(); return; } hidden = true; lsSet(K.hidden, '1'); closePanel(); hideBubble(); };
   nubEl.onclick = function () { hidden = false; lsSet(K.hidden, '0'); o.mode = 'roam'; pickTarget(); };
   root.querySelector('#ava-send').onclick = function () { send(inEl.value); };
   micEl.onclick = listen;
