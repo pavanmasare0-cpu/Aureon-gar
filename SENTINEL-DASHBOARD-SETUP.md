@@ -196,3 +196,52 @@ detail `SECURITY-SETUP.md` mein.
 Dashboard mein neeche-right ek dropdown hai (Nebula, Deep Ocean, Cyberpunk,
 Emerald, White+Purple, Classic Gold). Aureon app se kholne par app wali theme
 apne aap lag jaati hai.
+
+## v7 — Asli diff, har language ka app, website
+**Diff (lal/hara, line numbers ke saath).** Har fix proposal mein ab "Exact badlav (diff)"
+khula hota hai: hataai lines lal, jodi lines hari, line numbers ke saath, aur `+2 -2` ka
+summary. Approve karne se pehle dekh sakte ho ki file mein exactly kya badlega. History mein
+purane decided proposals ka diff bhi dekh sakte ho. **"Recent code changes detected"** mein
+bhi har file ke saath "Kya badla (diff)" hai (jab Sentinel ko pichhla content yaad ho; pehli
+baar sirf baseline banta hai, doosre scan se diff dikhta hai).
+
+**Safer fixes.** AI ab poori file dobara nahi likhta. Wo chhote `find -> replace` edits deta
+hai; agar snippet file mein exactly ek baar na mile to edit reject. Bad result bhi reject:
+JS/JSON ka syntax check, Python ka syntax check (server par `python3` ho to), file bahut
+chhoti/badi ho jaye to. Kuch bhi commit tab hi hota hai jab tum Approve dabao, aur approve
+se pehle GitHub par file dobara padhke check hota hai ki wo beech mein badli to nahi.
+
+**Har tarah ka app.** Repo ke **sab subfolders** scan hote hain (GitHub ka tree API, 1 call).
+Languages: Python, JavaScript/TypeScript (+ React/Vue/Svelte), HTML websites, PHP, Ruby, Go,
+Java/Kotlin, C#, Rust, shell. `node_modules`, `venv`, `vendor`, `dist`, `build`, `.min.js`,
+`migrations`, 200 KB se badi files skip hoti hain. AI ko har language ke hisaab se alag
+checklist milti hai (jaise Python: f-string SQL, `eval`, `debug=True`; website: `innerHTML`
+XSS, client JS mein API key).
+
+**Bade projects.** Code 14 KB ke "parts" mein baanta jata hai; har run (roz ya "Review now")
+2 parts dekhta hai aur agli baar agle 2, jab tak poora repo cover na ho. Card par likha
+aata hai kitni files / kitne parts. Entry-point files (`app.py`, `server.js`, `routes`...) pehle.
+
+**Website / live URL.** Code access ho to "GitHub repo" type, na ho to "external". Dono mein:
+up/down, response time (ms), aur **SSL certificate kitne din mein expire** hoga (14 din
+bachne par email). Free-tier (Render) par instance sone ke baad jagne mein ~50 sec leta hai,
+isliye Sentinel pehle ek baar jagata hai aur tab "down" maanta hai — jhoothe alarm / jhoothe
+AI-fix nahi.
+
+**Limits (seedhi baat).**
+- AI (Groq Llama) galat bhi ho sakta hai — isiliye diff dekhke hi Approve karo.
+- Python syntax check tab hi chalta hai jab Render server par `python3` ho.
+- Runtime ka real error log Sentinel ko nahi milta; wo health-check ka status + code padhta hai.
+- 200 KB se badi file ya binary/image/DB files review nahi hoti.
+
+
+---
+
+# Sentinel v8 — history, events, kam spam
+
+- **Health history:** har check ka response time + up/down yaad (24 ghante, 288 readings). Har server par **sparkline** (laal bar = fail), **uptime 24h %**, **avg / p95 ms**, aur "X min se down hai".
+- **Health score (0-100)** + tiles: uptime 24h, incidents 24h. Score = 100 − 35 per down server − pending fixes − uptime ki kami.
+- **Live events:** down / wapas up / fix proposed / approved / rejected ki timeline (`GET /api/sentinel/events`). Naya `GET /api/sentinel/summary`.
+- **Email spam band:** pehle server down rehne par har 5 min email + naya AI diagnosis jaata tha. Ab **ek outage = ek alert**, phir reminder har `SENTINEL_REMIND_MIN` (default 60 min), aur theek hone par **"back UP ✅" email** (downtime ke saath).
+- Boot ke ~20 sec baad pehla check (history turant bharne lagti hai).
+- Naye env (optional): `SENTINEL_CHECK_MIN` (default 5, min 1) · `SENTINEL_REMIND_MIN` (default 60).

@@ -25,6 +25,8 @@
 //   AVA_LEARN_INTERVAL_MIN   minutes between learning rounds (default 90)
 //   AVA_TOPICS               comma-separated topics she cycles through
 //   SENTINEL_OWNER_CODE      same code as the Sentinel dashboard — set it!
+//   AVA_OWNER_EMAILS / AVA_OWNER_UIDS   (optional, comma separated) your own Aureon-app login, so Ava may
+//                            tell YOU (not other app users) how your Sentinel servers are doing
 
 const express = require('express');
 const fs = require('fs');
@@ -224,11 +226,15 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
         if (!getDb()) return res.status(503).json({ error: 'Firebase Admin not configured' });
         const decoded = await admin.auth().verifyIdToken(m[1]);
         req.avaWho = 'user:' + decoded.uid;
+        const csv = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+        req.avaIsOwner = csv(process.env.AVA_OWNER_UIDS).includes(String(decoded.uid).toLowerCase()) ||
+          (!!decoded.email && decoded.email_verified === true && csv(process.env.AVA_OWNER_EMAILS).includes(decoded.email.toLowerCase()));
       } else {
         const configured = process.env.SENTINEL_OWNER_CODE;
         const given = req.header('x-owner-code') || req.query.code || '';
         if (configured && !sameCode(given, configured)) return res.status(401).json({ error: 'owner code or login required' });
         req.avaWho = configured ? 'owner' : 'open:' + req.ip; // unprotected: Sentinel itself is open in that case
+        req.avaIsOwner = !!configured;
       }
     } catch (e) {
       return res.status(401).json({ error: 'Invalid or expired token — please sign in again.' });
@@ -249,7 +255,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
 
   router.get('/brain', auth, (req, res) => {
     res.json({
-      ...extra.brainExtras(req.avaWho),
+      ...extra.brainExtras(req.avaWho, req.avaIsOwner),
       knowledge: facts.slice(0, 12).map(({ topic, fact, why, createdAt }) => ({ topic, fact, why, createdAt })),
       thoughts: thoughts.slice(0, 5),
       status: { learning, topic: learningTopic, lastLearnedAt: meta.lastLearnedAt, lastTopic: meta.lastTopic, total: facts.length, lastError },
@@ -295,7 +301,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
       }
       const k = knowledgeBlock(10);
       if (k) system += `\n\nThings you (Ava) learned recently on your own — use them when relevant:\n${k}`;
-      system += extra.promptBlock();
+      system += extra.promptBlock() + extra.sentinelBlock(req.avaIsOwner);
 
       let reply;
       try {

@@ -38,6 +38,7 @@ const SERVERS_PATH = path.join(DATA_DIR, 'servers.json');
 const PROPOSALS_PATH = path.join(DATA_DIR, 'proposals.json');
 const SNAPSHOTS_PATH = path.join(DATA_DIR, 'snapshots.json');
 const CHANGELOG_PATH = path.join(DATA_DIR, 'changelog.json');
+const EVENTS_PATH = path.join(DATA_DIR, 'events.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -57,6 +58,7 @@ function saveJSON(p, data) {
 let servers = loadJSON(SERVERS_PATH, []);
 let proposals = loadJSON(PROPOSALS_PATH, []);
 let snapshots = loadJSON(SNAPSHOTS_PATH, {}); // key -> sha256 hash of last-seen content
+let events = loadJSON(EVENTS_PATH, []); // live timeline: down / up / proposal / approved / rejected
 let changeLog = loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, changedAt}], newest first
 
 // ---- Firestore hydration ----
@@ -65,12 +67,29 @@ let changeLog = loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, c
 // would overwrite good data with an empty list) and the monitor loops wait.
 const store = require('./persist');
 const { THEME_TAGS } = require('./ui-theme');
+const lib = require('./sentinel-lib');
+
+// Last-seen content of each file (one small doc per file) — lets Sentinel show
+// WHAT changed between two scans, not just that something changed.
+const SNAP_DIR = path.join(DATA_DIR, 'snaps');
+try { fs.mkdirSync(SNAP_DIR, { recursive: true }); } catch (e) { /* read-only disk is fine */ }
+const snapId = (key) => 'snap_' + crypto.createHash('sha1').update(key).digest('hex').slice(0, 24);
+async function loadSnap(key) {
+  await ready;
+  const r = await store.load(snapId(key), path.join(SNAP_DIR, snapId(key) + '.json'));
+  return r.value && typeof r.value.content === 'string' ? r.value.content : null;
+}
+function saveSnap(key, content) {
+  if (content.length > 300000) return;
+  ready.then(() => store.save(snapId(key), { content }, path.join(SNAP_DIR, snapId(key) + '.json'))).catch(() => {});
+}
 
 const PERSISTED = {
   servers:   { file: SERVERS_PATH,   get: () => servers,   set: (v) => { servers = v; } },
   proposals: { file: PROPOSALS_PATH, get: () => proposals, set: (v) => { proposals = v; } },
   snapshots: { file: SNAPSHOTS_PATH, get: () => snapshots, set: (v) => { snapshots = v; } },
   changelog: { file: CHANGELOG_PATH, get: () => changeLog, set: (v) => { changeLog = v; } },
+  events:    { file: EVENTS_PATH,    get: () => events,    set: (v) => { events = v; } },
 };
 const isEmptyVal = (v) => (Array.isArray(v) ? v.length === 0 : !v || Object.keys(v).length === 0);
 
@@ -105,6 +124,61 @@ function persistServers() { persist('servers'); }
 function persistProposals() { persist('proposals'); }
 function persistSnapshots() { persist('snapshots'); }
 function persistChangelog() { persist('changelog'); }
+
+// ---------------- v8: health history, live events, alerts without spam ----------------
+const HISTORY_MAX = 288; // samples kept per server (24 h at the default 5-minute interval)
+const REMIND_MS = (Number(process.env.SENTINEL_REMIND_MIN) > 0 ? Number(process.env.SENTINEL_REMIND_MIN) : 60) * 60000;
+
+function logEvent(type, server, text) {
+  events.unshift({ t: new Date().toISOString(), type, server: server ? server.name : '', text: String(text || '').slice(0, 240) });
+  if (events.length > 150) events.length = 150;
+  persist('events');
+}
+
+// history entries are [timestamp, responseMs] — responseMs -1 means the check failed
+function recordSample(server, r) {
+  const ok = !!r.ok;
+  server.history = server.history || [];
+  server.history.push([Date.now(), ok ? r.ms : -1]);
+  if (server.history.length > HISTORY_MAX) server.history.splice(0, server.history.length - HISTORY_MAX);
+  if (!ok && !server.downSince) {
+    server.downSince = new Date().toISOString();
+    logEvent('down', server, 'DOWN — ' + (server.lastError || server.lastStatus));
+  } else if (ok && server.downSince) {
+    const mins = Math.max(1, Math.round((Date.now() - Date.parse(server.downSince)) / 60000));
+    logEvent('up', server, 'wapas UP — ' + mins + ' min downtime');
+    server.downSince = null;
+  }
+}
+
+function metrics(server) {
+  const day = Date.now() - 86400000;
+  const d = (server.history || []).filter((x) => x[0] >= day);
+  const okMs = d.filter((x) => x[1] >= 0).map((x) => x[1]).sort((a, b) => a - b);
+  return {
+    uptime24: d.length ? Math.round((okMs.length / d.length) * 1000) / 10 : null,
+    avgMs: okMs.length ? Math.round(okMs.reduce((a, b) => a + b, 0) / okMs.length) : null,
+    p95Ms: okMs.length ? okMs[Math.min(okMs.length - 1, Math.floor(okMs.length * 0.95))] : null,
+    samples: d.length,
+  };
+}
+
+function getSummary() {
+  const list = servers.map((s) => ({
+    name: s.name, status: s.lastStatus || 'UNKNOWN', down: !!s.downSince,
+    downForMin: s.downSince ? Math.round((Date.now() - Date.parse(s.downSince)) / 60000) : 0,
+    ms: s.lastResponseMs || null, ...metrics(s),
+  }));
+  const down = list.filter((s) => s.down);
+  const pending = proposals.filter((p) => p.status === 'pending').length;
+  const withUp = list.filter((s) => s.uptime24 !== null);
+  const avgUptime24 = withUp.length ? Math.round((withUp.reduce((a, s) => a + s.uptime24, 0) / withUp.length) * 10) / 10 : null;
+  let score = 100 - down.length * 35 - Math.min(15, pending * 5);
+  if (avgUptime24 !== null) score -= Math.round((100 - avgUptime24) * 0.5);
+  score = Math.max(0, Math.min(100, score));
+  const incidents24 = events.filter((e) => e.type === 'down' && Date.parse(e.t) >= Date.now() - 86400000).length;
+  return { score, total: list.length, servers: list, down: down.map((s) => s.name), downCount: down.length, pending, avgUptime24, incidents24 };
+}
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -227,8 +301,12 @@ function decryptToken(str) {
   } catch (e) { return null; }
 }
 function publicServer(sv) {
-  const { ghToken, ghTokenEnc, ...rest } = sv;
-  return { ...rest, ghTokenSet: !!(ghToken || ghTokenEnc) };
+  const { ghToken, ghTokenEnc, history, ...rest } = sv;
+  return {
+    ...rest, ...metrics(sv), spark: (history || []).slice(-48).map((x) => x[1]),
+    downForMin: sv.downSince ? Math.max(0, Math.round((Date.now() - Date.parse(sv.downSince)) / 60000)) : null,
+    ghTokenSet: !!(ghToken || ghTokenEnc),
+  };
 }
 function githubToken(server) {
   return (server.ghTokenEnc && decryptToken(server.ghTokenEnc)) || server.ghToken || process.env.GITHUB_TOKEN;
@@ -255,9 +333,15 @@ async function githubApi(server, pathSuffix, opts) {
 async function githubListFiles(server) {
   const folder = (server.ghPath || '').replace(/^\/|\/$/g, '');
   const ref = server.ghBranch || 'main';
-  const listing = await githubApi(server, `/contents/${folder}?ref=${encodeURIComponent(ref)}`, { method: 'GET' });
-  if (!Array.isArray(listing)) return [];
-  return listing.filter((f) => f.type === 'file' && (f.name.endsWith('.js') || f.name.endsWith('.ts')));
+  // ONE call returns the whole repo tree (all subfolders)
+  const tree = await githubApi(server, `/git/trees/${encodeURIComponent(ref)}?recursive=1`, { method: 'GET' });
+  if (!tree || !Array.isArray(tree.tree)) return [];
+  if (tree.truncated) console.warn('[sentinel] repo tree truncated by GitHub — very large repo, set a Folder to narrow it');
+  const prefix = folder ? folder + '/' : '';
+  return tree.tree
+    .filter((t) => t.type === 'blob' && t.path.startsWith(prefix))
+    .map((t) => ({ name: t.path.slice(prefix.length), size: t.size || 0 }))
+    .filter((f) => lib.isSourceFile(f.name, f.size));
 }
 
 async function githubReadFile(server, repoFilePath) {
@@ -290,7 +374,7 @@ async function githubWriteFile(server, repoFilePath, newContent, sha, message) {
 function hasPendingProposalFor(serverId, kind, key) {
   return proposals.some(
     (p) => p.status === 'pending' && p.serverId === serverId && p.kind === kind &&
-      (kind === 'patch' ? p.filePath === key : p.webhookUrl === key)
+      (kind === 'patch' ? (p.key === key || p.filePath === key) : p.webhookUrl === key)
   );
 }
 
@@ -298,14 +382,20 @@ function hasPendingProposalFor(serverId, kind, key) {
 // Both "self" (local filesystem) and "github" (remote repo via API) servers
 // go through these three functions, so the AI-diagnosis and proactive-scan
 // logic below doesn't need to care which one it's dealing with.
-async function listServerFiles(server) {
+async function listServerFilesDetailed(server, hintText) {
+  let files = [];
   if (server.type === 'github') {
-    try { return (await githubListFiles(server)).map((f) => f.name); }
+    try { files = await githubListFiles(server); }
     catch (e) { console.warn('[sentinel] github list failed:', e.message); return []; }
+  } else {
+    const dir = server.localPath;
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+    files = lib.walkLocal(dir);
   }
-  const dir = server.localPath;
-  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.js') || f.endsWith('.ts'));
+  return lib.rankFiles(files, hintText);
+}
+async function listServerFiles(server, hintText) {
+  return (await listServerFilesDetailed(server, hintText)).map((f) => f.name);
 }
 
 async function readServerFile(server, name) {
@@ -328,13 +418,24 @@ async function readServerFile(server, name) {
   // content differs from the last time Sentinel read it (first time
   // seeing a file just sets the baseline, no log entry).
   const hash = crypto.createHash('sha256').update(content).digest('hex');
-  if (snapshots[key] && snapshots[key] !== hash) {
-    changeLog.unshift({ serverId: server.id, serverName: server.name, file: name, changedAt: new Date().toISOString() });
-    changeLog = changeLog.slice(0, 50);
-    persistChangelog();
+  if (snapshots[key] !== hash) {
+    if (snapshots[key]) { // changed since last time -> log WHAT changed
+      let diff = null, stats = null, note = null;
+      const old = await loadSnap(key);
+      if (old !== null) {
+        const d = lib.makeDiff(old, content, { maxRows: 120 });
+        diff = d.hunks; stats = { added: d.added, removed: d.removed, truncated: d.truncated };
+      } else {
+        note = 'Pichhla content save nahi tha — ab se line-by-line diff dikhega.';
+      }
+      changeLog.unshift({ serverId: server.id, serverName: server.name, file: name, changedAt: new Date().toISOString(), diff, stats, note });
+      changeLog = changeLog.slice(0, 40);
+      persistChangelog();
+    }
+    snapshots[key] = hash;
+    persistSnapshots();
+    saveSnap(key, content);
   }
-  snapshots[key] = hash;
-  persistSnapshots();
 
   return { content, key, meta };
 }
@@ -349,13 +450,65 @@ function buildPatchProposal(server, source, name, explanation, oldFile, newConte
     description: `${source === 'proactive-ai' ? 'Proactive review found a bug in' : 'AI-diagnosed fix for'} ${name}: ${explanation}`,
     oldContent: oldFile.content,
     newContent,
+    key: oldFile.key,
     status: 'pending',
     createdAt: new Date().toISOString(),
   };
+  const d = lib.makeDiff(oldFile.content, newContent, { maxRows: 400 });
+  base.diff = d.hunks;
+  base.stats = { added: d.added, removed: d.removed, truncated: d.truncated };
   if (server.type === 'github') {
     return { ...base, target: 'github', filePath: `${server.ghRepo}/${oldFile.meta.repoFilePath}`, ghRepo: server.ghRepo, ghBranch: server.ghBranch || 'main', ghFilePath: oldFile.meta.repoFilePath, ghSha: oldFile.meta.sha };
   }
   return { ...base, target: 'local', filePath: oldFile.meta.filePath };
+}
+
+// ---- shared AI helpers --------------------------------------------------
+async function callLLM(prompt) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
+  });
+  const data = await res.json();
+  let raw = (data?.choices?.[0]?.message?.content || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+  try { return JSON.parse(raw); } catch (e) {
+    const m = raw.match(/\{[\s\S]*\}/); // model added chatter around the JSON
+    if (m) { try { return JSON.parse(m[0]); } catch (e2) { /* fall through */ } }
+    return null;
+  }
+}
+
+const PER_FILE_CAP = 9000;   // chars of one file shown to the model
+const BATCH_BUDGET = 14000;  // chars of code per model call
+
+async function bundleFiles(server, batch) {
+  let combined = '';
+  const included = [];
+  for (const f of batch) {
+    try {
+      const r = await readServerFile(server, f.name);
+      const shown = r.content.length > PER_FILE_CAP ? r.content.slice(0, PER_FILE_CAP) + '\n...[file continues — only the part above is shown]' : r.content;
+      combined += `\n\n----- FILE: ${f.name} -----\n${shown}`;
+      included.push(f.name);
+    } catch (e) { /* unreadable file: skip */ }
+  }
+  return { combined, included };
+}
+
+const EDIT_RULES = `HOW TO PROPOSE A FIX: give small "edits", NOT the whole file. Each edit is {"find": "<exact existing snippet copied character-for-character from the code above, including indentation>", "replace": "<the fixed snippet>"}. "find" must appear exactly ONCE in that file (include a neighbouring line if needed to make it unique). Keep edits minimal (a few lines), at most 4 per finding. Never rewrite or reformat the whole file.`;
+
+// Turn the model's edits into a validated proposal (or null).
+async function proposalFromEdits(server, source, name, explanation, edits) {
+  const oldFile = await readServerFile(server, name);
+  if (hasPendingProposalFor(server.id, 'patch', oldFile.key)) return null;
+  const applied = lib.applyEdits(oldFile.content, edits);
+  if (!applied.ok) { console.warn('[sentinel] edit rejected for', name + ':', applied.error); return null; }
+  const bad = lib.validateNew(name, oldFile.content, applied.content);
+  if (bad) { console.warn('[sentinel] fix rejected for', name + ':', bad); return null; }
+  return buildPatchProposal(server, source, name, explanation, oldFile, applied.content);
 }
 
 // Tries real AI diagnosis first (reads the error + the server's own code,
@@ -366,51 +519,37 @@ function buildPatchProposal(server, source, name, explanation, oldFile, newConte
 // falls back to the narrower pattern-match check below. Either way, this
 // function only ever returns a *proposal*; nothing is written/committed.
 async function generateAIFixProposal(server, errorMessage) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  const files = await listServerFiles(server);
+  if (!process.env.GROQ_API_KEY) return null;
+  const files = await listServerFilesDetailed(server, errorMessage);
   if (!files.length) return null;
-
-  let combined = '';
-  for (const name of files) {
-    try {
-      const f = await readServerFile(server, name);
-      combined += `\n\n----- FILE: ${name} -----\n${f.content}`;
-    } catch (e) { continue; }
-    if (combined.length > 14000) break;
-  }
+  const batch = lib.chunkFiles(files, BATCH_BUDGET, PER_FILE_CAP)[0]; // files named in the error come first
+  const { combined, included } = await bundleFiles(server, batch);
   if (!combined) return null;
+  const { hints } = lib.detectStack(files.map((f) => f.name));
+  const is404 = /HTTP_404/.test(String(errorMessage));
 
-  const prompt = `You are a careful senior backend engineer. A server just failed with this error:
+  const prompt = `You are a careful senior engineer. A web service just failed its health check with this error:
 
 ERROR: ${errorMessage}
+${is404 ? '\nNote: the health URL answered 404 — very often the app simply has no route at that path (e.g. /health). If that is what the code shows, the fix is to add a minimal health route in the same framework style.\n' : ''}
+Stack-specific things to watch for:
+${hints || '(general)'}
 
 Here is its source code:
 ${combined}
 
-Diagnose the SPECIFIC bug causing this error, ONLY if it is visible in the code above. If the cause could be something outside this code (network issue, missing environment variable, a dependency/service being down, insufficient information), do NOT guess — say you are not confident instead.
+Diagnose the SPECIFIC bug causing this error, ONLY if it is visible in the code above. If the cause could be something outside this code (network issue, missing environment variable, a dependency/service being down, a sleeping free-tier instance, insufficient information), do NOT guess — say you are not confident instead.
 
-Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactly this shape:
-{"confident": true or false, "file": "<exact filename from the list above, or null>", "explanation": "<1-2 sentences in Hindi/Hinglish, explaining the bug and the fix in plain language>", "newContent": "<the COMPLETE corrected content of that one file, or null if confident is false>"}`;
+${EDIT_RULES}
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"confident": true or false, "file": "<exact file path from the list above, or null>", "explanation": "<1-2 sentences in Hindi/Hinglish: the bug and the fix in plain language>", "edits": [{"find": "...", "replace": "..."}]}`;
 
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
-    });
-    const data = await res.json();
-    let raw = data?.choices?.[0]?.message?.content || '';
-    raw = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
-    const parsed = JSON.parse(raw);
-
-    if (!parsed.confident || !parsed.file || !parsed.newContent) return null;
-    if (!files.includes(parsed.file)) return null;
-
-    const oldFile = await readServerFile(server, parsed.file);
-    if (hasPendingProposalFor(server.id, 'patch', oldFile.key)) return null;
-
-    return buildPatchProposal(server, 'reactive-ai', parsed.file, parsed.explanation, oldFile, parsed.newContent);
+    const parsed = await callLLM(prompt);
+    if (!parsed || !parsed.confident || !parsed.file || !Array.isArray(parsed.edits)) return null;
+    if (!included.includes(parsed.file)) return null;
+    return await proposalFromEdits(server, 'reactive-ai', parsed.file, parsed.explanation, parsed.edits);
   } catch (e) {
     console.warn('[sentinel] AI diagnosis skipped/failed:', e.message);
     return null;
@@ -423,59 +562,56 @@ Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactl
 // sure, it reports nothing rather than inventing minor complaints. Only
 // ever produces proposals — never writes/commits on its own.
 async function generateProactiveFindings(server) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return [];
-  const files = await listServerFiles(server);
+  if (!process.env.GROQ_API_KEY) return [];
+  const files = await listServerFilesDetailed(server, '');
   if (!files.length) return [];
+  const batches = lib.chunkFiles(files, BATCH_BUDGET, PER_FILE_CAP);
+  const BATCHES_PER_RUN = 2;                      // keeps each run small (API rate limits); the rest is covered on the next runs
+  let cursor = server.scanCursor || 0;
+  if (cursor >= batches.length) cursor = 0;
+  const proposalsOut = [];
 
-  let combined = '';
-  for (const name of files) {
-    try {
-      const f = await readServerFile(server, name);
-      combined += `\n\n----- FILE: ${name} -----\n${f.content}`;
-    } catch (e) { continue; }
-    if (combined.length > 14000) break;
-  }
-  if (!combined) return [];
+  for (let k = 0; k < Math.min(BATCHES_PER_RUN, batches.length); k++) {
+    const idx = (cursor + k) % batches.length;
+    const { combined, included } = await bundleFiles(server, batches[idx]);
+    if (!combined) continue;
+    const { hints } = lib.detectStack(included);
 
-  const prompt = `You are a careful senior backend engineer doing a routine code review (the server is currently running fine — you are looking for bugs BEFORE they cause an outage, not reacting to one).
+    const prompt = `You are a careful senior engineer doing a routine code review (the service is running fine — you are looking for problems BEFORE they cause an outage or a breach, not reacting to one).
 
-Here is the code:
+Stack-specific things to watch for:
+${hints || '(general)'}
+
+Here is the code (part ${idx + 1} of ${batches.length} of the project):
 ${combined}
 
-Find up to 3 REAL issues only, across two categories:
-- Bugs: unhandled promise rejections, null/undefined access, resource/memory leaks, race conditions, broken error handling.
-- Security vulnerabilities: hardcoded API keys/secrets/passwords in the code, SQL/NoSQL/command injection risk, missing authentication or authorization checks on sensitive routes, path traversal, insecure direct object references, unsafe deserialization, missing input validation on user-supplied data that reaches a risky sink.
+Find up to 3 REAL issues only, in two categories:
+- Bugs: unhandled errors/rejections, null/None access, resource or memory leaks, race conditions, broken error handling.
+- Security: hardcoded keys/secrets/passwords, injection (SQL/NoSQL/command/template), missing authentication or authorization on sensitive routes, path traversal, XSS, unsafe deserialization, missing validation of user input that reaches a risky sink.
 
-Do NOT report style preferences, formatting, or naming — only things that could actually break or be exploited. If you are not genuinely confident something is a real bug or vulnerability, leave it out. It is fine to return zero findings.
+Do NOT report style, formatting or naming. If you are not genuinely confident something is a real bug or vulnerability, leave it out. Returning zero findings is fine.
 
-Respond with ONLY valid JSON, no markdown fences, no extra commentary, in exactly this shape:
-{"findings": [{"file": "<exact filename from above>", "explanation": "<1-2 sentences in Hindi/Hinglish>", "newContent": "<the COMPLETE corrected content of that one file>"}]}`;
+${EDIT_RULES}
 
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
-    });
-    const data = await res.json();
-    let raw = data?.choices?.[0]?.message?.content || '';
-    raw = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
-    const parsed = JSON.parse(raw);
-    const findings = Array.isArray(parsed.findings) ? parsed.findings.slice(0, 3) : [];
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"findings": [{"file": "<exact file path from above>", "explanation": "<1-2 sentences in Hindi/Hinglish>", "edits": [{"find": "...", "replace": "..."}]}]}`;
 
-    const proposals = [];
-    for (const f of findings) {
-      if (!f.file || !f.newContent || !files.includes(f.file)) continue;
-      const oldFile = await readServerFile(server, f.file);
-      if (hasPendingProposalFor(server.id, 'patch', oldFile.key)) continue;
-      proposals.push(buildPatchProposal(server, 'proactive-ai', f.file, f.explanation, oldFile, f.newContent));
+    try {
+      const parsed = await callLLM(prompt);
+      const findings = parsed && Array.isArray(parsed.findings) ? parsed.findings.slice(0, 3) : [];
+      for (const f of findings) {
+        if (!f || !f.file || !included.includes(f.file) || !Array.isArray(f.edits)) continue;
+        const p = await proposalFromEdits(server, 'proactive-ai', f.file, f.explanation, f.edits);
+        if (p) proposalsOut.push(p);
+      }
+    } catch (e) {
+      console.warn('[sentinel] Proactive scan skipped/failed:', e.message);
     }
-    return proposals;
-  } catch (e) {
-    console.warn('[sentinel] Proactive scan skipped/failed:', e.message);
-    return [];
   }
+  server.scanCursor = (cursor + BATCHES_PER_RUN) % batches.length;
+  server.lastScan = { at: new Date().toISOString(), files: files.length, batches: batches.length };
+  persistServers();
+  return proposalsOut;
 }
 
 async function runProactiveScanCycle() {
@@ -538,36 +674,69 @@ function scanForProposals(server) {
   return found;
 }
 
-async function checkServer(server) {
+async function pingOnce(url, timeoutMs) {
   const started = Date.now();
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(server.healthUrl, { signal: controller.signal });
-    clearTimeout(t);
-    server.lastStatus = res.ok ? 'HEALTHY' : `HTTP_${res.status}`;
-    server.lastResponseMs = Date.now() - started;
-    server.lastCheckedAt = new Date().toISOString();
-    return res.ok;
+    const res = await fetch(url, { signal: controller.signal });
+    return { ok: res.ok, status: res.status, ms: Date.now() - started };
   } catch (e) {
-    server.lastStatus = 'DOWN';
-    server.lastError = e.message;
-    server.lastCheckedAt = new Date().toISOString();
-    return false;
+    return { ok: false, error: e.message, timeout: e.name === 'AbortError', ms: Date.now() - started };
+  } finally { clearTimeout(t); }
+}
+
+async function checkServer(server) {
+  let r = await pingOnce(server.healthUrl, 8000);
+  // Render/Heroku free instances sleep when idle and need up to ~50 s to wake.
+  // Don't call that an outage (and don't trigger AI "fixes") — wake it and re-check once.
+  if (!r.ok && (r.timeout || r.status === 502 || r.status === 503 || r.status === 504 || r.error)) {
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+    r = await pingOnce(server.healthUrl, 50000);
   }
+  server.lastCheckedAt = new Date().toISOString();
+  if (r.ok) { server.lastStatus = 'HEALTHY'; server.lastResponseMs = r.ms; server.lastError = null; }
+  else if (r.status) { server.lastStatus = `HTTP_${r.status}`; server.lastResponseMs = r.ms; server.lastError = `HTTP ${r.status}`; }
+  else { server.lastStatus = 'DOWN'; server.lastError = r.timeout ? 'no response in 50s (instance may be crashed or still waking)' : r.error; }
+  recordSample(server, r);
+
+  // Website certificate expiry (checked every 6 hours)
+  try {
+    const u = new URL(server.healthUrl);
+    if (u.protocol === 'https:' && (!server.sslCheckedAt || Date.now() - Date.parse(server.sslCheckedAt) > 6 * 3600 * 1000)) {
+      server.sslDays = await lib.sslDaysLeft(u.hostname);
+      server.sslCheckedAt = new Date().toISOString();
+      if (server.sslDays !== null && server.sslDays <= 14 && (!server.sslAlertAt || Date.now() - Date.parse(server.sslAlertAt) > 3 * 86400000)) {
+        server.sslAlertAt = new Date().toISOString();
+        await sendAlertEmail(`Aureon Sentinel: SSL certificate of ${server.name} expires in ${server.sslDays} day(s)`, `${u.hostname} — renew the certificate before it expires or the site will show a security warning.`);
+      }
+    }
+  } catch (e) { /* bad URL — ignore */ }
+  return r.ok;
 }
 
 async function runMonitorCycle() {
   await ready;
   let changed = false;
   for (const server of servers) {
+    const prevDownSince = server.downSince;
     const ok = await checkServer(server);
+    if (ok && prevDownSince) {
+      const mins = Math.max(1, Math.round((Date.now() - Date.parse(prevDownSince)) / 60000));
+      await sendAlertEmail(`Aureon Sentinel: ${server.name} is back UP ✅`, `${server.name} is healthy again after about ${mins} minute(s) of downtime.`);
+    }
     if (!ok) {
+      // One alert per outage, then a reminder every SENTINEL_REMIND_MIN (default 60) while it stays down —
+      // instead of a new email + a new AI diagnosis every 5 minutes.
+      const remind = !!prevDownSince && Date.now() - (server.lastAlertAt || 0) >= REMIND_MS;
+      if (prevDownSince && !remind) continue;
+      server.lastAlertAt = Date.now();
       if (server.type === 'self' || server.type === 'github') {
         const aiProposal = await generateAIFixProposal(server, server.lastError || server.lastStatus);
         const newProposals = aiProposal ? [aiProposal] : scanForProposals(server);
         if (newProposals.length) {
           proposals.push(...newProposals);
+          newProposals.forEach((p) => logEvent('proposal', server, 'fix proposed — ' + String(p.description || '').slice(0, 120)));
           changed = true;
           await sendAlertEmail(
             `Aureon Sentinel: ${newProposals.length} fix(es) proposed for ${server.name}`,
@@ -611,10 +780,12 @@ async function runMonitorCycle() {
   if (changed) persistProposals();
 }
 
-const CHECK_INTERVAL_MS = 5 * 60 * 1000; // every 5 min
+const CHECK_INTERVAL_MS = (Number(process.env.SENTINEL_CHECK_MIN) >= 1 ? Number(process.env.SENTINEL_CHECK_MIN) : 5) * 60 * 1000; // default every 5 min
 setInterval(() => {
   runMonitorCycle().catch((e) => console.error('[sentinel] cycle failed:', e.message));
 }, CHECK_INTERVAL_MS);
+// first reading shortly after boot, so history/sparklines start filling right away
+setTimeout(() => { runMonitorCycle().catch((e) => console.error('[sentinel] first cycle failed:', e.message)); }, 20000);
 
 // ---------------- API ----------------
 // Every route below the dashboard page itself requires the owner code
@@ -668,9 +839,14 @@ router.delete('/servers/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/proposals', (req, res) => res.json(proposals));
+router.get('/proposals', (req, res) => res.json(proposals.map((p) => {
+  const { oldContent, newContent, ...rest } = p;   // diff is what the dashboard needs; full file bodies stay on the server
+  return rest;
+})));
 
 router.get('/changes', (req, res) => res.json(changeLog));
+router.get('/summary', (req, res) => res.json(getSummary()));
+router.get('/events', (req, res) => res.json(events.slice(0, 60)));
 
 // The ONLY place that ever writes a file or calls a webhook — and it only
 // runs because a human clicked Approve on the dashboard.
@@ -694,7 +870,13 @@ router.post('/proposals/:id/approve', async (req, res) => {
     } else if (p.kind === 'restart') {
       await fetch(p.webhookUrl, { method: 'POST' });
     }
-    p.status = 'approved';
+    p.status = 'approved'; logEvent('approved', { name: p.serverName }, p.description || p.kind);
+    // our own commit must not show up as an "outside change" on the next scan
+    try {
+      const k = p.key || (p.target === 'github' ? `github:${p.ghRepo}:${p.ghFilePath}` : p.filePath);
+      snapshots[k] = crypto.createHash('sha256').update(p.newContent).digest('hex');
+      persistSnapshots(); saveSnap(k, p.newContent);
+    } catch (e) { /* bookkeeping only */ }
     p.decidedAt = new Date().toISOString();
     persistProposals();
     res.json({ ok: true });
@@ -706,7 +888,7 @@ router.post('/proposals/:id/approve', async (req, res) => {
 router.post('/proposals/:id/reject', (req, res) => {
   const p = proposals.find((x) => x.id === req.params.id);
   if (!p) return res.status(404).json({ error: 'not found' });
-  p.status = 'rejected';
+  p.status = 'rejected'; logEvent('rejected', { name: p.serverName }, p.description || p.kind);
   p.decidedAt = new Date().toISOString();
   persistProposals();
   res.json({ ok: true });
@@ -730,7 +912,7 @@ router.post('/servers/:id/scan-now', async (req, res) => {
       found.map((p) => `- ${p.description}`).join('\n') + '\n\nOpen the Sentinel dashboard to approve or reject.'
     );
   }
-  res.json({ found: found.length });
+  res.json({ found: found.length, scan: server.lastScan || null });
 });
 
 router.get('/dashboard', (req, res) => {
@@ -746,12 +928,12 @@ router.get('/dashboard', (req, res) => {
   if (status === 'ok') clearFailedAttempts(ip);
   if (status === 'unprotected') {
     return res.type('html').send(
-      DASHBOARD_HTML.replace('__OWNER_CODE__', '').replace('__UNPROTECTED__', 'true')
+      DASHBOARD_HTML.replace("'__OWNER_CODE__'", () => '""').replace('__UNPROTECTED__', 'true')
     );
   }
   const code = req.query.code || '';
   res.type('html').send(
-    DASHBOARD_HTML.replace('__OWNER_CODE__', code).replace('__UNPROTECTED__', 'false')
+    DASHBOARD_HTML.replace("'__OWNER_CODE__'", () => JSON.stringify(String(code)).replace(/</g, '\\u003c')).replace('__UNPROTECTED__', 'false')
   );
 });
 
@@ -818,6 +1000,15 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .dot.HEALTHY { background:var(--ok); box-shadow:0 0 6px var(--ok); }
   .dot.DOWN, .dot[class*="HTTP_"] { background:var(--danger); box-shadow:0 0 6px var(--danger); }
   .dot.UNKNOWN { background:var(--muted); }
+  .diff { font:11px/1.5 ui-monospace,Menlo,Consolas,monospace; border:1px solid var(--card-border); border-radius:8px; overflow-x:auto; margin-top:8px; background:var(--bg2); }
+  .diff .h { padding:4px 8px; color:var(--muted); background:rgba(139,143,153,.12); }
+  .diff .r { display:flex; white-space:pre; min-width:max-content; }
+  .diff .ln { flex:none; width:34px; text-align:right; padding:0 6px; color:var(--muted); user-select:none; }
+  .diff .sg { flex:none; width:16px; text-align:center; font-weight:700; }
+  .diff .tx { padding-right:12px; }
+  .diff .r.add { background:rgba(74,222,128,.16); } .diff .r.add .sg { color:var(--ok); }
+  .diff .r.del { background:rgba(255,107,107,.16); } .diff .r.del .sg { color:var(--danger); }
+  .stat-add { color:var(--ok); font-weight:700; } .stat-del { color:var(--danger); font-weight:700; }
   .badge { font-size:11px; padding:4px 10px; border-radius:20px; font-weight:600; letter-spacing:.3px; text-transform:uppercase; display:inline-flex; align-items:center; }
   .badge.HEALTHY { background:rgba(74,222,128,.12); color:var(--ok); border:1px solid rgba(74,222,128,.25); }
   .badge.DOWN, .badge[class*="HTTP_"] { background:rgba(255,107,107,.12); color:var(--danger); border:1px solid rgba(255,107,107,.25); }
@@ -843,6 +1034,11 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .col-left, .col-right { min-width:0; }
   .decide-btns { display:flex; gap:8px; flex-shrink:0; }
   .history-section { margin-top:32px; }
+  .spark { display:block; flex-shrink:0; max-width:100%; }
+  .ev { display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--card-border); font-size:12.5px; }
+  .ev-t { color:var(--muted); min-width:92px; font-variant-numeric:tabular-nums; }
+  .ev-i { width:18px; text-align:center; flex:none; }
+  .ev-x { min-width:0; word-break:break-word; }
   .ai-tag { font-size:10px; color:var(--gold); background:rgba(212,175,55,.1); border:1px solid rgba(212,175,55,.3); border-radius:5px; padding:2px 6px; margin-left:6px; vertical-align:middle; }
 </style>
 ${THEME_TAGS}
@@ -889,6 +1085,11 @@ ${THEME_TAGS}
   </div>
 
   <div class="history-section">
+    <h2>Live events</h2>
+    <div id="events"></div>
+  </div>
+
+  <div class="history-section">
     <h2>History</h2>
     <div id="history"></div>
   </div>
@@ -912,88 +1113,136 @@ function authFetch(url, opts) {
 }
 
 async function load() {
-  const [servers, proposals, changes] = await Promise.all([
+  const [servers, proposals, changes, summary, events] = await Promise.all([
     authFetch(API + '/servers').then(r => r.json()),
     authFetch(API + '/proposals').then(r => r.json()),
     authFetch(API + '/changes').then(r => r.json()),
+    authFetch(API + '/summary').then(r => r.json()).catch(() => null),
+    authFetch(API + '/events').then(r => r.json()).catch(() => []),
   ]);
-  renderSummary(servers, proposals);
+  renderSummary(servers, proposals, summary);
   renderServers(servers);
   renderProposals(proposals);
   renderChanges(changes);
+  renderEvents(events);
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+function statChips(st) {
+  if (!st) return '';
+  return '<span class="stat-add">+' + st.added + '</span> <span class="stat-del">-' + st.removed + '</span>';
+}
+
+function renderDiff(hunks, st) {
+  if (!hunks || !hunks.length) return '<div class="meta">Koi line-diff nahi.</div>';
+  var h = '<div class="diff">';
+  hunks.forEach(function (k) {
+    h += '<div class="h">@@ -' + k.oldStart + ',' + k.oldLines + ' +' + k.newStart + ',' + k.newLines + ' @@</div>';
+    k.rows.forEach(function (r) {
+      var cls = r[0] === '+' ? 'add' : r[0] === '-' ? 'del' : '';
+      h += '<div class="r ' + cls + '"><span class="ln">' + (r[1] || '') + '</span><span class="ln">' + (r[2] || '') + '</span><span class="sg">' + (r[0] === ' ' ? '' : r[0]) + '</span><span class="tx">' + esc(r[3]) + '</span></div>';
+    });
+  });
+  if (st && st.truncated) h += '<div class="h">... diff lamba hai, baaki hissa yahan nahi dikhaya</div>';
+  return h + '</div>';
 }
 
 function renderChanges(changes) {
-  const el = document.getElementById('changes');
-  el.innerHTML = changes.length ? changes.slice(0, 15).map(c => \`
-    <div class="card row">
-      <div>
-        <div class="name">\${c.serverName}</div>
-        <div class="meta">\${c.file} changed</div>
-      </div>
-      <div class="meta">\${new Date(c.changedAt).toLocaleString()}</div>
-    </div>\`).join('') : '<div class="empty">Koi change detect nahi hua ab tak (scan hone ke baad hi pata chalega).</div>';
+  var el = document.getElementById('changes');
+  if (!changes.length) { el.innerHTML = '<div class="empty">Koi change detect nahi hua ab tak (scan hone ke baad hi pata chalega).</div>'; return; }
+  el.innerHTML = changes.slice(0, 15).map(function (c) {
+    return '<div class="card"><div class="row"><div><div class="name">' + esc(c.serverName) + '</div>' +
+      '<div class="meta">' + esc(c.file) + ' changed ' + statChips(c.stats) + '</div></div>' +
+      '<div class="meta">' + new Date(c.changedAt).toLocaleString() + '</div></div>' +
+      (c.diff ? '<details style="margin-top:8px"><summary>Kya badla (diff)</summary>' + renderDiff(c.diff, c.stats) + '</details>' : (c.note ? '<div class="meta">' + esc(c.note) + '</div>' : '')) +
+      '</div>';
+  }).join('');
 }
 
-function renderSummary(servers, proposals) {
-  const healthy = servers.filter(s => s.lastStatus === 'HEALTHY').length;
-  const down = servers.filter(s => s.lastStatus && s.lastStatus !== 'HEALTHY' && s.lastStatus !== 'UNKNOWN').length;
-  const pending = proposals.filter(p => p.status === 'pending').length;
-  document.getElementById('summary').innerHTML = \`
-    <div class="summary-chip"><span class="dot HEALTHY"></span><b>\${healthy}</b>&nbsp;healthy</div>
-    <div class="summary-chip"><span class="dot DOWN"></span><b>\${down}</b>&nbsp;down</div>
-    <div class="summary-chip"><b>\${pending}</b>&nbsp;awaiting approval</div>
-  \`;
+function renderSummary(servers, proposals, sm) {
+  var healthy = servers.filter(function (s) { return s.lastStatus === 'HEALTHY'; }).length;
+  var down = servers.filter(function (s) { return s.lastStatus && s.lastStatus !== 'HEALTHY' && s.lastStatus !== 'UNKNOWN'; }).length;
+  var pending = proposals.filter(function (p) { return p.status === 'pending'; }).length;
+  var h = '';
+  if (sm && sm.total) { var c = sm.score >= 90 ? 'var(--ok)' : sm.score >= 60 ? 'var(--warn)' : 'var(--danger)'; h += '<div class="summary-chip"><b style="color:' + c + '">' + sm.score + '</b>&nbsp;health score</div>'; }
+  h += '<div class="summary-chip"><span class="dot HEALTHY"></span><b>' + healthy + '</b>&nbsp;healthy</div>';
+  h += '<div class="summary-chip"><span class="dot DOWN"></span><b>' + down + '</b>&nbsp;down</div>';
+  h += '<div class="summary-chip"><b>' + pending + '</b>&nbsp;awaiting approval</div>';
+  if (sm && sm.avgUptime24 != null) h += '<div class="summary-chip"><b>' + sm.avgUptime24 + '%</b>&nbsp;uptime 24h</div>';
+  if (sm && sm.total) h += '<div class="summary-chip"><b>' + sm.incidents24 + '</b>&nbsp;incidents 24h</div>';
+  document.getElementById('summary').innerHTML = h;
+}
+
+function sparkSvg(a) {
+  if (!a || !a.length) return '';
+  var max = 1; a.forEach(function (v) { if (v > max) max = v; });
+  var w = 3, h = 26, out = '<svg class="spark" width="' + a.length * w + '" height="' + h + '" viewBox="0 0 ' + a.length * w + ' ' + h + '">';
+  a.forEach(function (v, i) {
+    var bh = v < 0 ? h : Math.max(2, Math.round(v / max * (h - 4)));
+    out += '<rect x="' + i * w + '" y="' + (h - bh) + '" width="2" height="' + bh + '" rx="1" fill="' + (v < 0 ? '#ff6b6b' : '#4ade80') + '" opacity="' + (v < 0 ? '.9' : '.75') + '"/>';
+  });
+  return out + '</svg>';
+}
+
+var EV_ICON = { down: '🔴', up: '🟢', proposal: '🛠️', approved: '✅', rejected: '⛔', ssl: '🔒' };
+function renderEvents(list) {
+  var el = document.getElementById('events'); if (!el) return;
+  if (!list || !list.length) { el.innerHTML = '<div class="empty">Abhi koi event nahi — health checks chalte hi yahan dikhenge.</div>'; return; }
+  el.innerHTML = list.slice(0, 25).map(function (e) {
+    var d = new Date(e.t);
+    return '<div class="ev"><span class="ev-t">' + d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
+      '</span><span class="ev-i">' + (EV_ICON[e.type] || '•') + '</span><span class="ev-x"><b>' + esc(e.server) + '</b> ' + esc(e.text) + '</span></div>';
+  }).join('');
 }
 
 function renderServers(servers) {
-  const el = document.getElementById('servers');
+  var el = document.getElementById('servers');
   if (!servers.length) { el.innerHTML = '<div class="empty">No servers added yet.</div>'; return; }
-  el.innerHTML = servers.map(s => \`
-    <div class="card row">
-      <div>
-        <div class="name"><span class="dot \${s.lastStatus || 'UNKNOWN'}"></span>\${s.name} <span class="meta">(\${s.type === 'self' ? 'self-hosted' : s.type === 'github' ? 'GitHub repo' : 'external'})</span></div>
-        <div class="meta">\${s.healthUrl}</div>
-        \${s.type === 'github' ? \`<div class="meta">\${s.ghRepo} @ \${s.ghBranch}\${s.ghPath ? '/' + s.ghPath : ''}</div>\` : ''}
-        \${s.lastCheckedAt ? \`<div class="meta">checked \${new Date(s.lastCheckedAt).toLocaleString()}</div>\` : ''}
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="badge \${s.lastStatus || 'UNKNOWN'}">\${s.lastStatus || 'UNKNOWN'}</span>
-        \${(s.type === 'self' || s.type === 'github') ? \`<button class="reject" onclick="scanNow('\${s.id}')">Review now</button>\` : ''}
-        <button class="reject" onclick="removeServer('\${s.id}')">Remove</button>
-      </div>
-    </div>\`).join('');
+  el.innerHTML = servers.map(function (s) {
+    var st = s.lastStatus || 'UNKNOWN';
+    var bits = [];
+    if (s.lastResponseMs) bits.push(s.lastResponseMs + ' ms');
+    if (s.sslDays !== null && s.sslDays !== undefined) bits.push('SSL ' + s.sslDays + ' din' + (s.sslDays <= 14 ? ' (renew karo!)' : ''));
+    if (s.lastScan) bits.push(s.lastScan.files + ' files / ' + s.lastScan.batches + ' parts reviewed');
+    var canScan = (s.type === 'self' || s.type === 'github');
+    return '<div class="card row"><div>' +
+      '<div class="name"><span class="dot ' + esc(st) + '"></span>' + esc(s.name) + ' <span class="meta">(' + (s.type === 'self' ? 'self-hosted' : s.type === 'github' ? 'GitHub repo' : 'external') + ')</span></div>' +
+      '<div class="meta">' + esc(s.healthUrl) + '</div>' +
+      (s.downForMin != null ? '<div class="meta" style="color:var(--danger)">⛔ ' + s.downForMin + ' min se down hai</div>' : '') +
+      '<div style="margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' + sparkSvg(s.spark) + '<span class="meta">' + (s.uptime24 != null ? s.uptime24 + '% uptime 24h' : '') + (s.avgMs ? ' · avg ' + s.avgMs + ' ms · p95 ' + s.p95Ms + ' ms' : '') + '</span></div>' +
+      (s.type === 'github' ? '<div class="meta">' + esc(s.ghRepo) + ' @ ' + esc(s.ghBranch) + (s.ghPath ? '/' + esc(s.ghPath) : '') + '</div>' : '') +
+      (s.lastCheckedAt ? '<div class="meta">checked ' + new Date(s.lastCheckedAt).toLocaleString() + (bits.length ? ' - ' + esc(bits.join(' - ')) : '') + '</div>' : '') +
+      (s.lastError && st !== 'HEALTHY' ? '<div class="meta" style="color:var(--danger)">' + esc(s.lastError) + '</div>' : '') +
+      '</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<span class="badge ' + esc(st) + '">' + esc(st) + '</span>' +
+      (canScan ? '<button class="reject" data-id="' + esc(s.id) + '" onclick="scanNow(this.dataset.id)">Review now</button>' : '') +
+      '<button class="reject" data-id="' + esc(s.id) + '" onclick="removeServer(this.dataset.id)">Remove</button></div></div>';
+  }).join('');
 }
 
 function renderProposals(proposals) {
-  const pending = proposals.filter(p => p.status === 'pending');
-  const done = proposals.filter(p => p.status !== 'pending').sort((a,b) => new Date(b.decidedAt) - new Date(a.decidedAt));
+  var pending = proposals.filter(function (p) { return p.status === 'pending'; });
+  var done = proposals.filter(function (p) { return p.status !== 'pending'; }).sort(function (a, b) { return new Date(b.decidedAt) - new Date(a.decidedAt); });
 
-  const pendEl = document.getElementById('pending');
-  pendEl.innerHTML = pending.length ? pending.map(p => \`
-    <div class="card">
-      <div class="row">
-        <div>
-          <div class="name">\${p.serverName}\${p.source === 'reactive-ai' ? '<span class="ai-tag">AI diagnosed</span>' : ''}\${p.source === 'proactive-ai' ? '<span class="ai-tag">Proactive scan</span>' : ''}</div>
-          <div class="meta">\${p.description}</div>
-        </div>
-        <div class="decide-btns">
-          <button onclick="decide('\${p.id}','approve')">Approve</button>
-          <button class="reject" onclick="decide('\${p.id}','reject')">Reject</button>
-        </div>
-      </div>
-      \${p.kind === 'patch' ? \`<details style="margin-top:8px"><summary>View proposed change</summary><pre>\${escapeHtml((p.newContent || "").slice(-800))}</pre></details>\` : ''}
-    </div>\`).join('') : '<div class="empty">Nothing pending.</div>';
+  document.getElementById('pending').innerHTML = pending.length ? pending.map(function (p) {
+    return '<div class="card"><div class="row"><div>' +
+      '<div class="name">' + esc(p.serverName) + (p.source === 'reactive-ai' ? '<span class="ai-tag">AI diagnosed</span>' : '') + (p.source === 'proactive-ai' ? '<span class="ai-tag">Proactive scan</span>' : '') + '</div>' +
+      '<div class="meta">' + esc(p.description) + '</div>' +
+      (p.kind === 'patch' ? '<div class="meta">' + esc(p.ghFilePath || p.filePath || '') + ' ' + statChips(p.stats) + '</div>' : '') +
+      '</div><div class="decide-btns">' +
+      '<button data-id="' + esc(p.id) + '" onclick="decide(this.dataset.id,&quot;approve&quot;)">Approve</button>' +
+      '<button class="reject" data-id="' + esc(p.id) + '" onclick="decide(this.dataset.id,&quot;reject&quot;)">Reject</button></div></div>' +
+      (p.kind === 'patch' ? '<details open style="margin-top:8px"><summary>Exact badlav (diff)</summary>' + renderDiff(p.diff, p.stats) + '</details>' : '') +
+      '</div>';
+  }).join('') : '<div class="empty">Nothing pending.</div>';
 
-  const histEl = document.getElementById('history');
-  histEl.innerHTML = done.length ? done.slice(0,20).map(p => \`
-    <div class="card row">
-      <div>
-        <div class="name">\${p.serverName}</div>
-        <div class="meta">\${p.description}</div>
-      </div>
-      <span class="badge \${p.status === 'approved' ? 'HEALTHY' : 'DOWN'}">\${p.status}</span>
-    </div>\`).join('') : '<div class="empty">No history yet.</div>';
+  document.getElementById('history').innerHTML = done.length ? done.slice(0, 20).map(function (p) {
+    return '<div class="card"><div class="row"><div><div class="name">' + esc(p.serverName) + '</div>' +
+      '<div class="meta">' + esc(p.description) + ' ' + statChips(p.stats) + '</div></div>' +
+      '<span class="badge ' + (p.status === 'approved' ? 'HEALTHY' : 'DOWN') + '">' + esc(p.status) + '</span></div>' +
+      (p.diff && p.diff.length ? '<details style="margin-top:8px"><summary>Diff dekho</summary>' + renderDiff(p.diff, p.stats) + '</details>' : '') + '</div>';
+  }).join('') : '<div class="empty">No history yet.</div>';
 }
 
 function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -1031,7 +1280,7 @@ async function addServer() {
 async function scanNow(id) {
   const btn = event.target; btn.textContent = 'Scanning…'; btn.disabled = true;
   const res = await authFetch(\`\${API}/servers/\${id}/scan-now\`, { method:'POST' }).then(r => r.json());
-  alert(res.found ? \`\${res.found} issue(s) found — check Accept/Reject.\` : 'No confident findings this time.');
+  alert((res.found ? res.found + ' issue(s) mile — Accept/Reject check karo.' : 'Is baar koi pakka issue nahi mila.') + (res.scan ? ' (' + res.scan.files + ' files, ' + res.scan.batches + ' parts me; har run 2 parts dekhta hai)' : ''));
   load();
 }
 
@@ -1049,7 +1298,10 @@ async function decide(id, action) {
 load();
 setInterval(load, 10000);
 </script>
+<script src="/api/ava/widget.js"></script>
 </body>
 </html>`;
 
+router.getSummary = getSummary; // used by Ava (owner-only status line)
+router._test = { runMonitorCycle, getSummary, events: () => events, generateAIFixProposal, generateProactiveFindings, checkServer, servers: () => servers, proposals: () => proposals, changeLog: () => changeLog };
 module.exports = router;

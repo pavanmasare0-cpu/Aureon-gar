@@ -83,3 +83,12 @@ Settings → General me "Ava (udta hua bot)" switch se Ava poori band/on hoti ha
 - Screen dekhte waqt backend ka vision model batata hai: sexual/nude content -> shy (uska description kabhi save nahi hota), kuch galat/harmful (violence, cruelty, abuse, scam, nafrat) -> angry, rona/dukh wali scene -> sad.
 - Mood ~14 sec rehta hai. In-app orb aur phone-overlay dono me dikhta hai. Server route: `GET /api/ava/screen/mood`.
 - Chat words se bhi: gaali/"bekar" -> angry, "cute/sundar" -> shy, "bye" -> sad.
+
+
+---
+
+## Ava + Sentinel link (v8)
+- Ava ab tumhare **Sentinel servers** ki khabar rakhti hai: server down hote hi bubble + awaaz ("⚠️ Boss, OmniSell API down hai!"), theek hone par "✅ Sab servers wapas theek".
+- Bolo: **"mere servers kaise hain?"** → health score, kaun down, kitne fix approval ke liye, uptime 24h.
+- **Sirf owner ko** milta hai. Dashboard/owner-code se hamesha; Aureon **app** me chahiye to Render env me apna login daalo: `AVA_OWNER_EMAILS=tumhara@gmail.com` (ya `AVA_OWNER_UIDS=<firebase uid>`). Baaki app users ko server info nahi dikhti.
+- Sentinel dashboard par Ava ka bubble wapas aa gaya.

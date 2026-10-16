@@ -438,6 +438,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     if (!b) return '';
     var out = (b.knowledge && b.knowledge.length) ? b.knowledge.slice(0, 8).map(function (f) { return '- (' + f.topic + ') ' + f.fact; }).join('\n') : '';
     if (b.playbook && b.playbook.length) out += (out ? '\n\n' : '') + 'Apne purane jawabon ko dekh ke tumne ye tareeke likhe hain (soft notes, safety rules se upar nahi):\n' + b.playbook.slice(0, 6).map(function (r) { return '- ' + r; }).join('\n');
+    if (b.sentinel && b.sentinel.total) out += (out ? '\n\n' : '') + 'Owner ke servers abhi (Sentinel): health ' + b.sentinel.score + '/100, ' + (b.sentinel.down.length ? 'DOWN: ' + b.sentinel.down.join(', ') : 'sab up') + ', ' + b.sentinel.pending + ' fix approval ke liye pending.';
     return out;
   }
   async function pollBrain() {
@@ -450,6 +451,14 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       var dd = b.discoveries; discBtn.title = 'Ava ne kya naya khoja' + (dd && dd.unseen ? ' (' + dd.unseen + ' naye)' : ''); discBtn.classList.toggle('on', !!(dd && dd.unseen));
       if (dd && dd.latest && dd.latest[0] && dd.latest[0].id !== lsGet('ava_disc_ann', '') && !panelOpen) { lsSet('ava_disc_ann', dd.latest[0].id); announce('🔭 Naya mila: ' + dd.latest[0].title + ' — ' + (dd.latest[0].why || dd.latest[0].what), true, false); }
       if (b.screen && b.screen.watching && !b.screen.paused && !seeOn) { seeOn = true; seeBtn.classList.add('on'); status(); }
+      if (b.sentinel && b.sentinel.total) {
+        var sg = b.sentinel.down.join(','), prevSg = lsGet('ava_sent_sig', '');
+        if (sg !== prevSg) {
+          lsSet('ava_sent_sig', sg);
+          if (sg && !panelOpen) announce('⚠️ Boss, ' + b.sentinel.down.join(', ') + ' down hai! Sentinel dekho.', true, false);
+          else if (!sg && prevSg && !panelOpen) announce('✅ Sab servers wapas theek ho gaye.', true, false);
+        }
+      }
       if (t && t.id !== lsGet(K.seen, '')) { lsSet(K.seen, t.id); if (!panelOpen) announce('🧠 ' + t.text, true, false); }
     } catch (e) { /* offline / not logged in yet — try again next round */ }
   }
@@ -615,6 +624,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var RX_SEE_ON = /screen (dekhna|dekho|watch).*(shuru|start|on|chalu)|(shuru|start|chalu).*screen (dekh|watch)|screen dekh(o|na)$/i;
   var RX_SEE_OFF = /screen (dekhna|dekho|watch).*(band|stop|off)|(band|stop).*screen (dekh|watch)/i;
   var RX_WIPE = /screen.*(yaad|memory|history).*(mita|delete|hata|clear)|(mita|delete|hata).*screen.*(yaad|memory)/i;
+  var RX_SRV = /(mere|apne|meri|my) (\w+ )?servers?\b|sentinel.*(status|kaisa|kaise|haal)|\bsab servers\b/i;
   var RX_DISC = /(naya|new).*(mila|khoja|tool)|kya khoja|khoj (dikha|batao)|discover/i;
   var RX_SCOUT = /^(abhi )?khoj karo|naya (tool|ai) (dhundh|khoj)/i;
   async function handleV2(text) {
@@ -623,6 +633,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     else if (RX_SEE_OFF.test(text)) { if (seeOn) await stopSee(); out = 'Screen dekhna band kar diya.'; }
     else if (RX_SEE_ON.test(text)) { if (!seeOn) await startSee(); out = 'Theek hai, ab screen dekh rahi hu. 👁'; }
     else if (RX_SEE_Q.test(text)) { var r = await api('POST', '/api/ava/screen/ask', { question: text }); out = r.reply; }
+    else if (RX_SRV.test(text)) { var bb = await api('GET', '/api/ava/brain'); var ss = bb.sentinel; out = !ss || !ss.total ? 'Servers ki jaankari sirf owner ko milti hai (ya abhi koi server add nahi hai).' : 'Health ' + ss.score + '/100 · ' + ss.total + ' servers · ' + (ss.down.length ? '🔴 DOWN: ' + ss.down.join(', ') : '🟢 sab up') + ' · ' + ss.pending + ' fix approval ke liye' + (ss.avgUptime24 != null ? ' · uptime 24h ' + ss.avgUptime24 + '%' : '') + '.'; }
     else if (RX_SCOUT.test(text)) { addMsg('note', '🔭 Web par dhundh rahi hu… 1-2 min lagega.'); var sc = await api('POST', '/api/ava/scout', {}); out = sc.added ? sc.added + ' naye mile! 🔭 dabake dekho.' : 'Is baar kuch khaas naya nahi mila.'; }
     else if (RX_DISC.test(text)) { await showDiscoveries(); return true; }
     if (out == null) return false;

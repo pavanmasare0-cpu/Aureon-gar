@@ -425,11 +425,27 @@ module.exports = function createExtra({ router, auth, getDb, callGemini, helpers
     res.json(await reflectOnce());
   });
 
+  // ---------------- Sentinel status (owner only) ----------------
+  function sentinelSnapshot() {
+    try {
+      const sd = require('./sentinel-dashboard');
+      if (!sd || typeof sd.getSummary !== 'function') return null;
+      const m = sd.getSummary();
+      return { score: m.score, total: m.total, down: m.down, pending: m.pending, avgUptime24: m.avgUptime24, incidents24: m.incidents24 };
+    } catch (e) { return null; }
+  }
+  function sentinelBlock(isOwner) {
+    if (!isOwner) return '';
+    const s = sentinelSnapshot(); if (!s || !s.total) return '';
+    return `\n\nLive server status from Sentinel (owner only): health score ${s.score}/100, ${s.total} server(s), ${s.down.length ? 'DOWN: ' + s.down.join(', ') : 'all up'}, ${s.pending} fix(es) awaiting approval, uptime 24h ${s.avgUptime24 == null ? 'n/a' : s.avgUptime24 + '%'}. Mention it only when relevant or asked.`;
+  }
+
   // ---------------- what /brain adds ----------------
-  function brainExtras(who) {
+  function brainExtras(who, isOwner) {
     const s = screens.get(who);
     const unseen = discoveries.filter((d) => !d.seen);
     return {
+      ...(isOwner ? { sentinel: sentinelSnapshot() } : {}),
       playbook: playbook.slice(0, 8).map((p) => p.text),
       gaps: gaps.slice(0, 5).map((g) => g.text),
       discoveries: { unseen: unseen.length, latest: unseen.slice(0, 3).map(({ id, title, what, why, url, score }) => ({ id, title, what, why, url, score })) },
@@ -453,5 +469,5 @@ module.exports = function createExtra({ router, auth, getDb, callGemini, helpers
     console.log(`[ava] v2 ready — screen memory ${off('AVA_SCREEN') ? 'OFF' : 'on'} · scout ${off('AVA_SCOUT') ? 'off' : 'on'} · reflection ${off('AVA_REFLECT') ? 'off' : 'on'}`);
   }
 
-  return { start, brainExtras, promptBlock, logTurn, isComplex, refine, _t: { scoutOnce, reflectOnce, getScreen } };
+  return { start, brainExtras, sentinelBlock, promptBlock, logTurn, isComplex, refine, _t: { scoutOnce, reflectOnce, getScreen } };
 };
