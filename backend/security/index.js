@@ -37,7 +37,7 @@ const RATE_WINDOW_MS = 10 * 1000;
 const csv = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
 const ALLOW = new Set(csv(process.env.SECURITY_ALLOW_IPS));
 const BLOCKLIST = new Set(csv(process.env.SECURITY_BLOCKLIST));
-const BODY_SKIP = csv(process.env.SECURITY_BODY_SKIP || '/api/chat,/chat,/api/sentinel,/api/security,/api/memory');
+const BODY_SKIP = csv(process.env.SECURITY_BODY_SKIP || '/api/chat,/chat,/api/ava,/api/sentinel,/api/security,/api/memory');
 
 const DATA_DIR = path.join(__dirname, '..', 'security-data');
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* read-only is fine */ }

@@ -1,6 +1,8 @@
 package com.aureon.ai;
 
 import android.Manifest;
+import android.app.Activity;
+import android.media.projection.MediaProjectionManager;
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
@@ -16,6 +18,7 @@ import android.os.Looper;
 import android.provider.AlarmClock;
 import android.provider.ContactsContract;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.telephony.SmsManager;
 
 import com.getcapacitor.JSObject;
@@ -23,6 +26,8 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.PermissionState;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -53,6 +58,91 @@ public class AureonActionsPlugin extends Plugin {
     // here assumes success.
     private static final int APP_LAUNCH_WAIT_MS = 1800;
     private static final int SCREEN_STEP_TIMEOUT_MS = 4000;
+
+    // ---- Ava watching the screen (MediaProjection -> AvaScreenWatchService) ----
+    // JS: startScreenWatch({ backendUrl, key, intervalMs }) shows Android's own
+    // "start recording or casting?" dialog; only after the user accepts does the
+    // foreground service start. stopScreenWatch() / the notification's Stop button end it.
+    @PluginMethod
+    public void getScreenWatch(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("active", AvaScreenWatchService.isActive());
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void startScreenWatch(PluginCall call) {
+        String url = call.getString("backendUrl");
+        String key = call.getString("key");
+        if (url == null || key == null || !url.startsWith("http")) {
+            call.reject("backendUrl and key are required");
+            return;
+        }
+        MediaProjectionManager mpm = (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        if (mpm == null) {
+            call.reject("Screen capture is not available on this device");
+            return;
+        }
+        startActivityForResult(call, mpm.createScreenCaptureIntent(), "screenWatchResult");
+    }
+
+    @ActivityCallback
+    private void screenWatchResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSObject r = new JSObject();
+        if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            r.put("started", false);
+            call.resolve(r);
+            return;
+        }
+        Integer interval = call.getInt("intervalMs", 6000);
+        AvaScreenWatchService.start(getContext(), result.getResultCode(), result.getData(),
+                call.getString("backendUrl"), call.getString("key"), interval == null ? 6000 : interval);
+        r.put("started", true);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void stopScreenWatch(PluginCall call) {
+        AvaScreenWatchService.stop(getContext());
+        JSObject r = new JSObject();
+        r.put("active", false);
+        call.resolve(r);
+    }
+
+    // ---- Ava floating on the phone screen (over other apps) ----
+    @PluginMethod
+    public void getAvaOverlay(PluginCall call) {
+        Context ctx = getContext();
+        JSObject r = new JSObject();
+        r.put("enabled", AvaOverlayService.isEnabled(ctx));
+        r.put("permitted", AvaOverlayService.canDraw(ctx));
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void setAvaOverlay(PluginCall call) {
+        Context ctx = getContext();
+        boolean on = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        JSObject r = new JSObject();
+        if (on && !AvaOverlayService.canDraw(ctx)) {
+            // "Display over other apps" must be granted by the user in Settings.
+            try {
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+            } catch (Exception ignored) { }
+            r.put("enabled", false);
+            r.put("needsPermission", true);
+            call.resolve(r);
+            return;
+        }
+        AvaOverlayService.setEnabled(ctx, on);
+        if (on) AvaOverlayService.start(ctx); else AvaOverlayService.stop(ctx);
+        r.put("enabled", on);
+        r.put("permitted", true);
+        call.resolve(r);
+    }
 
     @PluginMethod
     public void getBattery(PluginCall call) {

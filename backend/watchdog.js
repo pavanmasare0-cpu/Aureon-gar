@@ -254,4 +254,4 @@ function init(app) {
   console.log('[watchdog] initialized' + (process.env.RESEND_API_KEY ? ' (email alerts on)' : ' (email alerts NOT configured — see WATCHDOG-SETUP.md)'));
 }
 
-module.exports = { init, recordError, recordUnknown, statusSnapshot, isDisabled, clearDisabled };
+module.exports = { sendEmailAlert,  init, recordError, recordUnknown, statusSnapshot, isDisabled, clearDisabled };

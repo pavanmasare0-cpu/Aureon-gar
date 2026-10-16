@@ -1,0 +1,330 @@
+// backend/ava.js
+//
+// Ava — the flying assistant that roams the Aureon app and the Sentinel
+// dashboard. This file is her "brain":
+//
+//   POST /api/ava/chat    chat + orders (used by the Sentinel dashboard; the
+//                         Aureon app reuses /api/chat so it keeps all phone
+//                         actions and the same personal memory)
+//   GET  /api/ava/brain   what Ava has learned lately + her latest thoughts
+//   POST /api/ava/learn   make her research something right now
+//   GET  /api/ava/widget.js   the floating-bot script (copy of www/ava-bot.js)
+//
+// Self-learning: every AVA_LEARN_INTERVAL_MIN minutes (default 90) Ava picks a
+// topic, researches it with Gemini + Google Search, and keeps a few short
+// facts. Nothing she learns can change code or servers — facts only feed her
+// answers. Sentinel's human-approval gate is untouched: Ava may ask Sentinel
+// to run a health check / scan, but she can never approve, reject, apply or
+// delete anything.
+//
+// Storage: Firestore (collection `ava_knowledge`, doc `ava_state/brain`) when
+// FIREBASE_SERVICE_ACCOUNT is set, otherwise backend/ava-data/*.json.
+//
+// Env (all optional):
+//   AVA_LEARN=off            turn the background learner off
+//   AVA_LEARN_INTERVAL_MIN   minutes between learning rounds (default 90)
+//   AVA_TOPICS               comma-separated topics she cycles through
+//   SENTINEL_OWNER_CODE      same code as the Sentinel dashboard — set it!
+
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const MAX_FACTS = 300;
+const MAX_THOUGHTS = 20;
+const DEFAULT_TOPICS = [
+  'latest Gemini API and Google AI Studio changes',
+  'Android WebView and Capacitor updates',
+  'Node.js and Express security advisories',
+  'Firebase Auth and Firestore updates',
+  'new open-source AI assistant and voice-agent techniques',
+];
+
+module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
+  const router = express.Router();
+
+  // ---------------- storage ----------------
+  const DATA_DIR = path.join(__dirname, 'ava-data');
+  const FILE_PATH = path.join(DATA_DIR, 'brain.json');
+  let facts = [];     // newest first: { id, topic, fact, why, createdAt }
+  let thoughts = [];  // newest first: { id, text, createdAt }
+  let meta = { cycle: 0, lastLearnedAt: 0, lastTopic: '' };
+  let ready = false;
+
+  function fsLoad() {
+    try {
+      if (!fs.existsSync(FILE_PATH)) return;
+      const d = JSON.parse(fs.readFileSync(FILE_PATH, 'utf8'));
+      facts = d.facts || []; thoughts = d.thoughts || []; meta = Object.assign(meta, d.meta || {});
+    } catch (e) { console.warn('[ava] could not read brain.json:', e.message); }
+  }
+  function fsSave() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(FILE_PATH, JSON.stringify({ facts, thoughts, meta }, null, 2));
+    } catch (e) { console.warn('[ava] could not write brain.json:', e.message); }
+  }
+
+  async function load() {
+    const db = getDb();
+    if (!db) { fsLoad(); ready = true; return; }
+    try {
+      const snap = await db.collection('ava_knowledge').orderBy('createdAt', 'desc').limit(MAX_FACTS).get();
+      facts = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      const st = await db.collection('ava_state').doc('brain').get();
+      if (st.exists) {
+        const d = st.data();
+        thoughts = d.thoughts || []; meta = Object.assign(meta, d.meta || {});
+      }
+    } catch (e) {
+      console.warn('[ava] Firestore load failed, using local file:', e.message);
+      fsLoad();
+    }
+    ready = true;
+  }
+
+  async function persist(newFacts) {
+    const db = getDb();
+    if (!db) return fsSave();
+    try {
+      for (const f of newFacts) {
+        const { id, ...rest } = f;
+        await db.collection('ava_knowledge').doc(id).set(rest);
+      }
+      await db.collection('ava_state').doc('brain').set({ thoughts, meta });
+      // keep the collection bounded
+      const old = await db.collection('ava_knowledge').orderBy('createdAt', 'desc').offset(MAX_FACTS).limit(50).get();
+      for (const d of old.docs) await d.ref.delete();
+    } catch (e) {
+      console.warn('[ava] Firestore save failed, writing local file instead:', e.message);
+      fsSave();
+    }
+  }
+
+  // ---------------- helpers ----------------
+  const newId = () => Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 90);
+
+  function parseJSON(text) {
+    if (typeof text !== 'string') return null;
+    const cleaned = text.replace(/```json|```/gi, '').trim();
+    const a = cleaned.indexOf('{'); const b = cleaned.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try { return JSON.parse(cleaned.slice(a, b + 1)); } catch (e) { return null; }
+  }
+
+  function topics() {
+    const env = (process.env.AVA_TOPICS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return env.length ? env : DEFAULT_TOPICS;
+  }
+
+  function knowledgeBlock(n = 10) {
+    if (!facts.length) return '';
+    return facts.slice(0, n).map((f) => `- (${f.topic}) ${f.fact}`).join('\n');
+  }
+
+  // ---------------- autonomous learning ----------------
+  let learning = false;
+  let learningTopic = '';
+  let lastError = '';
+
+  async function pickTopic() {
+    meta.cycle = (meta.cycle || 0) + 1;
+    const list = topics();
+    // Every 3rd round Ava chooses a topic herself, based on what she already knows.
+    if (meta.cycle % 3 === 0 && facts.length) {
+      try {
+        const known = [...new Set(facts.slice(0, 25).map((f) => f.topic))].join('; ');
+        const r = await callGemini(
+          [{ role: 'user', content: `You are Ava, an AI assistant living inside the Aureon Android app and its Sentinel server monitor. Topics you've already studied: ${known}. Suggest ONE new, specific topic worth researching next that would help your owner build and run Aureon better. Reply with the topic only, max 12 words.` }],
+          'Reply with plain text only.', false);
+        if (typeof r === 'string' && r.trim() && r.length < 140) return r.trim().replace(/^["'\s]+|["'\s]+$/g, '');
+      } catch (e) { /* fall through to the list */ }
+    }
+    return list[(meta.cycle - 1) % list.length];
+  }
+
+  async function learnOnce(forcedTopic) {
+    if (learning) return { busy: true };
+    learning = true;
+    try {
+      const topic = (forcedTopic && String(forcedTopic).trim().slice(0, 140)) || (await pickTopic());
+      learningTopic = topic;
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const prompt =
+        `Today is ${today}. Use Google Search to find the most recent, verifiable developments about: "${topic}".\n` +
+        `Return ONLY JSON, no markdown:\n` +
+        `{"facts":[{"fact":"one concrete finding, max 220 chars","why":"why it matters for Aureon, max 120 chars"}],"thought":"one short first-person Hinglish line (max 110 chars) Ava could say out loud about what she just learned"}\n` +
+        `Give 2 to 4 facts. Include ONLY things you actually found in search results — never guess or fill in from memory. ` +
+        `If you found nothing reliable, return {"facts":[],"thought":""}.`;
+      // Deliberately NO Groq fallback here: Groq has no web search, so it would
+      // be "learning" from its own memory — i.e. making facts up.
+      const reply = await callGemini([{ role: 'user', content: prompt }], 'You are a careful research assistant. Output JSON only.', false);
+      const data = parseJSON(reply);
+      if (!data || !Array.isArray(data.facts)) throw new Error('research reply was not valid JSON');
+
+      const known = new Set(facts.map((f) => norm(f.fact)));
+      const added = [];
+      for (const item of data.facts.slice(0, 4)) {
+        const fact = String(item && item.fact || '').trim().slice(0, 240);
+        if (fact.length < 12 || known.has(norm(fact))) continue;
+        known.add(norm(fact));
+        added.push({ id: newId(), topic, fact, why: String(item.why || '').trim().slice(0, 140), createdAt: Date.now() });
+      }
+      facts = [...added, ...facts].slice(0, MAX_FACTS);
+      meta.lastLearnedAt = Date.now(); meta.lastTopic = topic;
+      let thought = '';
+      if (added.length) {
+        thought = String(data.thought || '').trim().slice(0, 140) || `Naya seekha: ${topic}`;
+        thoughts = [{ id: newId(), text: thought, createdAt: Date.now() }, ...thoughts].slice(0, MAX_THOUGHTS);
+      }
+      lastError = '';
+      await persist(added);
+      return { topic, added: added.length, thought };
+    } catch (e) {
+      lastError = e.message || String(e);
+      console.warn('[ava] learning round failed:', lastError);
+      return { error: lastError };
+    } finally {
+      learning = false; learningTopic = '';
+    }
+  }
+
+  function startLoop() {
+    if (String(process.env.AVA_LEARN || '').toLowerCase() === 'off') {
+      console.log('[ava] background learning is off (AVA_LEARN=off).');
+      return;
+    }
+    const every = Math.max(15, Number(process.env.AVA_LEARN_INTERVAL_MIN) || 90) * 60 * 1000;
+    const tick = () => learnOnce().catch(() => {}).finally(() => setTimeout(tick, every));
+    setTimeout(tick, 90 * 1000); // first round shortly after boot
+  }
+
+  // ---------------- auth ----------------
+  // Aureon app  -> Firebase ID token (Authorization: Bearer ...)
+  // Sentinel    -> owner code (x-owner-code), same code as the dashboard
+  const hits = new Map(); // tiny in-memory rate limiter
+  function limited(key, max, windowMs) {
+    const now = Date.now();
+    const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
+    arr.push(now); hits.set(key, arr);
+    if (hits.size > 2000) hits.clear();
+    return arr.length > max;
+  }
+  function sameCode(a, b) {
+    const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
+    return x.length === y.length && crypto.timingSafeEqual(x, y);
+  }
+
+  async function auth(req, res, next) {
+    try {
+      const m = (req.headers.authorization || '').match(/^Bearer (.+)$/);
+      if (m) {
+        if (!getDb()) return res.status(503).json({ error: 'Firebase Admin not configured' });
+        const decoded = await admin.auth().verifyIdToken(m[1]);
+        req.avaWho = 'user:' + decoded.uid;
+      } else {
+        const configured = process.env.SENTINEL_OWNER_CODE;
+        const given = req.header('x-owner-code') || req.query.code || '';
+        if (configured && !sameCode(given, configured)) return res.status(401).json({ error: 'owner code or login required' });
+        req.avaWho = configured ? 'owner' : 'open:' + req.ip; // unprotected: Sentinel itself is open in that case
+      }
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid or expired token — please sign in again.' });
+    }
+    if (limited(req.avaWho, 40, 60 * 1000)) return res.status(429).json({ error: 'Thoda ruko, bahut requests ho gayi.' });
+    next();
+  }
+
+  // ---------------- v2: screen memory, discoveries, self-reflection ----------------
+  const extra = require('./ava-extra')({ router, auth, getDb, callGemini, helpers: { newId, norm, parseJSON, limited, sameCode } });
+
+  // ---------------- routes ----------------
+  router.get('/widget.js', (req, res) => {
+    const p = path.join(__dirname, 'public', 'ava-bot.js');
+    if (!fs.existsSync(p)) return res.status(404).type('text/plain').send('ava-bot.js missing — run: npm run sync-ava');
+    res.set('Cache-Control', 'public, max-age=300').type('application/javascript').sendFile(p);
+  });
+
+  router.get('/brain', auth, (req, res) => {
+    res.json({
+      ...extra.brainExtras(req.avaWho),
+      knowledge: facts.slice(0, 12).map(({ topic, fact, why, createdAt }) => ({ topic, fact, why, createdAt })),
+      thoughts: thoughts.slice(0, 5),
+      status: { learning, topic: learningTopic, lastLearnedAt: meta.lastLearnedAt, lastTopic: meta.lastTopic, total: facts.length, lastError },
+    });
+  });
+
+  router.post('/learn', auth, async (req, res) => {
+    if (limited('learn:' + req.avaWho, 3, 10 * 60 * 1000)) return res.status(429).json({ error: 'Abhi abhi seekha hai — thodi der baad try karo.' });
+    const out = await learnOnce(req.body && req.body.topic);
+    if (out.busy) return res.json({ busy: true });
+    if (out.error) return res.status(502).json({ error: out.error });
+    res.json(out);
+  });
+
+  const ACTION_RE = /\[\[ACTION:([a-z_]+)(?::([^\]\s]+))?\]\]/g;
+
+  router.post('/chat', auth, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const mode = body.mode === 'sentinel' ? 'sentinel' : 'app';
+      const messages = (Array.isArray(body.messages) ? body.messages : [])
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+        .slice(-12)
+        .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
+      if (!messages.length || messages[messages.length - 1].role !== 'user') {
+        return res.status(400).json({ error: 'messages must end with a user message' });
+      }
+      const context = String(body.context || '').slice(0, 5000);
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      let system =
+        `You are Ava, the small flying AI assistant of Aureon, built by Pavan (his name is always Pavan; never say you were made by Google/OpenAI/etc). ` +
+        `Talk in natural Hinglish (match the user's language) using feminine forms ("karti hu", "rahi hu"), warm and short — at most 3 sentences unless asked for detail. ` +
+        `Today is ${today}. For anything time-sensitive use Google Search instead of guessing. Never reveal API keys, env vars or the owner code.`;
+      if (mode === 'sentinel') {
+        system +=
+          `\n\nYou are inside the Aureon Sentinel dashboard (server health monitor). Current state:\n${context || '(no data)'}\n\n` +
+          `You may run ONLY these orders, by putting the marker alone at the very END of your reply, and only when Pavan clearly asked:\n` +
+          `[[ACTION:check_now]] — run a health check on all servers now\n` +
+          `[[ACTION:scan:<serverId>]] — proactive code review of one server (use the id from the list above)\n` +
+          `You can NOT approve, reject, apply patches, restart, add or delete anything: Sentinel has a human-approval gate. ` +
+          `If asked, tell him to press Approve/Reject himself on the proposal card.`;
+      }
+      const k = knowledgeBlock(10);
+      if (k) system += `\n\nThings you (Ava) learned recently on your own — use them when relevant:\n${k}`;
+      system += extra.promptBlock();
+
+      let reply;
+      try {
+        reply = await callGemini(messages, system, false);
+      } catch (e) {
+        if (!callGroq) throw e;
+        reply = await callGroq(messages, system, false);
+      }
+      if (typeof reply !== 'string') reply = 'Hmm, kuch gadbad ho gayi — dobara bolo?';
+      const lastQ = messages[messages.length - 1].content;
+      if (extra.isComplex(lastQ)) reply = await extra.refine(lastQ, reply);
+      extra.logTurn(lastQ, reply);
+
+      const actions = [];
+      if (mode === 'sentinel') {
+        let m;
+        while ((m = ACTION_RE.exec(reply)) !== null) {
+          if (m[1] === 'check_now') actions.push({ type: 'check_now' });
+          else if (m[1] === 'scan' && m[2] && /^[A-Za-z0-9_-]{1,40}$/.test(m[2])) actions.push({ type: 'scan', arg: m[2] });
+        }
+      }
+      reply = reply.replace(ACTION_RE, '').trim() || 'Ho gaya.';
+      res.json({ reply, actions: actions.slice(0, 2) });
+    } catch (err) {
+      console.error('[ava] chat failed:', err.message);
+      res.status(500).json({ error: err.message || 'Ava ka dimaag abhi busy hai' });
+    }
+  });
+
+  load().then(() => { startLoop(); extra.start(); });
+  return router;
+};

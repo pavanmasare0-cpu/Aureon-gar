@@ -104,6 +104,22 @@
                 android:value="Announces caller name via text-to-speech when a call rings" />
         </service>
 
+        <!-- Ava watching the screen (MediaProjection). Starts only after the user accepts Android's capture dialog. -->
+        <service
+            android:name=".AvaScreenWatchService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Ava floating over other apps (needs "Display over other apps"). -->
+        <service
+            android:name=".AvaOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows Ava, the floating assistant, over other apps" />
+        </service>
+
         <!-- JARVIS-style proactive check-ins — fired by self-rescheduling
              AlarmManager alarms (daily + "been quiet a while"), never by
              another app, so this doesn't need to be exported. -->
@@ -140,6 +156,8 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
