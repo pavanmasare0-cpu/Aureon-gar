@@ -2032,4 +2032,12 @@ app.post('/api/proactive-message', verifyAuth, async (req, res) => {
   }
 });
 
+// ---------- Ava: flying assistant (chat for Sentinel, self-learning brain) ----------
+app.use('/api/ava', require('./ava')({
+  getDb: () => db,
+  admin,
+  callGemini,
+  callGroq,
+}));
+
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));
