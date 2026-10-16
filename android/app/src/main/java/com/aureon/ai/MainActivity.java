@@ -119,6 +119,7 @@ public class MainActivity extends BridgeActivity {
         }
 
         startCallListenerService();
+        AvaOverlayService.startIfEnabled(this);
     }
 
     /**

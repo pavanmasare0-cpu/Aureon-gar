@@ -43,6 +43,10 @@ public class AureonVoiceInteractionService extends VoiceInteractionService {
             "aureon", "oreon", "aurion", "aurian", "arion", "oreion", "everyone"
     };
 
+    // Set while Aureon is the active Default Assistant; lets the floating Ava
+    // overlay (AvaOverlayService) open the same voice session on tap.
+    private static AureonVoiceInteractionService instance;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpeechRecognizer wakeWordRecognizer;
     private boolean listeningEnabled = false;
@@ -51,6 +55,7 @@ public class AureonVoiceInteractionService extends VoiceInteractionService {
     public void onReady() {
         super.onReady();
         Log.d(TAG, "Aureon voice interaction service ready.");
+        instance = this;
         createNotificationChannel();
         listeningEnabled = true;
         startWakeWordListening();
@@ -60,8 +65,29 @@ public class AureonVoiceInteractionService extends VoiceInteractionService {
     public void onShutdown() {
         super.onShutdown();
         Log.d(TAG, "Aureon voice interaction service shutting down.");
+        instance = null;
         listeningEnabled = false;
         stopWakeWordListening();
+    }
+
+    /**
+     * Called when the floating Ava orb is tapped. Returns false when Aureon is
+     * not the Default Assistant (so the caller can just open the app instead).
+     */
+    public static boolean showFromOverlay() {
+        final AureonVoiceInteractionService s = instance;
+        if (s == null) return false;
+        s.handler.post(() -> {
+            try {
+                s.stopWakeWordListening();
+                s.showSession(new Bundle(), VoiceInteractionSession.SHOW_WITH_ASSIST);
+                s.listeningEnabled = true;
+                s.waitForSessionEndThenResume();
+            } catch (Exception e) {
+                Log.w(TAG, "Could not show session from Ava overlay: " + e.getMessage());
+            }
+        });
+        return true;
     }
 
     private void createNotificationChannel() {
