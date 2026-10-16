@@ -229,10 +229,28 @@ public class AvaScreenWatchService extends Service {
             try (OutputStream os = c.getOutputStream()) { os.write(body); }
             int code = c.getResponseCode();
             if (code == 401 || code == 403) stopSelf(); // key revoked / feature switched off on the server
+            if (code >= 200 && code < 300) {
+                // The server tells how Ava "feels" about the screen: angry / sad / shy.
+                java.util.regex.Matcher mm = java.util.regex.Pattern
+                        .compile("\"mood\"\\s*:\\s*\"(angry|sad|shy)\"").matcher(readSmall(c));
+                if (mm.find()) AvaOverlayService.showMood(mm.group(1));
+            }
         } catch (Exception ignored) {
             // offline or server asleep: the next changed frame will try again
         } finally {
             if (c != null) c.disconnect();
+        }
+    }
+
+    private static String readSmall(HttpURLConnection c) {
+        try (java.io.InputStream is = c.getInputStream()) {
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            int n, total = 0;
+            while (total < 4096 && (n = is.read(buf)) > 0) { bo.write(buf, 0, n); total += n; }
+            return bo.toString("UTF-8");
+        } catch (Exception e) {
+            return "";
         }
     }
 

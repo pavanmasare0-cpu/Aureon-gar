@@ -12,6 +12,8 @@ import android.content.SharedPreferences;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -86,6 +88,7 @@ public class AvaOverlayService extends Service {
 
     // ---------- instance state ----------
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private static volatile AvaOverlayService inst;
     private WindowManager wm;
     private OrbView orb;
     private WindowManager.LayoutParams lp;
@@ -145,6 +148,7 @@ public class AvaOverlayService extends Service {
 
     @Override
     public void onCreate() {
+        inst = this;
         super.onCreate();
         wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         density = getResources().getDisplayMetrics().density;
@@ -247,6 +251,17 @@ public class AvaOverlayService extends Service {
         handler.post(tick);
     }
 
+    /** Ava's feelings about what she sees on screen: "angry", "sad" or "shy" (anything else is ignored). */
+    public static void showMood(String m) {
+        final AvaOverlayService svc = inst;
+        if (svc == null) return;
+        final int code = "angry".equals(m) ? 1 : "sad".equals(m) ? 2 : "shy".equals(m) ? 3 : 0;
+        if (code == 0) return;
+        svc.handler.post(new Runnable() {
+            @Override public void run() { if (svc.orb != null) svc.orb.setMood(code, 14f); }
+        });
+    }
+
     private void onTapped() {
         orb.hop();
         // Open Ava's own transparent chat screen right over whatever app is on
@@ -311,6 +326,7 @@ public class AvaOverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        if (inst == this) inst = null;
         handler.removeCallbacksAndMessages(null);
         if (lifecycle != null) {
             try { getApplication().unregisterActivityLifecycleCallbacks(lifecycle); } catch (Exception ignored) { }
@@ -337,6 +353,12 @@ public class AvaOverlayService extends Service {
 
         private float time = 0f, vxDp = 0f, hopT = -1f, blinkT = 0f;
         private boolean pressed = false;
+        // 0 = normal, 1 = angry, 2 = sad (crying), 3 = shy
+        private int mood = 0;
+        private float moodLeft = 0f;
+        private final Paint moodP = new Paint();
+        private final Path brow = new Path();
+        private ColorMatrixColorFilter angryF, sadF, shyF;
         private float cx, cy, r;
         private Shader glowShader, sphereShader, ringShader;
 
@@ -350,9 +372,33 @@ public class AvaOverlayService extends Service {
 
         void hop() { hopT = 0f; }
 
+        void setMood(int m, float seconds) { mood = m; moodLeft = seconds; invalidate(); }
+
+        private ColorMatrixColorFilter moodFilter() {
+            if (angryF == null) {
+                angryF = new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                        0f, 0.9f, 0.45f, 0f, 0f,
+                        0.25f, 0f, 0f, 0f, 0f,
+                        0.12f, 0f, 0f, 0f, 0f,
+                        0f, 0f, 0f, 1f, 0f}));
+                sadF = new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                        0.45f, 0.3f, 0.1f, 0f, 0f,
+                        0.2f, 0.55f, 0.15f, 0f, 0f,
+                        0.25f, 0.35f, 0.5f, 0f, 0f,
+                        0f, 0f, 0f, 1f, 0f}));
+                shyF = new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                        0.35f, 0.8f, 0.2f, 0f, 0f,
+                        0.25f, 0.3f, 0.2f, 0f, 0f,
+                        0.5f, 0.45f, 0.6f, 0f, 0f,
+                        0f, 0f, 0f, 1f, 0f}));
+            }
+            return mood == 1 ? angryF : mood == 2 ? sadF : shyF;
+        }
+
         void step(float dt, float vxDpPerSec, float vyDpPerSec) {
             time += dt;
             vxDp = vxDpPerSec;
+            if (moodLeft > 0f) { moodLeft -= dt; if (moodLeft <= 0f) mood = 0; }
             blinkT += dt;
             if (blinkT > 5f) blinkT = 0f;
             if (hopT >= 0f) {
@@ -385,6 +431,12 @@ public class AvaOverlayService extends Service {
             float scale = pressed ? 0.9f : 1f;
             if (hopT >= 0f) scale *= 1f + 0.18f * (float) Math.sin(Math.PI * hopT);
 
+            int layer = -1;
+            if (mood != 0) {
+                moodP.setColorFilter(moodFilter());
+                layer = c.saveLayer(0f, 0f, getWidth(), getHeight(), moodP);
+            }
+
             // soft glow
             float pulse = 0.85f + 0.15f * (float) Math.sin(time * 2 * Math.PI / 2.6);
             p.reset(); p.setAntiAlias(true);
@@ -394,7 +446,7 @@ public class AvaOverlayService extends Service {
             p.setShader(null);
 
             c.save();
-            c.translate(0, bob);
+            c.translate(mood == 1 ? (float) Math.sin(time * 48f) * 1.3f * d : 0f, bob);
             c.rotate(tilt, cx, cy);
             c.scale(scale, scale, cx, cy);
 
@@ -404,6 +456,7 @@ public class AvaOverlayService extends Service {
             drawVisor(c);
             drawSparkles(c);
             c.restore();
+            if (layer >= 0) c.restoreToCount(layer);
         }
 
         private void glow(Paint paint, int color, float blurDp) {
@@ -531,10 +584,19 @@ public class AvaOverlayService extends Service {
 
             // eyes (look where she is flying; blink every ~5s)
             float lookX = Math.max(-1f, Math.min(1f, vxDp / 90f)) * r * 0.07f;
+            if (mood == 3) lookX += r * 0.07f; // shy: looks away
             float blink = (blinkT > 4.8f && blinkT < 4.92f) ? 0.1f : 1f;
             float eyeW = r * 0.24f, eyeH = r * 0.4f * blink, eyeCy = cy - r * 0.06f;
             for (int side = -1; side <= 1; side += 2) {
                 float ex = cx + side * r * 0.28f + lookX;
+                if (mood == 3) { // shy: happy ^ ^ eyes
+                    rect.set(ex - eyeW * 0.65f, eyeCy - eyeH * 0.1f, ex + eyeW * 0.65f, eyeCy + eyeH * 0.45f);
+                    p.reset(); p.setAntiAlias(true); p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(2.4f * d); p.setStrokeCap(Paint.Cap.ROUND);
+                    p.setColor(0xFFAEF9FF);
+                    c.drawArc(rect, 200f, 140f, false, p);
+                    continue;
+                }
                 rect.set(ex - eyeW / 2f, eyeCy - eyeH / 2f, ex + eyeW / 2f, eyeCy + eyeH / 2f);
                 p.reset(); p.setAntiAlias(true); p.setStyle(Paint.Style.FILL);
                 glow(p, 0xFF22D3EE, 4);
@@ -546,14 +608,59 @@ public class AvaOverlayService extends Service {
                     p.setColor(Color.WHITE);
                     c.drawCircle(ex - eyeW * 0.15f, eyeCy - eyeH * 0.25f, eyeW * 0.14f, p);
                 }
+                if (mood == 1 || mood == 2) drawBrowCut(c, ex, eyeCy, eyeW, eyeH, side, mood);
+                if (mood == 2) { // crying: tear drops running down
+                    float ph = (time * 0.8f + (side > 0 ? 0.4f : 0f)) % 1f;
+                    float ty = eyeCy + eyeH * 0.45f + ph * r * 0.5f;
+                    p.reset(); p.setAntiAlias(true);
+                    p.setColor(0xFFBFE9FF);
+                    p.setAlpha((int) (255 * (1f - ph)));
+                    c.drawCircle(ex, ty, r * 0.055f * (0.7f + 0.3f * (1f - ph)), p);
+                }
             }
-            // smile
-            rect.set(cx - r * 0.2f + lookX, cy + r * 0.02f, cx + r * 0.2f + lookX, cy + r * 0.36f);
+            if (mood == 3) { // blush
+                for (int side = -1; side <= 1; side += 2) {
+                    float bx = cx + side * r * 0.5f, by = cy + r * 0.14f;
+                    rect.set(bx - r * 0.15f, by - r * 0.09f, bx + r * 0.15f, by + r * 0.09f);
+                    p.reset(); p.setAntiAlias(true);
+                    p.setColor(0x99FF5C96);
+                    c.drawOval(rect, p);
+                }
+            }
+            // mouth
             p.reset(); p.setAntiAlias(true); p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(2f * d);
             p.setStrokeCap(Paint.Cap.ROUND);
             p.setColor(0xFFAEF9FF);
-            c.drawArc(rect, 25f, 130f, false, p);
+            if (mood == 1 || mood == 2) { // frown
+                rect.set(cx - r * 0.16f + lookX, cy + r * 0.2f, cx + r * 0.16f + lookX, cy + r * 0.4f);
+                c.drawArc(rect, 205f, 130f, false, p);
+            } else if (mood == 3) { // tiny shy smile
+                rect.set(cx - r * 0.07f + lookX, cy + r * 0.14f, cx + r * 0.07f + lookX, cy + r * 0.26f);
+                c.drawArc(rect, 20f, 140f, false, p);
+            } else { // smile
+                rect.set(cx - r * 0.2f + lookX, cy + r * 0.02f, cx + r * 0.2f + lookX, cy + r * 0.36f);
+                c.drawArc(rect, 25f, 130f, false, p);
+            }
+        }
+
+        // Slanted "eyelid" over the top of an eye: angry (inner side low) or sad (outer side low).
+        private void drawBrowCut(Canvas c, float ex, float eyeCy, float eyeW, float eyeH, int side, int m) {
+            float outer = ex + side * eyeW * 0.85f, inner = ex - side * eyeW * 0.85f;
+            float top = eyeCy - eyeH * 0.75f;
+            float yOuter, yInner;
+            if (m == 1) { yOuter = eyeCy - eyeH * 0.55f; yInner = eyeCy - eyeH * 0.02f; }
+            else { yOuter = eyeCy - eyeH * 0.02f; yInner = eyeCy - eyeH * 0.5f; }
+            brow.reset();
+            brow.moveTo(outer, top); brow.lineTo(inner, top); brow.lineTo(inner, yInner); brow.lineTo(outer, yOuter);
+            brow.close();
+            p.reset(); p.setAntiAlias(true); p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF0B2260);
+            c.drawPath(brow, p);
+            p.reset(); p.setAntiAlias(true); p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2.2f * d); p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(m == 1 ? 0xFFFFD0D0 : 0xFFAEF9FF);
+            c.drawLine(outer, yOuter, inner, yInner, p);
         }
 
         private void drawSparkles(Canvas c) {

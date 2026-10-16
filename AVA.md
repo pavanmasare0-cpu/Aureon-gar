@@ -77,3 +77,9 @@ Settings → General me "Ava (udta hua bot)" switch se Ava poori band/on hoti ha
 
 ## Naye files
 `backend/ava-extra.js` · `android/.../AvaScreenWatchService.java` · `AureonActionsPlugin.java` (startScreenWatch/stopScreenWatch/getScreenWatch) · `AndroidManifest.xml` (mediaProjection service + permission)
+
+## Moods (angry / rone wala / sharmaya hua)
+- Ava ke 3 naye mood hain: **angry 😠** (laal, tirchi bhauhein, hilti hai), **sad 😢** (neela-grey, aansu), **shy 🙈** (gulabi, blush, ^ ^ aankhein).
+- Screen dekhte waqt backend ka vision model batata hai: sexual/nude content -> shy (uska description kabhi save nahi hota), kuch galat/harmful (violence, cruelty, abuse, scam, nafrat) -> angry, rona/dukh wali scene -> sad.
+- Mood ~14 sec rehta hai. In-app orb aur phone-overlay dono me dikhta hai. Server route: `GET /api/ava/screen/mood`.
+- Chat words se bhi: gaali/"bekar" -> angry, "cute/sundar" -> shy, "bye" -> sad.

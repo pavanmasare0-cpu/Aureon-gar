@@ -146,6 +146,28 @@
 .ava-ear:after{top:2.5px;width:2.5px;height:2.5px;margin-left:-1.25px;box-shadow:0 0 4px 1px #aef9ff}\
 .ava-ear.l{left:-8px}.ava-ear.r{right:-8px}\
 #ava-root .ava-ib.on{background:rgba(255,60,172,.3);border-color:#ff3cac;box-shadow:0 0 8px #ff3cac;opacity:1}\
+.ava-tilt{transition:transform .12s linear,filter .35s}\
+.mood-angry .ava-tilt{filter:url(#avaF-angry)}.mood-sad .ava-tilt{filter:url(#avaF-sad)}.mood-shy .ava-tilt{filter:url(#avaF-shy)}\
+.mood-angry .ava-sphere{animation:avaShake .12s linear infinite}\
+@keyframes avaShake{0%,100%{transform:translateX(-1.3px)}50%{transform:translateX(1.3px)}}\
+.mood-angry .ava-eye,.mood-sad .ava-eye{overflow:hidden}\
+.mood-angry .ava-eye:before,.mood-sad .ava-eye:before{content:"";position:absolute;left:-35%;right:-35%;top:-4%;height:50%;background:#0a1d52;z-index:2}\
+.mood-angry .ava-eye.l:before{transform:rotate(26deg)}.mood-angry .ava-eye.r:before{transform:rotate(-26deg)}\
+.mood-sad .ava-eye.l:before{transform:rotate(-22deg)}.mood-sad .ava-eye.r:before{transform:rotate(22deg)}\
+.mood-angry .ava-mouth,.mood-sad .ava-mouth{border-bottom:0;border-top:2.5px solid #aef9ff;border-radius:50% 50% 0 0;bottom:14%;left:40%;right:40%}\
+.mood-sad .ava-mouth{animation:avaWob .7s ease-in-out infinite alternate}\
+@keyframes avaWob{from{transform:translate(var(--lx),var(--ly,0px)) scaleX(.85)}to{transform:translate(var(--lx),var(--ly,0px)) scaleX(1.1)}}\
+.mood-shy .ava-eye{width:19%;height:24%;top:33%;border-radius:100% 100% 0 0 / 140% 140% 0 0;background:transparent;border-top:3px solid #aef9ff;box-shadow:0 -2px 8px #22d3ee;animation:none}\
+.mood-shy .ava-eye:after{display:none}.mood-shy .ava-mouth{left:44%;right:44%;height:10%}\
+.ava-blush{position:absolute;top:54%;width:20%;height:24%;border-radius:50%;background:radial-gradient(circle,rgba(255,92,150,.9),rgba(255,92,150,0) 70%);opacity:0;transition:opacity .3s}\
+.ava-blush.l{left:3%}.ava-blush.r{right:3%}.mood-shy .ava-blush{opacity:1}\
+.ava-tear{position:absolute;top:60%;width:7%;height:12%;border-radius:50% 50% 60% 60%/60% 60% 40% 40%;background:#bfe9ff;box-shadow:0 0 5px #7dd3fc;opacity:0}\
+.ava-tear.l{left:30%}.ava-tear.r{right:30%}\
+.mood-sad .ava-tear{animation:avaTear 1.3s ease-in infinite}.mood-sad .ava-tear.r{animation-delay:.55s}\
+@keyframes avaTear{0%{opacity:0;transform:translateY(0)}15%{opacity:1}100%{opacity:0;transform:translateY(20px)}}\
+.ava-ico{position:absolute;right:-8px;top:-10px;font-size:19px;line-height:1;opacity:0;pointer-events:none;transition:opacity .2s}\
+.mood-angry .ava-ico,.mood-sad .ava-ico,.mood-shy .ava-ico{opacity:1;animation:avaIco .9s ease-in-out infinite alternate}\
+@keyframes avaIco{from{transform:scale(.9) rotate(-8deg)}to{transform:scale(1.18) rotate(8deg)}}\
 html.ava-panel,html.ava-panel body{background:transparent!important;background-image:none!important}\
 html.ava-panel body::before,html.ava-panel body::after{display:none!important}\
 html.ava-panel body>*:not(#ava-root){display:none!important}';
@@ -157,8 +179,9 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     '<div id="ava-orb" role="button" aria-label="Ava assistant"><div class="ava-shadow"></div><div class="ava-tilt"><div class="ava-hop"><div class="ava-bob">' +
       '<div class="ava-glow"></div><div class="ava-halo"></div><div class="ava-ant"></div>' +
       '<div class="ava-sphere"><div class="ava-gloss"></div><div class="ava-ear l"></div><div class="ava-ear r"></div>' +
-      '<div class="ava-visor"><span class="ava-eye l"></span><span class="ava-eye r"></span><span class="ava-mouth"></span></div></div><div class="ava-ring"></div><i class="ava-sp s1">✦</i><i class="ava-sp s2">✦</i><i class="ava-sp s3">✦</i><div class="ava-dots"><i></i><i></i><i></i></div><div class="ava-wave"></div>' +
-    '</div></div></div></div>' +
+      '<div class="ava-visor"><span class="ava-eye l"></span><span class="ava-eye r"></span><span class="ava-mouth"></span><i class="ava-blush l"></i><i class="ava-blush r"></i><i class="ava-tear l"></i><i class="ava-tear r"></i></div></div><div class="ava-ring"></div><i class="ava-sp s1">✦</i><i class="ava-sp s2">✦</i><i class="ava-sp s3">✦</i><div class="ava-dots"><i></i><i></i><i></i></div><div class="ava-wave"></div>' +
+    '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="avaF-angry"><feColorMatrix type="matrix" values="0 0.9 0.45 0 0  0.25 0 0 0 0  0.12 0 0 0 0  0 0 0 1 0"/></filter><filter id="avaF-sad"><feColorMatrix type="matrix" values="0.45 0.3 0.1 0 0  0.2 0.55 0.15 0 0  0.25 0.35 0.5 0 0  0 0 0 1 0"/></filter><filter id="avaF-shy"><feColorMatrix type="matrix" values="0.35 0.8 0.2 0 0  0.25 0.3 0.2 0 0  0.5 0.45 0.6 0 0  0 0 0 1 0"/></filter></svg>' +
+    '</div></div></div><div class="ava-ico"></div></div>' +
     '<div id="ava-bubble"><span class="t"></span><div class="bar"><i></i></div></div>' +
     '<div id="ava-nub" title="Ava ko wapas bulao">✦</div>' +
     '<div id="ava-panel" role="dialog" aria-label="Ava chat">' +
@@ -180,9 +203,11 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var bubbleEl = root.querySelector('#ava-bubble'), bubbleT = bubbleEl.querySelector('.t'), nubEl = root.querySelector('#ava-nub');
   var panelEl = root.querySelector('#ava-panel'), msgsEl = root.querySelector('#ava-msgs'), inEl = root.querySelector('#ava-in');
   var subEl = root.querySelector('#ava-sub'), chipsEl = root.querySelector('#ava-chips'), micEl = root.querySelector('#ava-mic');
+  var icoEl = root.querySelector('.ava-ico');
   var voiceBtn = root.querySelector('#ava-voice'), talkBtn = root.querySelector('#ava-talk'), seeBtn = root.querySelector('#ava-see'), discBtn = root.querySelector('#ava-disc');
 
   // ---------- state ----------
+  var mood = 'none', moodTimer = 0, lastMoodSay = 0;
   var seeOn = false, vis = true, panelOpen = false, interacted = false, lastSpoke = 0, bubbleTimer = 0, busy = false, learning = false;
   var W = innerWidth, H = innerHeight;
   var o = { x: W - SIZE - 14, y: H * 0.45, vx: 0, vy: 0, tx: W * 0.5, ty: H * 0.3, mode: 'roam', wait: 1.5, nextThought: Date.now() + 9000 };
@@ -204,7 +229,45 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   if (!IS_SENTINEL && AAp && AAp.avaPanelMode) {
     try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
   }
-  function setState(s) { root.className = 's-' + s + (root.classList.contains('happy') ? ' happy' : ''); }
+
+  // ---------- moods: angry / sad (crying) / shy ----------
+  // Triggered by what Ava sees on the screen (backend vision says angry|sad|shy) and by a few
+  // chat words. Pure expression + a short remark - she never describes sensitive screens.
+  var MOOD_ICO = { angry: '💢', sad: '💧', shy: '🙈' };
+  var MOOD_SAY = {
+    angry: ['Ye galat hai! 😠 Mujhe gussa aa raha hai.', 'Hmph! Aisa kuch dekhna theek nahi lag raha.', 'Ye sab bilkul sahi nahi hai 😤'],
+    sad: ['Aww… mujhe rona aa raha hai 😢', 'Ye dekh ke dil bhar aaya… 💧', 'Bahut dukh hua ye dekh ke 😭'],
+    shy: ['Hayyy… 🙈 mai nahi dekh rahi!', 'Ee… sharam aa rahi hai, aankhein band! 🙈', 'Uff! Mai udhar nahi dekhungi 😳']
+  };
+  function setMood(m, ms, line, speakIt) {
+    clearTimeout(moodTimer);
+    root.classList.remove('mood-angry', 'mood-sad', 'mood-shy');
+    mood = MOOD_ICO[m] ? m : 'none';
+    if (mood !== 'none') root.classList.add('mood-' + mood);
+    icoEl.textContent = MOOD_ICO[mood] || '';
+    if (mood === 'none') return;
+    moodTimer = setTimeout(function () { setMood('none'); }, ms || 12000);
+    var now = Date.now();
+    if (line && now - lastMoodSay > 25000) {
+      lastMoodSay = now;
+      if (line === true) { var arr = MOOD_SAY[mood]; line = arr[Math.floor(Math.random() * arr.length)]; }
+      showBubble(line, 7000);
+      if (speakIt && voiceOn && !document.hidden) speak(line.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, ''));
+    }
+  }
+  function onScreenMood(m) { if (MOOD_ICO[m]) setMood(m, 14000, true, true); }
+  function reactMood(t) {
+    t = String(t || '');
+    if (/\b(gadh[aei]|bekar|bewakoof|pagal|nikamm?[ae]|stupid|idiot|useless|shut ?up|chup kar)\b/i.test(t)) setMood('angry', 7000, 'Hmph! 😠 Aise mat bolo, mujhe bura lagta hai.');
+    else if (/\b(cute|pyaari|pyari|sundar|beautiful|love you|i love you|pretty)\b/i.test(t)) setMood('shy', 7000, 'Hayy 🙈 itni taareef mat karo…');
+    else if (/\b(bye|alvida|goodbye|chhod ke ja)\b/i.test(t)) setMood('sad', 7000, 'Aww… jaa rahe ho? 😢 Jaldi aana.');
+  }
+  window.AvaBot = window.AvaBot || {}; window.AvaBot.mood = onScreenMood;
+  setInterval(function () { // native screen-watch (other apps): ask the server what Ava last "felt"
+    if (IS_SENTINEL || !seeOn || document.hidden || !(window.state && state.user)) return;
+    api('GET', '/api/ava/screen/mood').then(function (r) { if (r && r.mood && r.mood !== 'none') onScreenMood(r.mood); }).catch(function () {});
+  }, 7000);
+  function setState(s) { root.className = 's-' + s + (root.classList.contains('happy') ? ' happy' : '') + (mood !== 'none' ? ' mood-' + mood : ''); }
   function flash(cls, ms) { root.classList.add(cls); setTimeout(function () { root.classList.remove(cls); }, ms); }
   function happy() { flash('hop', 650); flash('happy', 1500); try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
   var dart = { x: 0, y: 0 };
@@ -506,7 +569,8 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       try {
         if (!video.videoWidth) return; drawFrame(video, cv);
         var th = thumbDiff(cv, webWatch.prev); if (th.diff < 3) return; webWatch.prev = th.v;
-        await api('POST', '/api/ava/screen/frame', { image: cv.toDataURL('image/jpeg', 0.6).split(',')[1] });
+        var fr = await api('POST', '/api/ava/screen/frame', { image: cv.toDataURL('image/jpeg', 0.6).split(',')[1] });
+        if (fr && fr.mood) onScreenMood(fr.mood);
       } catch (e) { /* skip this frame */ }
     }, 6000);
     stream.getVideoTracks()[0].addEventListener('ended', function () { stopSee(); });
@@ -566,6 +630,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   }
 
   async function send(text) {
+    try { reactMood(text); } catch (e) {}
     text = String(text || '').trim();
     if (!text || busy) return;
     interacted = true; chipsEl.style.display = 'none';
