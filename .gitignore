@@ -10,3 +10,9 @@ android/local.properties
 
 local.properties
 **/local.properties
+node_modules/
+android/build/
+android/app/build/
+android/.gradle/
+*.bak*
+*.zip
