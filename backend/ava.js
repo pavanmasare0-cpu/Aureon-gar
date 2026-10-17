@@ -43,7 +43,17 @@ const DEFAULT_TOPICS = [
   'new open-source AI assistant and voice-agent techniques',
 ];
 
-module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
+module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, callGroq }) {
+  // Gemini quota / bad key must not silence Ava: every text call falls back to Groq (images stay Gemini-only).
+  async function callGemini(messages, system, useTools) {
+    try { return await callGeminiRaw(messages, system, useTools); }
+    catch (e) {
+      const hasImage = Array.isArray(messages) && messages.some((m) => m && m.image);
+      if (!callGroq || hasImage) throw e;
+      try { return await callGroq(messages, system, false); }
+      catch (e2) { throw new Error('Gemini: ' + String(e.message).slice(0, 160) + ' | Groq: ' + String(e2.message).slice(0, 160)); }
+    }
+  }
   const router = express.Router();
 
   // ---------------- storage ----------------
@@ -219,6 +229,13 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
     return x.length === y.length && crypto.timingSafeEqual(x, y);
   }
 
+  function dashSession(req) { // logged in to the Sentinel dashboard (HttpOnly session cookie, SameSite=Strict); writes also need the x-csrf header
+    try {
+      const a = require('./dash-auth').authenticate(req);
+      return !!(a && a.ok && a.via === 'session' && (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.header('x-csrf')));
+    } catch (e) { return false; }
+  }
+
   async function auth(req, res, next) {
     try {
       const m = (req.headers.authorization || '').match(/^Bearer (.+)$/);
@@ -230,6 +247,8 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
         const csv = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
         req.avaIsOwner = csv(process.env.AVA_OWNER_UIDS).includes(String(decoded.uid).toLowerCase()) ||
           (!!decoded.email && decoded.email_verified === true && csv(process.env.AVA_OWNER_EMAILS).includes(decoded.email.toLowerCase()));
+      } else if (dashSession(req)) {
+        req.avaWho = 'owner'; req.avaIsOwner = true; // Sentinel dashboard login (session cookie) — the page no longer carries the owner code
       } else {
         const configured = process.env.SENTINEL_OWNER_CODE;
         const given = req.header('x-owner-code') || req.query.code || '';

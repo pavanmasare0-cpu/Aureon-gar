@@ -64,7 +64,10 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   async function askJSON(prompt) {
     const hook = global.__avaSelf;
     if (hook && typeof hook.llm === 'function') {
-      const raw = String(await hook.llm(prompt) || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+      let txt;
+      try { txt = await hook.llm(prompt); }
+      catch (e) { if (!process.env.GROQ_API_KEY) throw e; return callLLM(prompt); } // Gemini quota -> Sentinel's Groq
+      const raw = String(txt || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
       try { return JSON.parse(raw); } catch (e) { const m = raw.match(/\{[\s\S]*\}/); if (m) { try { return JSON.parse(m[0]); } catch (e2) { /* fall through */ } } return null; }
     }
     return callLLM(prompt);
@@ -386,6 +389,7 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 <div class="meta" id="prot"></div></div>
 <h2 style="font-size:16px">Pending proposals</h2><div id="pend"></div>
 <h2 style="font-size:16px">Ava ne khud ko kya upgrade kiya (history)</h2><div id="hist"></div>
+<script src="/api/ava/widget.js"></script>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 async function af(url,opts){opts=opts||{};opts.headers=Object.assign({'x-csrf':'1','Content-Type':'application/json'},opts.headers);

@@ -418,7 +418,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   // ---------- API ----------
   async function api(method, path, body) {
     var base, headers;
-    if (IS_SENTINEL) { base = ''; headers = { 'Content-Type': 'application/json', 'x-owner-code': (typeof OWNER_CODE !== 'undefined' ? OWNER_CODE : '') }; }
+    if (IS_SENTINEL) { base = ''; headers = { 'Content-Type': 'application/json', 'x-csrf': '1', 'x-owner-code': (typeof OWNER_CODE !== 'undefined' ? OWNER_CODE : '') }; }
     else {
       if (typeof state === 'undefined' || !state.user) throw new Error('Pehle login karo.');
       base = state.backendUrl.replace(/\/$/, ''); headers = await authHeaders();

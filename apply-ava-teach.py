@@ -12,9 +12,17 @@ def edit(path, marker, anchor, new, label, mode='before'):
     s = open(path, encoding='utf8').read()
     if marker in s: print('ok    :', label, '(already there)'); return
     if anchor not in s: print('❌ ANCHOR MISSING:', label, '- send me', path); ok = False; return
-    if not os.path.exists(path + '.bak-before-ava-teach'): open(path + '.bak-before-ava-teach', 'w', encoding='utf8').write(s)
+    bk = path + '.bak-before-ava-teach'
+    if '/res/' in path.replace(os.sep, '/'):   # Android's resource merger rejects any non-.xml file inside res/ -> keep the backup outside
+        os.makedirs('.ava-backups', exist_ok=True); bk = os.path.join('.ava-backups', os.path.basename(path) + '.bak-before-ava-teach')
+    if not os.path.exists(bk): open(bk, 'w', encoding='utf8').write(s)
     rep = {'before': new + anchor, 'after': anchor + new, 'replace': new}[mode]
     open(path, 'w', encoding='utf8').write(s.replace(anchor, rep, 1)); print('done  :', label)
+
+import glob
+for stray in glob.glob('android/app/src/main/res/**/*.bak*', recursive=True):   # leftovers from an earlier run break the Gradle build
+    try: os.remove(stray); print('removed stray backup from res/:', stray)
+    except OSError: pass
 
 if not os.path.exists(J + 'AvaTeach.java'): print('❌ AvaTeach.java missing - unzip the zip first'); sys.exit(1)
 

@@ -167,6 +167,9 @@ public class MainActivity extends BridgeActivity {
     private void aureonFullscreen() {
         try {
             android.view.Window w = getWindow();
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false); // draw behind bars + notch (no black strip)
+            w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            w.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
             if (Build.VERSION.SDK_INT >= 28) { // also use the area around a camera notch (CSS safe-area keeps the header clear of it)
                 android.view.WindowManager.LayoutParams lp = w.getAttributes();
                 lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
