@@ -169,7 +169,7 @@
 .mood-angry .ava-ico,.mood-sad .ava-ico,.mood-shy .ava-ico{opacity:1;animation:avaIco .9s ease-in-out infinite alternate}\
 @keyframes avaIco{from{transform:scale(.9) rotate(-8deg)}to{transform:scale(1.18) rotate(8deg)}}\
 html.ava-panel,html.ava-panel body{background:transparent!important;background-image:none!important}\
-html.ava-panel body::before,html.ava-panel body::after{display:none!important}\
+html.ava-panel::before,html.ava-panel::after,html.ava-panel body::before,html.ava-panel body::after{display:none!important;content:none!important}\
 html.ava-panel body>*:not(#ava-root){display:none!important}';
   var style = el('style'); style.id = 'ava-style'; style.textContent = css; document.head.appendChild(style);
 
@@ -219,15 +219,27 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var AAp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
   function closePanelMode() { try { AAp && AAp.closeAvaPanel && AAp.closeAvaPanel(); } catch (e) {} }
   function enterPanelMode() {
+    if (PANEL) return;
     PANEL = true; hidden = false; off = false; vis = true; interacted = true;
     document.documentElement.classList.add('ava-panel');
     orbEl.style.display = ''; nubEl.style.display = 'none';
     W = innerWidth; H = innerHeight; o.x = W - SIZE - 14; o.y = H * 0.3;
     openPanel();
     window.addEventListener('pointerdown', function (e) { if (!root.contains(e.target)) closePanelMode(); }, true);
+    // tell Android the Ava-only screen is ready (until now the window stays invisible, so Aureon never flashes)
+    setTimeout(function () { try { AAp && AAp.avaPanelReady && AAp.avaPanelReady(); } catch (e) {} }, 250);
   }
-  if (!IS_SENTINEL && AAp && AAp.avaPanelMode) {
-    try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
+  if (!IS_SENTINEL) {
+    var panelTries = 0;
+    (function detectPanel() {
+      if (PANEL) return;
+      AAp = AAp || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions);
+      if (window.__AVA_PANEL) { enterPanelMode(); return; }
+      if (AAp && AAp.avaPanelMode) {
+        try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
+      }
+      if (++panelTries < 16) setTimeout(detectPanel, 400);
+    })();
   }
 
   // ---------- moods: angry / sad (crying) / shy ----------
@@ -258,6 +270,9 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   function onScreenMood(m) { if (MOOD_ICO[m]) setMood(m, 14000, true, true); }
   function reactMood(t) {
     t = String(t || '');
+    if (/\b(gussa|angry)\b.*\b(dikhao|karo|show|ho ja)|\bgusse (me|mein) aao\b/i.test(t)) { setMood('angry', 9000, 'Hmph! 😠 Dekho, ab mai gusse me hu.'); return; }
+    if (/\b(ro|roo|rona|cry|sad)\b.*\b(dikhao|karo|show|ke dikhao)/i.test(t)) { setMood('sad', 9000, 'Huhuhu… 😢 mujhe rona aa gaya.'); return; }
+    if (/\b(sharma\w*|shy|blush)\b/i.test(t)) { setMood('shy', 9000, 'Hayyy… 🙈 sharam aa rahi hai.'); return; }
     if (/\b(gadh[aei]|bekar|bewakoof|pagal|nikamm?[ae]|stupid|idiot|useless|shut ?up|chup kar)\b/i.test(t)) setMood('angry', 7000, 'Hmph! 😠 Aise mat bolo, mujhe bura lagta hai.');
     else if (/\b(cute|pyaari|pyari|sundar|beautiful|love you|i love you|pretty)\b/i.test(t)) setMood('shy', 7000, 'Hayy 🙈 itni taareef mat karo…');
     else if (/\b(bye|alvida|goodbye|chhod ke ja)\b/i.test(t)) setMood('sad', 7000, 'Aww… jaa rahe ho? 😢 Jaldi aana.');
@@ -588,7 +603,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     if (AAv && AAv.startScreenWatch) {
       var k = await api('POST', '/api/ava/screen/enroll', {});
       var r = await AAv.startScreenWatch({ backendUrl: state.backendUrl.replace(/\/$/, ''), key: k.key, intervalMs: 6000 });
-      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui (permission cancel?).');
+      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui' + (r && r.resultCode !== undefined ? ' (code ' + r.resultCode + (r.resultCode === 0 ? ' = Android popup cancel hua/aaya hi nahi' : '') + ')' : '') + '. Popup me "Start now" dabana hai; "Ava phone screen par" pehle off karke try karo.');
     } else await startWebWatch();
     seeOn = true; seeBtn.classList.add('on'); lsSet('ava_see', '1'); status();
   }
