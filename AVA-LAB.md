@@ -14,6 +14,20 @@ Sentinel dashboard ke header me **🧪 Ava Lab** link: `/api/sentinel/ava-lab` (
 - **Sandbox test:** proposal dikhne se pehle change ek alag temporary copy me load hota hai (bina API keys ke environment me). Fail hua to proposal banta hi nahi.
 - **Optional auto-apply:** sirf **low-risk, <=40 lines, widget (ava-bot.js)** changes khud live ho sakte hain (default OFF). Backend files hamesha tumhare Approve se.
 
+## Safe location: Ava ki special GitHub branch
+Render ka disk har deploy par reset hota hai, isliye approved upgrade **GitHub par Ava ki apni branch `ava-lab`** me commit hota hai (branch khud ban jaati hai, `main` se). **`main` me kuch direct nahi jaata**, to Render bhi tab tak deploy nahi karta jab tak tum merge na karo.
+
+Setup (Render → Environment):
+- `AVA_GITHUB_REPO` = `username/Aureon-gar`
+- `GITHUB_TOKEN` = fine-grained token, sirf us repo par **Contents: Read and write**
+- optional: `AVA_GITHUB_BRANCH` (default `ava-lab`), `AVA_GITHUB_BASE` (default `main`). Ava ki branch `main` nahi ho sakti.
+
+Flow: Approve → upgrade `ava-lab` par commit. Ava Lab me **"PR / diff dekho"** link (GitHub compare) aur **"🚀 main me merge (deploy)"** button. Merge karte hi Render naya code deploy karta hai. Conflict aaye to force nahi hota, GitHub par PR se suljhao. Rollback bhi `ava-lab` par wapas commit hota hai.
+
+Backup: history + naye 4 upgrades ka poora code Firestore me bhi rehta hai. Deploy ke baad purana code wapas aaye to **"⚠ Render reset"** dikhta hai aur **"↻ Dobara lagao"** se upgrade wapas lag jaata hai. Jo abhi branch par nahi gaya uspe **"📌 GitHub me save"** hai (auto-applied widget changes ke liye bhi).
+
+**Token Ava ko nahi milta:** sirf server approve/merge ke baad GitHub se baat karta hai; Ava ka sandbox aur Ava ka likha code `GITHUB_TOKEN` padh hi nahi sakte.
+
 ## Safety (jaan-bujh kar)
 - Ava **sirf draft** likhti hai. Disk par likhna sirf tumhare Approve par (+ fresh 2FA agar step-up on ho).
 - Ava sirf apni files badal sakti hai: `backend/ava.js`, `ava-mind.js`, `ava-extra.js`, `ava-bot.js` (dono copies sync rehti hain).

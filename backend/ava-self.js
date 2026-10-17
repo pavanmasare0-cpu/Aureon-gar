@@ -51,8 +51,59 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     return {
       version: state.version, settings: state.settings, lastAuto: state.lastAuto,
       proposals: state.proposals.slice(-30).map((p) => (p.status === 'pending' ? p : (({ oldContent, newContent, ...r }) => r)(p))),
-      history: state.history.slice(0, HISTORY_MAX).map((h, i) => (i < 4 ? h : (({ backups, ...r }) => r)(h))),
+      history: state.history.slice(0, HISTORY_MAX).map((h, i) => (i < 4 ? h : (({ backups, newContents, ...r }) => r)(h))),
     };
+  }
+
+  // ---- safe location: a SPECIAL GitHub branch for Ava (default "ava-lab"), created automatically from main.
+  // Approved upgrades are committed there, never straight to main, so Render does not deploy them until YOU merge
+  // (Ava Lab has a "merge to main" button, or merge the pull request yourself). Needs: AVA_GITHUB_REPO=owner/repo and
+  // GITHUB_TOKEN (Contents: read+write). Optional: AVA_GITHUB_BRANCH (default ava-lab), AVA_GITHUB_BASE (default main).
+  const gh = () => ({ repo: process.env.AVA_GITHUB_REPO || process.env.GITHUB_REPO || '', branch: process.env.AVA_GITHUB_BRANCH || 'ava-lab', base: process.env.AVA_GITHUB_BASE || 'main', token: process.env.GITHUB_TOKEN || '' });
+  const ghReady = () => { const g = gh(); return !!(g.repo && g.token) && g.branch !== g.base; };
+  async function ghApi(pathSuffix, opts) { // the token only ever goes to api.github.com, and never into an error message
+    const g = gh(); if (!g.repo || !g.token) throw new Error('GitHub set nahi hai (Render env: AVA_GITHUB_REPO=owner/repo + GITHUB_TOKEN)');
+    const r = await fetch('https://api.github.com/repos/' + g.repo + pathSuffix, Object.assign({ signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined }, opts, { headers: { Authorization: 'Bearer ' + g.token, Accept: 'application/vnd.github+json', 'User-Agent': 'aureon-ava-lab', 'Content-Type': 'application/json' } }));
+    const d = await r.json().catch(() => ({}));
+    return { status: r.status, ok: r.ok, d };
+  }
+  let branchOk = '';
+  async function ensureBranch() { // create "ava-lab" from main once
+    const g = gh(); if (branchOk === g.repo + '#' + g.branch) return;
+    if (g.branch === g.base) throw new Error('Ava ki branch main nahi ho sakti (AVA_GITHUB_BRANCH badlo)');
+    const ex = await ghApi('/git/ref/heads/' + encodeURIComponent(g.branch));
+    if (!ex.ok) {
+      if (ex.status !== 404) throw new Error('GitHub branch check ' + ex.status);
+      const base = await ghApi('/git/ref/heads/' + encodeURIComponent(g.base));
+      if (!base.ok) throw new Error('GitHub base branch "' + g.base + '" nahi mili (' + base.status + ')');
+      const mk = await ghApi('/git/refs', { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + g.branch, sha: base.d.object.sha }) });
+      if (!mk.ok) throw new Error('GitHub branch "' + g.branch + '" ban nahi payi: ' + mk.status + ' ' + String(mk.d.message || '').slice(0, 100));
+    }
+    branchOk = g.repo + '#' + g.branch;
+  }
+  async function ghCommit(rel, content, message) {
+    await ensureBranch(); const g = gh();
+    const path = '/contents/' + rel.split('/').map(encodeURIComponent).join('/');
+    const cur = await ghApi(path + '?ref=' + encodeURIComponent(g.branch));
+    if (!cur.ok && cur.status !== 404) throw new Error('GitHub read ' + cur.status);
+    const put = await ghApi(path, { method: 'PUT', body: JSON.stringify({ message, content: Buffer.from(content, 'utf8').toString('base64'), branch: g.branch, sha: cur.ok ? cur.d.sha : undefined }) });
+    if (!put.ok) throw new Error('GitHub ' + put.status + ': ' + String(put.d.message || '').slice(0, 120));
+    return { file: rel, branch: g.branch, sha: put.d.commit && put.d.commit.sha, url: put.d.commit && put.d.commit.html_url };
+  }
+  async function ghCommitAll(map, message) { const out = []; for (const [rel, content] of Object.entries(map)) out.push(await ghCommit(rel, content, message)); return out; }
+  async function commitEntry(h) { // push this upgrade's NEW code to GitHub
+    try {
+      const nc = h.newContents; if (!nc) throw new Error('code history me nahi bacha');
+      const c = await ghCommitAll(nc, 'Ava Lab: Ava v' + h.version + ' — ' + h.title);
+      h.github = { ok: true, branch: gh().branch, at: new Date().toISOString(), commits: c };
+    } catch (e) { h.github = { ok: false, at: new Date().toISOString(), error: e.message }; }
+    save(); return h.github;
+  }
+  async function revertOnGithub(h, restored) { // keep the repo in step when an already-committed upgrade is rolled back
+    if (!(h.github && h.github.ok)) return null;
+    try { const c = await ghCommitAll(restored, 'Ava Lab: rollback Ava v' + h.version + ' — ' + h.title); h.github = { ok: true, branch: gh().branch, reverted: true, at: new Date().toISOString(), commits: c }; }
+    catch (e) { h.github = { ok: false, reverted: false, at: new Date().toISOString(), error: 'rollback GitHub par nahi gaya: ' + e.message }; }
+    save(); return h.github;
   }
 
   const nid = () => crypto.randomBytes(6).toString('hex');
@@ -172,7 +223,9 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   }
 
   const pubP = (p) => { const { oldContent, newContent, ...r } = p; return r; };
-  const pubH = (h) => { const { backups, ...r } = h; return r; };
+  const hashOf = (c) => crypto.createHash('sha256').update(c).digest('hex');
+  const isLive = (h) => { try { return (h.files || [h.file]).every((t) => hashOf(read(t)) === h.newHash); } catch (e) { return false; } };
+  const pubH = (h) => { const { backups, newContents, ...r } = h; r.live = h.status === 'applied' ? isLive(h) : null; r.canReapply = !!newContents && !!backups; return r; };
 
   // ---- routes (mounted under /api/sentinel/ava, behind the dashboard lock)
   router.get('/state', async (req, res) => {
@@ -180,6 +233,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     const hook = global.__avaSelf;
     res.json({
       files: existing(), protected: 'security/*, dash-auth, Sentinel, server.js aur ava-self.js Ava ke liye locked hain',
+      github: { configured: ghReady(), repo: gh().repo || null, branch: gh().branch, base: gh().base, compare: gh().repo ? 'https://github.com/' + gh().repo + '/compare/' + gh().base + '...' + gh().branch + '?expand=1' : null },
       keys: Object.keys(allowedKeys()).map((k) => k.replace(/_\d$/, '_N')).filter((v, i, a) => a.indexOf(v) === i),
       version: Math.max(0, ...state.history.filter((h) => h.status === 'applied').map((h) => h.version || 0)), latest: state.version, settings: state.settings, lastAuto: state.lastAuto,
       busy, llm: hook && hook.llm ? 'ava' : (process.env.GROQ_API_KEY ? 'groq' : 'none'), signals: signals(),
@@ -225,7 +279,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     } catch (e) { return { code: 500, error: e.message }; }
     p.status = 'approved'; p.decidedAt = new Date().toISOString();
     state.version = (state.version || 0) + 1;
-    const entry = { id: nid(), proposalId: p.id, version: state.version, auto: !!isAuto, at: p.decidedAt, status: 'applied', file: p.file, files: wrote, title: p.title, what: p.what, why: p.why, risk: p.risk, test: p.test, sandbox: p.sandbox, stats: p.stats, diff: p.diff, backups, newHash: crypto.createHash('sha256').update(p.newContent).digest('hex') };
+    const entry = { id: nid(), proposalId: p.id, version: state.version, auto: !!isAuto, at: p.decidedAt, status: 'applied', file: p.file, files: wrote, title: p.title, what: p.what, why: p.why, risk: p.risk, test: p.test, sandbox: p.sandbox, stats: p.stats, diff: p.diff, backups, newContents: Object.fromEntries(wrote.map((t) => [t, p.newContent])), newHash: crypto.createHash('sha256').update(p.newContent).digest('hex') };
     state.history.unshift(entry); if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
     save();
     if (logEvent) logEvent('approved', { name: 'Ava' }, 'Ava v' + entry.version + (isAuto ? ' (auto)' : '') + ': ' + p.title);
@@ -240,7 +294,12 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     const p = state.proposals.find((x) => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: 'not found' });
     if (p.status !== 'pending') return res.status(400).json({ error: 'already ' + p.status });
-    try { const r = applyProposal(p, false); if (!r.ok) return res.status(r.code || 500).json({ error: r.error }); res.json(r); }
+    try {
+      const r = applyProposal(p, false); if (!r.ok) return res.status(r.code || 500).json({ error: r.error });
+      let g = null; if (ghReady()) g = await commitEntry(state.history[0]);
+      r.github = g; r.note += g ? (g.ok ? ' ✅ GitHub branch "' + gh().branch + '" par save. Live deploy ke liye "main me merge" dabao.' : ' ⚠ GitHub save fail: ' + g.error) : ' (GitHub set nahi — deploy par ye local badlav ud sakta hai; .patch download karo)';
+      res.json(r);
+    }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -276,6 +335,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     }
     for (const [t, bk] of plan) fs.writeFileSync(abs(t), bk, 'utf8');
     h.status = 'rolled_back'; h.rolledBackAt = new Date().toISOString();
+    return Object.fromEntries(plan);
   }
 
   router.post('/history/:id/rollback', async (req, res) => {
@@ -286,9 +346,10 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     if (!h) return res.status(404).json({ error: 'not found' });
     if (h.status !== 'applied') return res.status(400).json({ error: 'already ' + h.status });
     try {
-      doRollback(h); save();
+      const restored = doRollback(h); save();
+      const g = await revertOnGithub(h, restored);
       if (logEvent) logEvent('rejected', { name: 'Ava' }, 'Ava v' + h.version + ' rollback hua: ' + h.title);
-      res.json({ ok: true, needsRestart: true });
+      res.json({ ok: true, needsRestart: true, github: g });
     } catch (e) { res.status(e.code || 500).json({ error: e.message }); }
   });
 
@@ -302,11 +363,58 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     const todo = state.history.filter((h) => h.status === 'applied' && h.version > n).sort((a, b) => b.version - a.version);
     if (!todo.length) return res.status(400).json({ error: 'Ava v' + n + ' se naya kuch applied nahi hai' });
     const done = [];
-    try { for (const h of todo) { doRollback(h); done.push(h.version); } }
+    try { for (const h of todo) { const restored = doRollback(h); done.push(h.version); await revertOnGithub(h, restored); } }
     catch (e) { save(); return res.status(e.code || 500).json({ error: e.message + (done.length ? ' (rollback ho chuke: v' + done.join(', v') + ')' : '') }); }
     save();
     if (logEvent) logEvent('rejected', { name: 'Ava' }, 'Ava v' + n + ' par wapas (rollback v' + done.join(', v') + ')');
     res.json({ ok: true, restoredTo: n, rolledBack: done, needsRestart: true });
+  });
+
+  router.post('/history/:id/commit', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    auth.action(req, 'ava-lab github commit ' + req.params.id);
+    await ready;
+    const h = state.history.find((x) => x.id === req.params.id);
+    if (!h || h.status !== 'applied') return res.status(404).json({ error: 'applied upgrade nahi mila' });
+    if (!isLive(h)) return res.status(409).json({ error: 'Ye upgrade abhi file me live nahi (Render reset?) — pehle "Dobara lagao" dabao' });
+    const g = await commitEntry(h);
+    res.status(g.ok ? 200 : 502).json(g.ok ? { ok: true, github: g } : { error: g.error });
+  });
+
+  // Render wiped the disk (redeploy) and the old code came back: put the saved upgrade back (and it can then be committed)
+  router.post('/history/:id/reapply', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    auth.action(req, 'ava-lab reapply ' + req.params.id);
+    await ready;
+    const h = state.history.find((x) => x.id === req.params.id);
+    if (!h || h.status !== 'applied') return res.status(404).json({ error: 'applied upgrade nahi mila' });
+    if (!h.newContents || !h.backups) return res.status(400).json({ error: 'is upgrade ka code history me nahi bacha (sirf naye 4 ka rehta hai)' });
+    if (isLive(h)) return res.json({ ok: true, already: true });
+    try {
+      for (const t of (h.files || [h.file])) {
+        if (!EDITABLE.includes(t) || !fs.existsSync(abs(t))) throw new Error('file allowed nahi / nahi mili: ' + t);
+        if (read(t) !== h.backups[t]) throw new Error(t + ' ab alag version hai (repo me naya code aa gaya?) — manually dekho');
+        const sb = sandbox(t, h.newContents[t]); if (!sb.ok) throw new Error('sandbox fail: ' + sb.log);
+      }
+      for (const t of (h.files || [h.file])) fs.writeFileSync(abs(t), h.newContents[t], 'utf8');
+      if (logEvent) logEvent('approved', { name: 'Ava' }, 'Ava v' + h.version + ' dobara lagaya (Render reset ke baad)');
+      res.json({ ok: true, needsRestart: !/ava-bot\.js$/.test(h.file) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // owner-only: merge Ava's branch into main -> Render deploys it. (Conflicts are reported, never forced.)
+  router.post('/github/merge', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    auth.action(req, 'ava-lab merge to main');
+    try {
+      if (!ghReady()) return res.status(400).json({ error: 'GitHub set nahi hai' });
+      await ensureBranch(); const g = gh();
+      const r = await ghApi('/merges', { method: 'POST', body: JSON.stringify({ base: g.base, head: g.branch, commit_message: 'Ava Lab: merge ' + g.branch + ' into ' + g.base + ' (owner approved)' }) });
+      if (r.status === 201) { if (logEvent) logEvent('approved', { name: 'Ava' }, 'Ava Lab: ' + g.branch + ' → ' + g.base + ' merge (deploy shuru hoga)'); return res.json({ ok: true, merged: true }); }
+      if (r.status === 204) return res.json({ ok: true, merged: false, note: 'Kuch naya merge karne ko nahi (main me pehle se hai)' });
+      if (r.status === 409) return res.status(409).json({ error: 'Merge conflict: main me aur badlav aa chuke hain. GitHub par pull request kholke conflict suljhao.' });
+      res.status(502).json({ error: 'GitHub merge ' + r.status + ': ' + String(r.d.message || '').slice(0, 120) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   router.post('/settings', async (req, res) => {
@@ -382,7 +490,7 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 <div class="row"><label><input type="checkbox" id="auto" onchange="saveSet()"> Ava khud har</label>
 <input id="hrs" type="number" min="1" max="48" value="6" style="width:64px;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:6px" onchange="saveSet()"> <span class="meta">ghante me apna code dekh ke upgrade <b>likhe</b> (proposal banta hai, tum Approve karte ho)</span></div>
 <div class="row" style="margin-top:8px"><label><input type="checkbox" id="aapply" onchange="saveSet()"> Chhote <b>low-risk widget (ava-bot.js)</b> changes khud live ho jaayein</label></div>
-<div class="meta" id="lastauto"></div></div>
+<div class="meta" id="lastauto"></div><div class="meta" id="ghline"></div></div>
 <div class="card"><h3>Ava, apne aap ko upgrade karo</h3>
 <div class="row"><input id="goal" type="text" placeholder="(optional) goal: jaise 'jawab chhote aur saaf ho' — khali chhodo to Ava khud dhoondhegi">
 <button id="go" onclick="improve()">⚡ Upgrade likho</button></div><div id="msg"></div>
@@ -404,16 +512,19 @@ function diff(h,st){if(!h||!h.length)return'<div class="meta">Koi line-diff nahi
 function stat(s){return s?'<span class="add-n">+'+s.added+'</span> <span class="del-n">-'+s.removed+'</span>':''}
 function when(t){try{return new Date(t).toLocaleString()}catch(e){return t}}
 function card(p,hist){
- var h='<div class="card"><h3>'+esc(p.title)+'</h3><div class="row"><span class="b">'+esc(p.file)+'</span><span class="b '+esc(p.risk)+'">risk: '+esc(p.risk)+'</span>'+(p.version?'<span class="b" style="color:var(--ac)">Ava v'+p.version+'</span>':'')+(p.auto?'<span class="b">🤖 auto</span>':'')+(p.sandbox?'<span class="b '+(p.sandbox.ok?'low':'high')+'" title="'+esc(p.sandbox.log)+'">sandbox '+(p.sandbox.ok?'✓':'✗')+'</span>':'')+(hist?'<span class="b">'+esc(p.status)+'</span>':'')+'<span class="meta">'+stat(p.stats)+' · '+when(p.at||p.createdAt)+'</span></div>'
+ var h='<div class="card"><h3>'+esc(p.title)+'</h3><div class="row"><span class="b">'+esc(p.file)+'</span><span class="b '+esc(p.risk)+'">risk: '+esc(p.risk)+'</span>'+(p.version?'<span class="b" style="color:var(--ac)">Ava v'+p.version+'</span>':'')+(p.auto?'<span class="b">🤖 auto</span>':'')+(hist&&p.github?(p.github.ok?'<span class="b low">📌 GitHub ✓ '+esc(p.github.branch||'')+'</span>':'<span class="b high" title="'+esc(p.github.error)+'">⚠ GitHub fail</span>'):'')+(hist&&p.status==='applied'&&p.live===false?'<span class="b high">⚠ Render reset: purana code wapas</span>':'')+(p.sandbox?'<span class="b '+(p.sandbox.ok?'low':'high')+'" title="'+esc(p.sandbox.log)+'">sandbox '+(p.sandbox.ok?'✓':'✗')+'</span>':'')+(hist?'<span class="b">'+esc(p.status)+'</span>':'')+'<span class="meta">'+stat(p.stats)+' · '+when(p.at||p.createdAt)+'</span></div>'
  +'<p><b>Kya badla:</b> '+esc(p.what)+'</p><p><b>Kyun:</b> '+esc(p.why)+'</p>'+(p.test?'<p class="meta"><b>Kaise check karein:</b> '+esc(p.test)+'</p>':'')
  +(p.note?'<div class="note">Ava ka note: '+esc(p.note)+'</div>':'')
  +'<details'+(hist?'':' open')+'><summary>Exact badlav (diff)</summary>'+diff(p.diff,p.stats)+'</details><div class="row" style="margin-top:10px">';
  if(!hist)h+='<button onclick="decide(\''+esc(p.id)+'\',\'approve\')">✅ Approve</button><button class="d" onclick="decide(\''+esc(p.id)+'\',\'reject\')">✖ Reject</button>';
+ if(hist&&p.status==='applied'&&p.live===false&&p.canReapply)h+='<button onclick="post(\'/history/'+esc(p.id)+'/reapply\',\'↻ Dobara laga diya\')">↻ Dobara lagao</button>';
+ if(hist&&p.status==='applied'&&p.live!==false&&(!p.github||!p.github.ok))h+='<button class="g" onclick="post(\'/history/'+esc(p.id)+'/commit\',\'📌 GitHub par save\')">📌 GitHub me save</button>';
  if(hist&&p.status==='applied')h+='<button class="g" onclick="rollback(\''+esc(p.id)+'\')">↩ Rollback</button>'+(p.version>1?'<button class="g" onclick="restoreTo('+(p.version-1)+')">⏪ Ava v'+(p.version-1)+' par wapas</button>':'');
  h+='<a class="meta" href="/api/sentinel/ava/patch/'+esc(hist?p.id:p.id)+'">⬇ patch (.patch)</a></div></div>';return h}
 async function load(){var r=await af('/api/sentinel/ava/state');var s=await r.json();
  var sg=s.signals&&s.signals.mind;document.getElementById('sig').innerHTML=(sg?'confidence <b>'+sg.confidence+'</b> · uncertainty '+sg.uncertainty+' · curiosity '+sg.curiosity+' · cycles '+sg.cycles+(sg.goal?'<br>goal: '+esc(sg.goal):''):'(Ava Mind data abhi nahi)')+'<br>AI: <b>'+esc(s.llm)+'</b> · keys: <b>'+(s.keys&&s.keys.length?esc(s.keys.join(', ')):'(Gemini/Groq key set nahi)')+'</b> · editable files: '+s.files.length;
  document.getElementById('ver').textContent='abhi: Ava v'+s.version;document.getElementById('auto').checked=!!s.settings.auto;document.getElementById('aapply').checked=!!s.settings.autoApply;document.getElementById('hrs').value=s.settings.hours;document.getElementById('lastauto').textContent=s.lastAuto?'Pichli auto-try: '+when(s.lastAuto):'';
+ document.getElementById('ghline').innerHTML=s.github&&s.github.configured?'📌 Ava ki special branch: <b>'+esc(s.github.branch)+'</b> ('+esc(s.github.repo)+') — approve par upgrade yahin commit hota hai, <b>'+esc(s.github.base)+'</b> me nahi. <a href="'+esc(s.github.compare)+'" target="_blank" rel="noopener">PR / diff dekho ↗</a> <button class="g" style="padding:4px 10px;margin-left:6px" onclick="mergeMain()">🚀 '+esc(s.github.base)+' me merge (deploy)</button>':'⚠ GitHub set nahi: Render env me <b>AVA_GITHUB_REPO</b> (owner/repo) aur <b>GITHUB_TOKEN</b> daalo, warna upgrade deploy par ud sakta hai';
  document.getElementById('prot').textContent='🔒 '+s.protected;document.getElementById('go').disabled=!!s.busy;
  var pend=s.proposals.filter(function(p){return p.status==='pending'});document.getElementById('pend').innerHTML=pend.length?pend.map(function(p){return card(p,false)}).join(''):'<div class="meta">Koi pending upgrade nahi.</div>';
  document.getElementById('hist').innerHTML=s.history.length?s.history.map(function(h){return card(h,true)}).join(''):'<div class="meta">Abhi tak Ava ne khud ko upgrade nahi kiya.</div>'}
@@ -424,6 +535,8 @@ async function improve(){var b=document.getElementById('go'),m=document.getEleme
 async function decide(id,a){if(a==='approve'&&!confirm('Ye code file me likha jayega. Diff dekh liya? Approve?'))return;
  var r=await af('/api/sentinel/ava/proposals/'+id+'/'+a,{method:'POST'});var j=await r.json();var m=document.getElementById('msg');
  m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?('✅ '+(j.note||'ho gaya')):('❌ '+(j.error||r.status));load()}
+async function post(path,okmsg){var r=await af('/api/sentinel/ava'+path,{method:'POST'});var j=await r.json();var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'✅ '+okmsg:'❌ '+(j.error||r.status);load()}
+async function mergeMain(){if(!confirm('Ava ki branch main me merge hogi aur Render naya code deploy karega. Diff dekh liya? Merge karein?'))return;var r=await af('/api/sentinel/ava/github/merge',{method:'POST'});var j=await r.json();var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?(j.merged?'✅ Merge ho gaya — Render deploy shuru karega':'ℹ '+(j.note||'ho gaya')):'❌ '+(j.error||r.status)}
 async function saveSet(){var r=await af('/api/sentinel/ava/settings',{method:'POST',body:JSON.stringify({auto:document.getElementById('auto').checked,autoApply:document.getElementById('aapply').checked,hours:document.getElementById('hrs').value})});var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'✅ Settings save':'❌ save nahi hua';load()}
 async function restoreTo(n){if(!confirm('Ava v'+n+' par wapas jaana hai? Usse naye saare upgrades undo honge.'))return;var r=await af('/api/sentinel/ava/versions/'+n+'/restore',{method:'POST'});var j=await r.json();var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'⏪ Ava v'+n+' par wapas (server restart par chalega)':'❌ '+(j.error||r.status);load()}
 async function rollback(id){if(!confirm('Is upgrade ko wapas undo karein?'))return;var r=await af('/api/sentinel/ava/history/'+id+'/rollback',{method:'POST'});var j=await r.json();
