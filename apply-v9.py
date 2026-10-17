@@ -6,6 +6,7 @@ import subprocess, sys, os
 here = os.path.dirname(os.path.abspath(__file__))
 steps = [('apply-all.py', 'ui-fix + panel + v2 patches'), ('v9-app/patch_app.py', 'many photos + old-chat fix'),
          ('v9-backend/patch_server.py', 'backend: many photos per message'), ('v9-android/patch_fullscreen.py', 'Android full screen'),
+         ('v9-android/patch_cutout_theme.py', 'Android full screen (theme: draw into notch area)'),
          ('v9-sentinel/patch_ava_lab.py', 'Ava Lab (self-upgrade dashboard in Sentinel)')]
 for script, label in steps:
     print('\n== %s  (%s)' % (script, label))
