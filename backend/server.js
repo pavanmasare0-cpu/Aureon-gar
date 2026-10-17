@@ -1,3 +1,4 @@
+const STYLE_RULES = require('./style-rules');
 // Aureon AI — backend chat proxy (MVP)
 // Keeps API keys server-side. The Android app never sees them.
 
@@ -343,6 +344,7 @@ const AGENT_TOOLS = [
 ];
 
 async function callOpenAI(messages, systemPrompt) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
   const chatMessages = systemPrompt
     ? [{ role: 'system', content: systemPrompt }, ...messages]
@@ -361,6 +363,7 @@ async function callOpenAI(messages, systemPrompt) {
 }
 
 async function callClaude(messages, systemPrompt) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set in backend/.env');
   const body = {
     model: 'claude-sonnet-4-6',
@@ -508,6 +511,7 @@ function lastImageIndex(messages) {
 }
 
 async function callGeminiWithModel(modelName, messages, systemPrompt, useTools, key = firstGeminiKey()) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   const lastImgIdx = lastImageIndex(messages);
   const payload = {
     contents: messages.map((m, mi) => {
@@ -586,6 +590,7 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools, 
 }
 
 async function callGemini(messages, systemPrompt, useTools) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   const keys = geminiKeys();
   if (!keys.length) throw new Error('GEMINI_API_KEY is not set in backend/.env');
   return hedgedByKey(keys, geminiKeyStart, i => { geminiKeyStart = i; }, 7000,
@@ -593,6 +598,7 @@ async function callGemini(messages, systemPrompt, useTools) {
 }
 
 async function callGeminiWithKey(key, messages, systemPrompt, useTools) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   let ranked = await resolveModelList(false, key);
   let lastErr;
   const triedThisCall = new Set();
@@ -692,6 +698,7 @@ const GROQ_TOOLS_SLIM = GROQ_TOOLS.map(x => ({
 // quota the same device actions still work. Returns a string, or
 // { functionCall: { name, args } } exactly like callGemini does.
 async function callGroq(messages, systemPrompt, useTools = false) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   const keys = groqKeys();
   if (!keys.length) throw new Error('GROQ_API_KEY is not set in backend/.env');
   return hedgedByKey(keys, groqKeyStart, i => { groqKeyStart = i; }, 4000,
@@ -724,6 +731,7 @@ function trimMessagesForGroq(msgs, budgetChars) {
 }
 
 async function callGroqWithKey(key, messages, systemPrompt, useTools = false) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
 
   const out = [];
   let pendingId = null;
@@ -885,6 +893,7 @@ async function shareScreenshot(messages) {
 }
 
 async function callCoding(messages, systemPrompt) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   const sys = [CODING_PROMPT, systemPrompt].filter(Boolean).join('\n\n');
   const { groqMessages, vision } = await shareScreenshot(messages);
   const [g, q] = await Promise.allSettled([
@@ -936,6 +945,7 @@ async function mergeTwoAnswers(userText, a, b, vision = '') {
 // return at once. Only a substantial / code answer gets the OTHER brain's take
 // plus a merge — so actions and chat stay fast and coding keeps its quality.
 async function callCodingAgent(messages, systemPrompt) {
+  if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   const sys = [CODING_PROMPT_CORE, systemPrompt].filter(Boolean).join('\n\n');
   let first;
   let firstBrain = 'gemini';
