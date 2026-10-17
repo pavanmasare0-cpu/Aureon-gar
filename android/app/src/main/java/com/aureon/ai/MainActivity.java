@@ -32,8 +32,10 @@ public class MainActivity extends BridgeActivity {
         //   AureonAgentActions.java.
         registerPlugin(AureonSpeechPlugin.class);
         registerPlugin(AureonActionsPlugin.class);
+        registerPlugin(AureonDeviceGuardPlugin.class);
 
         super.onCreate(savedInstanceState);
+        aureonFullscreen(); // v9: hide status + navigation bars (immersive)
 
         // Watchdog: catch any app-wide crash and report it (next launch) to
         // the backend, which emails the owner. See watchdog.js /
@@ -159,5 +161,28 @@ public class MainActivity extends BridgeActivity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) promptPhase6Setup();
+    }
+
+    // ---- v9: full screen (immersive). Swipe from an edge to peek at the system bars. ----
+    private void aureonFullscreen() {
+        try {
+            android.view.Window w = getWindow();
+            if (Build.VERSION.SDK_INT >= 28) { // also use the area around a camera notch (CSS safe-area keeps the header clear of it)
+                android.view.WindowManager.LayoutParams lp = w.getAttributes();
+                lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                w.setAttributes(lp);
+            }
+            androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(w, w.getDecorView());
+            if (c != null) {
+                c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            }
+        } catch (Throwable ignored) { /* never break startup over cosmetics */ }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) aureonFullscreen(); // bars come back after the keyboard / a dialog — hide them again
     }
 }

@@ -120,6 +120,7 @@ $('btn-generate-image').onclick = async () => {
 
   addMessage('user', editingImage ? `✏️ Edit: ${prompt}` : `🎨 Generate: ${prompt}`);
   if (editingImage) {
+    state.pendingImages = []; renderImageStrip();
     state.pendingImage = null;
     $('image-preview-bar').classList.add('hidden');
   }
@@ -388,7 +389,7 @@ function splitAttachment(content) {
 // Only the newest attached file keeps its text in what is sent to the AI. Older
 // attachments are replaced by a one-line note, so a long chat never grows past
 // the models' limits (one 112k-token request is what broke Groq before).
-function messagesForBackend(messages) {
+function messagesForBackendText(messages) {
   let last = -1;
   messages.forEach((m, i) => {
     if (m && m.role === 'user' && typeof m.content === 'string' && m.content.includes(ATTACH_MARK)) last = i;
@@ -534,6 +535,7 @@ async function exportMessageAsPdf(content) {
 
 // ---------- Attach (Vision + files) ----------
 state.pendingImage = null; // { mimeType, data } — for images sent to vision
+state.pendingImages = []; // v9: any number of photos for one message
 state.pendingFileText = null; // extracted text for txt files
 state.pendingFileName = null;
 
@@ -543,9 +545,13 @@ $('btn-attach')?.addEventListener('click', () => {
   $('image-input').click();
 });
 
+if ($('image-input')) $('image-input').multiple = true;
 $('image-input')?.addEventListener('change', (e) => {
-  const file = e.target.files && e.target.files[0];
+  const picked = Array.from(e.target.files || []);
+  if (picked.length && picked.every((f) => f.type.startsWith('image/'))) { e.target.value = ''; handleImagePick(picked); return; }
+  const file = picked[0];
   if (!file) return;
+  state.pendingImages = []; renderImageStrip();
 
   state.pendingImage = null;
   state.pendingFileText = null;
@@ -661,6 +667,7 @@ $('image-input')?.addEventListener('change', (e) => {
 });
 
 $('btn-remove-image')?.addEventListener('click', () => {
+  state.pendingImages = []; renderImageStrip();
   state.pendingImage = null;
   state.pendingFileText = null;
   state.pendingFileName = null;
@@ -738,6 +745,8 @@ async function sendMessage() {
   }
 
   input.value = '';
+  const sentImages = (state.pendingImages || []).slice();
+  state.pendingImages = []; renderImageStrip();
   state.pendingImage = null;
   state.pendingFileText = null;
   state.pendingFileName = null;
@@ -759,10 +768,17 @@ async function sendMessage() {
     $('chat-title-text').textContent = titleSource.slice(0, 28) + (titleSource.length > 28 ? '…' : '');
   }
 
-  if (text || image) addMessage('user', text || '(sent an image)');
+  if (sentImages.length) addUserPhotosMessage(text, sentImages);
+  else if (text || image) addMessage('user', text || '(sent an image)');
   if (fileName) addAttachmentChip(fileName);
-  const userMessage = { role: 'user', content: effectiveText, display: text || (image ? '(sent an image)' : ''), file: fileName || null };
-  if (image) userMessage.image = image;
+  const userMessage = { role: 'user', content: effectiveText, display: text || (sentImages.length > 1 ? `(sent ${sentImages.length} photos)` : image ? '(sent an image)' : ''), file: fileName || null };
+  if (sentImages.length) {
+    userMessage.images = sentImages.map((x) => ({ mimeType: x.mimeType, data: x.data }));
+    userMessage.image = userMessage.images[0]; // older backends still see the first photo
+    userMessage.thumbs = sentImages.map((x) => x.thumb);
+  } else if (image) userMessage.image = image;
+  // lets Ava (the floating assistant) react to what you type / share
+  try { window.dispatchEvent(new CustomEvent('aureon:user-message', { detail: { text, count: sentImages.length, thumb: (sentImages[0] && sentImages[0].thumb) || '' } })); } catch (e) { /* optional */ }
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
 
@@ -869,10 +885,7 @@ async function callBackend(messages, model, tools) {
     throw new Error('No backend URL configured.');
   }
   const systemPrompt = await buildSystemPrompt(); // always the freshest memory, see getFreshMemory
-  const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, {
-    method: 'POST',
-    headers: await authHeaders(),
-    body: JSON.stringify({
+  const _payload = JSON.stringify({
       // older chats may still hold a huge attachment — cap each entry before sending
       messages: messagesForBackend(messages).map(m => (m && typeof m.content === 'string' && m.content.length > 40000)
         ? { ...m, content: m.content.slice(0, 40000) + '\n[... truncated ...]' }
@@ -881,8 +894,14 @@ async function callBackend(messages, model, tools) {
       tools: !!tools,
       systemPrompt,
       useKnowledge: $('toggle-use-knowledge') ? $('toggle-use-knowledge').checked : false
-    })
-  });
+    });
+  let res;
+  try {
+    res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, { method: 'POST', headers: await authHeaders(), body: _payload });
+  } catch (e) {
+    const mb = (_payload.length / 1048576).toFixed(1);
+    throw new Error(`${e.message || 'Failed to fetch'} — request ${mb} MB${navigator.onLine === false ? ', phone offline hai' : ''}${_payload.length > 12 * 1048576 ? ' (bahut bada: purani photos/files hata ke naya chat try karo)' : ''}. Backend check: ${state.backendUrl.replace(/\/$/, '')}/health`);
+  }
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).error || ''; } catch (e) { /* no JSON body */ }
@@ -1203,6 +1222,119 @@ async function getFreshMemory() {
   }
 }
 
+// ---------- v9: many photos per message, lean chat storage ----------
+// Old chats stored every photo as full base64 inside localStorage / Firestore and re-sent ALL of them with every new
+// message — that is what made old chats fail with "Failed to fetch". Now: photos are compressed on pick, only the
+// newest photo-message is sent to the AI, and saved chats keep a photo COUNT instead of the pixels.
+function slimForStorage(msgs) {
+  if (!Array.isArray(msgs)) return [];
+  return msgs.map((m) => {
+    if (!m || (!m.image && !m.images && !m.thumbs)) return m;
+    const { image, images, thumbs, ...rest } = m;
+    const n = (images && images.length) || (image ? 1 : 0);
+    return n ? { ...rest, imageCount: n } : rest;
+  });
+}
+
+(function migrateOldChats() {
+  try {
+    let changed = false;
+    state.chats.forEach((c) => {
+      if (!c || !Array.isArray(c.messages)) return;
+      if (c.messages.some((m) => m && (m.image || m.images || m.thumbs))) { c.messages = slimForStorage(c.messages); changed = true; }
+    });
+    if (changed) localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  } catch (e) { /* never block startup */ }
+})();
+
+function loadImageForCompress(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file); const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('cannot decode ' + (file.name || 'image'))); };
+    img.src = url;
+  });
+}
+function drawScaled(img, maxSide, quality) {
+  const w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
+  const k = Math.min(1, maxSide / Math.max(w0, h0));
+  const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(w0 * k)); cv.height = Math.max(1, Math.round(h0 * k));
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', quality);
+}
+async function prepareImage(file, spec) {
+  try {
+    const img = await loadImageForCompress(file);
+    return { mimeType: 'image/jpeg', data: drawScaled(img, spec.side, spec.q).split(',')[1], thumb: drawScaled(img, 384, 0.6) };
+  } catch (e) {
+    // could not decode (odd format) — send the original bytes like before
+    const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    const [prefix, data] = dataUrl.split(',');
+    return { mimeType: (prefix.match(/data:(.*);base64/) || [])[1] || file.type || 'image/jpeg', data, thumb: dataUrl.length < 400000 ? dataUrl : '' };
+  }
+}
+
+async function handleImagePick(files) {
+  state.pendingFileText = null; state.pendingFileName = null;
+  if (state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('video/')) state.pendingImage = null;
+  if (!Array.isArray(state.pendingImages)) state.pendingImages = [];
+  const total = state.pendingImages.length + files.length; // no limit on the count — just smaller files when there are many
+  const spec = total <= 10 ? { side: 1600, q: 0.82 } : total <= 30 ? { side: 1280, q: 0.74 } : { side: 1024, q: 0.66 };
+  $('image-preview-bar').classList.remove('hidden');
+  let n = 0;
+  for (const f of files) {
+    $('attach-name').textContent = `🗜️ photos tayyar ho rahi hain… ${++n}/${files.length}`;
+    try { state.pendingImages.push(await prepareImage(f, spec)); } catch (e) { console.error('photo skipped:', e); }
+  }
+  state.pendingImage = state.pendingImages[0] || null;
+  renderImageStrip();
+}
+
+function renderImageStrip() {
+  const bar = $('image-preview-bar'); if (!bar) return;
+  let strip = $('image-preview-strip');
+  if (!strip) { strip = document.createElement('div'); strip.id = 'image-preview-strip'; strip.className = 'image-preview-strip'; bar.insertBefore(strip, bar.firstChild); }
+  const imgs = state.pendingImages || [];
+  strip.innerHTML = '';
+  const card = bar.querySelector('.attach-card'); if (card) card.style.display = imgs.length ? 'none' : '';
+  if (imgs.length) { $('image-preview-thumb').classList.add('hidden'); $('file-preview-label').classList.add('hidden'); }
+  imgs.forEach((im, i) => {
+    const w = document.createElement('div'); w.className = 'strip-item';
+    const t = document.createElement('img'); t.src = im.thumb || `data:${im.mimeType};base64,${im.data}`; w.appendChild(t);
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'strip-x'; x.textContent = '✕'; x.setAttribute('aria-label', 'Remove photo');
+    x.onclick = () => { state.pendingImages.splice(i, 1); state.pendingImage = state.pendingImages[0] || null; if (!state.pendingImages.length) bar.classList.add('hidden'); renderImageStrip(); };
+    w.appendChild(x); strip.appendChild(w);
+  });
+  if (imgs.length) { const more = document.createElement('button'); more.type = 'button'; more.className = 'strip-add'; more.textContent = '＋'; more.setAttribute('aria-label', 'Add more photos'); more.onclick = () => $('image-input').click(); strip.appendChild(more); }
+  $('attach-name').textContent = imgs.length ? `📷 ${imgs.length} photo${imgs.length > 1 ? 's' : ''}` : '';
+}
+
+function addUserPhotosMessage(text, imgs) {
+  const div = document.createElement('div'); div.className = 'msg user msg-photos';
+  const shown = imgs.slice(0, 8);
+  const grid = document.createElement('div'); grid.className = 'photo-grid n' + Math.min(shown.length, 4);
+  shown.forEach((im) => { const i = document.createElement('img'); i.src = im.thumb || `data:${im.mimeType};base64,${im.data}`; grid.appendChild(i); });
+  div.appendChild(grid);
+  const cap = [text, imgs.length > shown.length ? `+${imgs.length - shown.length} aur photos` : (imgs.length > 1 ? `${imgs.length} photos` : '')].filter(Boolean).join('\n');
+  if (cap) { const c = document.createElement('div'); c.className = 'msg-image-caption'; c.textContent = cap; div.appendChild(c); }
+  $('messages').appendChild(div); $('messages').scrollTop = $('messages').scrollHeight;
+  return div;
+}
+
+// What actually goes to the AI: only the NEWEST photo-message keeps its photos; older ones become a one-line note.
+function messagesForBackend(messages) {
+  let lastImg = -1;
+  messages.forEach((m, i) => { if (m && m.role === 'user' && ((m.images && m.images.length) || (m.image && m.image.data))) lastImg = i; });
+  const slim = messages.map((m, i) => {
+    if (!m || (!m.image && !m.images && !m.thumbs)) return m;
+    if (i === lastImg && i >= messages.length - 6) { const { thumbs, ...rest } = m; return rest; } // newest photos stay for ~3 follow-ups, then they are dropped
+    const { image, images, thumbs, ...rest } = m;
+    const n = (images && images.length) || (image ? 1 : 0);
+    return n ? { ...rest, content: (rest.content || '') + `\n[${n} earlier photo${n > 1 ? 's' : ''} left out here to save space]` } : rest;
+  });
+  return messagesForBackendText(slim);
+}
+
 // ---------- Recent chats (local only, MVP) ----------
 function saveChatSnapshot() {
   if (state.currentMessages.length === 0) return;
@@ -1212,12 +1344,13 @@ function saveChatSnapshot() {
   const title = (existingIdx >= 0 && state.chats[existingIdx].title)
     ? state.chats[existingIdx].title
     : state.currentMessages[0].content.slice(0, 40);
-  const snapshot = { id: state.activeChatId || `${Date.now()}`, title, messages: state.currentMessages };
+  const snapshot = { id: state.activeChatId || `${Date.now()}`, title, messages: slimForStorage(state.currentMessages) };
   state.activeChatId = snapshot.id;
   if (existingIdx >= 0) state.chats[existingIdx] = snapshot;
   else state.chats.unshift(snapshot);
   state.chats = state.chats.slice(0, 30);
-  localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  try { localStorage.setItem('aureon_chats', JSON.stringify(state.chats)); }
+  catch (e) { try { state.chats = state.chats.slice(0, 10); localStorage.setItem('aureon_chats', JSON.stringify(state.chats)); } catch (e2) { console.warn('chat cache is full:', e2.message); } }
   saveChatToCloud(snapshot);
 }
 
@@ -1520,7 +1653,7 @@ async function loadChatsFromCloud() {
   if (!state.user) return;
   try {
     const snap = await db.collection('users').doc(state.user.uid).collection('chats').orderBy('updatedAt', 'desc').limit(30).get();
-    state.chats = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.chats = snap.docs.map(d => { const c = { id: d.id, ...d.data() }; return { ...c, messages: slimForStorage(c.messages) }; });
     localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
     renderRecent();
   } catch (err) {

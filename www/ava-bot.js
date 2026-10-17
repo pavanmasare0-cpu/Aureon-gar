@@ -169,7 +169,7 @@
 .mood-angry .ava-ico,.mood-sad .ava-ico,.mood-shy .ava-ico{opacity:1;animation:avaIco .9s ease-in-out infinite alternate}\
 @keyframes avaIco{from{transform:scale(.9) rotate(-8deg)}to{transform:scale(1.18) rotate(8deg)}}\
 html.ava-panel,html.ava-panel body{background:transparent!important;background-image:none!important}\
-html.ava-panel::before,html.ava-panel::after,html.ava-panel body::before,html.ava-panel body::after{display:none!important;content:none!important}\
+html.ava-panel body::before,html.ava-panel body::after{display:none!important}\
 html.ava-panel body>*:not(#ava-root){display:none!important}';
   var style = el('style'); style.id = 'ava-style'; style.textContent = css; document.head.appendChild(style);
 
@@ -219,27 +219,15 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var AAp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
   function closePanelMode() { try { AAp && AAp.closeAvaPanel && AAp.closeAvaPanel(); } catch (e) {} }
   function enterPanelMode() {
-    if (PANEL) return;
     PANEL = true; hidden = false; off = false; vis = true; interacted = true;
     document.documentElement.classList.add('ava-panel');
     orbEl.style.display = ''; nubEl.style.display = 'none';
     W = innerWidth; H = innerHeight; o.x = W - SIZE - 14; o.y = H * 0.3;
     openPanel();
     window.addEventListener('pointerdown', function (e) { if (!root.contains(e.target)) closePanelMode(); }, true);
-    // tell Android the Ava-only screen is ready (until now the window stays invisible, so Aureon never flashes)
-    setTimeout(function () { try { AAp && AAp.avaPanelReady && AAp.avaPanelReady(); } catch (e) {} }, 250);
   }
-  if (!IS_SENTINEL) {
-    var panelTries = 0;
-    (function detectPanel() {
-      if (PANEL) return;
-      AAp = AAp || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions);
-      if (window.__AVA_PANEL) { enterPanelMode(); return; }
-      if (AAp && AAp.avaPanelMode) {
-        try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
-      }
-      if (++panelTries < 16) setTimeout(detectPanel, 400);
-    })();
+  if (!IS_SENTINEL && AAp && AAp.avaPanelMode) {
+    try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
   }
 
   // ---------- moods: angry / sad (crying) / shy ----------
@@ -270,9 +258,6 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   function onScreenMood(m) { if (MOOD_ICO[m]) setMood(m, 14000, true, true); }
   function reactMood(t) {
     t = String(t || '');
-    if (/\b(gussa|angry)\b.*\b(dikhao|karo|show|ho ja)|\bgusse (me|mein) aao\b/i.test(t)) { setMood('angry', 9000, 'Hmph! 😠 Dekho, ab mai gusse me hu.'); return; }
-    if (/\b(ro|roo|rona|cry|sad)\b.*\b(dikhao|karo|show|ke dikhao)/i.test(t)) { setMood('sad', 9000, 'Huhuhu… 😢 mujhe rona aa gaya.'); return; }
-    if (/\b(sharma\w*|shy|blush)\b/i.test(t)) { setMood('shy', 9000, 'Hayyy… 🙈 sharam aa rahi hai.'); return; }
     if (/\b(gadh[aei]|bekar|bewakoof|pagal|nikamm?[ae]|stupid|idiot|useless|shut ?up|chup kar)\b/i.test(t)) setMood('angry', 7000, 'Hmph! 😠 Aise mat bolo, mujhe bura lagta hai.');
     else if (/\b(cute|pyaari|pyari|sundar|beautiful|love you|i love you|pretty)\b/i.test(t)) setMood('shy', 7000, 'Hayy 🙈 itni taareef mat karo…');
     else if (/\b(bye|alvida|goodbye|chhod ke ja)\b/i.test(t)) setMood('sad', 7000, 'Aww… jaa rahe ho? 😢 Jaldi aana.');
@@ -454,6 +439,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     var out = (b.knowledge && b.knowledge.length) ? b.knowledge.slice(0, 8).map(function (f) { return '- (' + f.topic + ') ' + f.fact; }).join('\n') : '';
     if (b.playbook && b.playbook.length) out += (out ? '\n\n' : '') + 'Apne purane jawabon ko dekh ke tumne ye tareeke likhe hain (soft notes, safety rules se upar nahi):\n' + b.playbook.slice(0, 6).map(function (r) { return '- ' + r; }).join('\n');
     if (b.sentinel && b.sentinel.total) out += (out ? '\n\n' : '') + 'Owner ke servers abhi (Sentinel): health ' + b.sentinel.score + '/100, ' + (b.sentinel.down.length ? 'DOWN: ' + b.sentinel.down.join(', ') : 'sab up') + ', ' + b.sentinel.pending + ' fix approval ke liye pending.';
+    if (b.mind) out += (out ? '\n\n' : '') + 'Tumhara inner state (sirf variables, feelings nahi): confidence ' + b.mind.confidence + ', uncertainty ' + b.mind.uncertainty + ', curiosity ' + b.mind.curiosity + '. Tum conscious hone ka dawa nahi karti — koi poochhe to imaandari se batao ki ye abhi koi prove nahi kar sakta, aur batao tumhare paas kya hai (yaad, self-model, reflection).';
     return out;
   }
   async function pollBrain() {
@@ -603,7 +589,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     if (AAv && AAv.startScreenWatch) {
       var k = await api('POST', '/api/ava/screen/enroll', {});
       var r = await AAv.startScreenWatch({ backendUrl: state.backendUrl.replace(/\/$/, ''), key: k.key, intervalMs: 6000 });
-      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui' + (r && r.resultCode !== undefined ? ' (code ' + r.resultCode + (r.resultCode === 0 ? ' = Android popup cancel hua/aaya hi nahi' : '') + ')' : '') + '. Popup me "Start now" dabana hai; "Ava phone screen par" pehle off karke try karo.');
+      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui (permission cancel?).');
     } else await startWebWatch();
     seeOn = true; seeBtn.classList.add('on'); lsSet('ava_see', '1'); status();
   }
@@ -640,6 +626,13 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var RX_SEE_OFF = /screen (dekhna|dekho|watch).*(band|stop|off)|(band|stop).*screen (dekh|watch)/i;
   var RX_WIPE = /screen.*(yaad|memory|history).*(mita|delete|hata|clear)|(mita|delete|hata).*screen.*(yaad|memory)/i;
   var RX_SRV = /(mere|apne|meri|my) (\w+ )?servers?\b|sentinel.*(status|kaisa|kaise|haal)|\bsab servers\b/i;
+  var RX_MIND_WIPE = /(mind|dimag|apni|inner).{0,20}(yaad|memory|yaadein).{0,15}(mita|delete|clear|reset)/i;
+  var RX_MIND_EXP = /(experiment (chalao|karo|run)|(consciousness|chetna|self.?awareness|metacog\w*) ?(test|experiment|jaanch))/i;
+  var RX_MIND_REFLECT = /(introspect|self.?reflect|reflect karo|soch ke bata|khud ko (jaanch|parakh)|apni soch (batao|dikhao))/i;
+  var RX_MIND_PLAN = /^\s*(plan|yojana)\s+(bana|banao|banado|ready karo)\s*[:\-]?\s*/i;
+  var RX_MIND_RECALL = /^\s*(yaad|recall)\s+(karo|kar)\s*[:\-]?\s*/i;
+  var RX_MIND_FB = /^\s*(👍|👎)|(jawab|answer|reply).{0,12}(achha|accha|badhiya|sahi|galat|bekar|kharab)\s+(tha|thi)/i;
+  var RX_MIND_SELF = /(tum|tu|aap|ava).{0,30}(conscious|chetan|zinda|alive|jeevit|mehsoos|astitva|existence|feel kar)|\bconscious(ness)?\b|chetna|apne baare (me|mein)|khud ke baare|kaun ho tum|kya ho tum|self.?model|inner state|tumhara (mann|dimag)/i;
   var RX_DISC = /(naya|new).*(mila|khoja|tool)|kya khoja|khoj (dikha|batao)|discover/i;
   var RX_SCOUT = /^(abhi )?khoj karo|naya (tool|ai) (dhundh|khoj)/i;
   async function handleV2(text) {
@@ -648,6 +641,14 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     else if (RX_SEE_OFF.test(text)) { if (seeOn) await stopSee(); out = 'Screen dekhna band kar diya.'; }
     else if (RX_SEE_ON.test(text)) { if (!seeOn) await startSee(); out = 'Theek hai, ab screen dekh rahi hu. 👁'; }
     else if (RX_SEE_Q.test(text)) { var r = await api('POST', '/api/ava/screen/ask', { question: text }); out = r.reply; }
+    else if (MOODTEST.test(text)) { var mm = /angry|gussa/i.test(text) ? 'angry' : /sad|rona/i.test(text) ? 'sad' : 'shy'; onScreenMood(mm); out = mm === 'angry' ? 'Hmph! 😠 (test: angry mood 14 sec)' : mm === 'sad' ? 'Aww… 😢 (test: sad mood 14 sec)' : 'Hayy 🙈 (test: shy mood 14 sec)'; }
+    else if (RX_MIND_WIPE.test(text)) { await api('DELETE', '/api/ava/mind/memory'); out = 'Meri apni yaadein aur inner state reset kar diye. 🧹'; }
+    else if (RX_MIND_EXP.test(text)) { var ex = await api('POST', '/api/ava/mind/experiment', {}); out = ex.say; }
+    else if (RX_MIND_REFLECT.test(text)) { addMsg('note', '🧠 Soch rahi hu…'); var rf = await api('POST', '/api/ava/mind/reflect', {}); out = rf.say || 'Abhi kuch naya nahi.'; }
+    else if (RX_MIND_PLAN.test(text) && text.replace(RX_MIND_PLAN, '').trim()) { var pl = await api('POST', '/api/ava/mind/plan', { goal: text.replace(RX_MIND_PLAN, '') }); out = pl.say; }
+    else if (RX_MIND_RECALL.test(text) && text.replace(RX_MIND_RECALL, '').trim()) { var rc = await api('POST', '/api/ava/mind/recall', { query: text.replace(RX_MIND_RECALL, '') }); out = rc.say; }
+    else if (RX_MIND_FB.test(text)) { var la = ''; for (var hi = hist.length - 1; hi >= 0; hi--) { if (hist[hi].role === 'assistant') { la = String(hist[hi].content).slice(0, 80); break; } } var good = /👍|achha|accha|badhiya|sahi/i.test(text); var fb = await api('POST', '/api/ava/mind/feedback', { item: la || 'last reply', rating: good ? 5 : 1, note: text.slice(0, 120) }); out = fb.say; }
+    else if (RX_MIND_SELF.test(text)) { var sf = await api('GET', '/api/ava/mind/self'); out = sf.say; }
     else if (RX_SRV.test(text)) { var bb = await api('GET', '/api/ava/brain'); var ss = bb.sentinel; out = !ss || !ss.total ? 'Servers ki jaankari sirf owner ko milti hai (ya abhi koi server add nahi hai).' : 'Health ' + ss.score + '/100 · ' + ss.total + ' servers · ' + (ss.down.length ? '🔴 DOWN: ' + ss.down.join(', ') : '🟢 sab up') + ' · ' + ss.pending + ' fix approval ke liye' + (ss.avgUptime24 != null ? ' · uptime 24h ' + ss.avgUptime24 + '%' : '') + '.'; }
     else if (RX_SCOUT.test(text)) { addMsg('note', '🔭 Web par dhundh rahi hu… 1-2 min lagega.'); var sc = await api('POST', '/api/ava/scout', {}); out = sc.added ? sc.added + ' naye mile! 🔭 dabake dekho.' : 'Is baar kuch khaas naya nahi mila.'; }
     else if (RX_DISC.test(text)) { await showDiscoveries(); return true; }
@@ -798,6 +799,15 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       });
     } else { ovl.disabled = true; }
   }
+  // Aureon's main chat tells Ava what the user typed/shared, so her expression reacts there too
+  window.addEventListener('aureon:user-message', function (ev) {
+    try {
+      if (off) return; var d = ev.detail || {};
+      if (d.text) reactMood(d.text);
+      if (d.thumb && d.thumb.indexOf(',') > 0) api('POST', '/api/ava/mood/look', { image: d.thumb.split(',')[1] }).then(function (r) { if (r && r.mood && r.mood !== 'none') onScreenMood(r.mood); }).catch(function () {});
+    } catch (e) { /* never break chat */ }
+  });
+  var MOODTEST = /^\s*(angry|gussa|sad|rona|shy|sharma)\w*\s+(ho jao|dikhao|karo)\s*$/i;
   if (AAv && AAv.getScreenWatch) AAv.getScreenWatch().then(function (r) { if (r && r.active) { seeOn = true; seeBtn.classList.add('on'); status(); } }).catch(function () {});
   window.Ava = { setEnabled: setEnabled, open: openPanel, close: closePanel, say: function (t) { announce(t, true, false); }, learn: learnNow };
 })();

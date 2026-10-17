@@ -110,6 +110,38 @@ public class AureonActionsPlugin extends Plugin {
         call.resolve(r);
     }
 
+    // ---- Teach Ava: record what the user does, replay it on command ----
+    @PluginMethod
+    public void getTeach(PluginCall call) { call.resolve(AvaTeach.status(getContext())); }
+
+    @PluginMethod
+    public void teachStart(PluginCall call) { call.resolve(AvaTeach.start(call.getString("name", ""))); }
+
+    @PluginMethod
+    public void teachStop(PluginCall call) {
+        Boolean save = call.getBoolean("save", true);
+        call.resolve(AvaTeach.stop(getContext(), save == null || save));
+    }
+
+    @PluginMethod
+    public void macroPlay(PluginCall call) { call.resolve(AvaTeach.play(getContext(), call.getString("name", ""))); }
+
+    @PluginMethod
+    public void macroStop(PluginCall call) { AvaTeach.stopPlay(); call.resolve(); }
+
+    @PluginMethod
+    public void macroDelete(PluginCall call) { call.resolve(AvaTeach.delete(getContext(), call.getString("name", ""))); }
+
+    @PluginMethod
+    public void openAccessibilitySettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) { call.reject(String.valueOf(e.getMessage())); }
+    }
+
     // ---- Ava's transparent chat screen (AvaPanelActivity) ----
     @PluginMethod
     public void avaPanelMode(PluginCall call) {

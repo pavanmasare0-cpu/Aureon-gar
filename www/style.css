@@ -1297,3 +1297,13 @@ code.inline-code {
   max-width: 80%;
 }
 .attach-chip { cursor: default; }
+
+/* v9: many photos per message */
+.image-preview-strip{display:flex;gap:8px;overflow-x:auto;max-width:100%;padding:6px 4px 2px;align-items:center;-webkit-overflow-scrolling:touch}
+.strip-item{position:relative;flex:none}
+.strip-item img{width:58px;height:58px;object-fit:cover;border-radius:12px;display:block}
+.strip-x{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.78);color:#fff;font-size:11px;line-height:20px;padding:0;cursor:pointer}
+.strip-add{flex:none;width:58px;height:58px;border-radius:12px;border:1.5px dashed rgba(127,127,127,.65);background:transparent;color:inherit;font-size:22px;cursor:pointer}
+.msg-photos .photo-grid{display:grid;gap:4px;max-width:260px;border-radius:14px;overflow:hidden}
+.photo-grid.n1{grid-template-columns:1fr}.photo-grid.n2,.photo-grid.n3,.photo-grid.n4{grid-template-columns:1fr 1fr}
+.photo-grid img{width:100%;height:120px;object-fit:cover;display:block}.photo-grid.n1 img{height:auto;max-height:260px}

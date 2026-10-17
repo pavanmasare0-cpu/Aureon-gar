@@ -30,12 +30,21 @@ const { detectUrl, detectPayload } = require('./detect');
 const { sendAlert } = require('./notify');
 const { runScan } = require('./scan');
 const github = require('./github');
+const auth = require('../dash-auth');
+const linkscan = require('./linkscan');
+const filescan = require('./filescan');
+const textscan = require('./textscan');
+const device = require('./device');
 
-const MODE = (process.env.SECURITY_MODE || 'protect').toLowerCase();
-const RATE_MAX = parseInt(process.env.SECURITY_RATE_MAX, 10) || 200;   // requests / 10 s / IP
+const ENV_MODE = (process.env.SECURITY_MODE || 'protect').toLowerCase();
+const ENV_RATE = parseInt(process.env.SECURITY_RATE_MAX, 10) || 200;   // requests / 10 s / IP
+let MODE = ENV_MODE;          // both can be changed live from the dashboard (Defense options)
+let RATE_MAX = ENV_RATE;
 const RATE_WINDOW_MS = 10 * 1000;
 const csv = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
-const ALLOW = new Set(csv(process.env.SECURITY_ALLOW_IPS));
+const ENV_ALLOW = new Set(csv(process.env.SECURITY_ALLOW_IPS));
+let ALLOW = new Set(ENV_ALLOW);
+const TOOL_UA = /(sqlmap|nikto|nmap|masscan|acunetix|nessus|wpscan|dirbuster|gobuster|zgrab|hydra|havij|openvas|w3af|burpsuite|zaproxy|nuclei|ffuf|feroxbuster|metasploit|commix|whatweb|wfuzz)/i;
 const BLOCKLIST = new Set(csv(process.env.SECURITY_BLOCKLIST));
 const BODY_SKIP = csv(process.env.SECURITY_BODY_SKIP || '/api/chat,/chat,/api/ava,/api/sentinel,/api/security,/api/memory');
 
@@ -73,6 +82,18 @@ function persistSoon() {
   }, 3000);
 }
 
+// ---------------- defense options (edited from the dashboard, saved in Firestore) ----------------
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const S = { mode: null, lockdown: false, rateMax: null, blockTools: true, blockEmptyUA: false, alertEmail: true, probeBanHours: 24, banMinutes: 60, allowIps: [] };
+function applySettings() { MODE = S.mode || ENV_MODE; RATE_MAX = S.rateMax || ENV_RATE; ALLOW = new Set([...ENV_ALLOW, ...S.allowIps]); }
+const settingsReady = (async () => {
+  await store.whenFirestore(20000);
+  const r = await store.load('sec_settings', SETTINGS_FILE);
+  if (r.value && typeof r.value === 'object') Object.assign(S, r.value);
+  applySettings();
+})().catch((e) => console.error('[security] settings load failed:', e.message));
+function saveSettings() { settingsReady.then(() => store.save('sec_settings', S, SETTINGS_FILE)).catch(() => {}); }
+
 github.init({ record: recordEvent, alert: (s, t) => sendAlert(s, t, { urgent: true }), dataDir: DATA_DIR });
 
 // ---------------- helpers ----------------
@@ -109,7 +130,7 @@ function record(req, ip, rule, severity, action, detail) {
   if (incidents.length > 500) incidents.shift();
   if (action === 'BLOCKED') counters.blocked++; else counters.flagged++;
   persistSoon();
-  if (severity === 'HIGH' && action === 'BLOCKED') {
+  if (severity === 'HIGH' && action === 'BLOCKED' && S.alertEmail) {
     sendAlert('Aureon Security: attack blocked', `${rule} from ${ip}\n${inc.method} ${inc.path}\n${inc.t}\n(Further alerts are limited to one per 10 minutes.)`);
   }
 }
@@ -189,6 +210,14 @@ function guard(req, res, next) {
   }
   if (BLOCKLIST.has(ip)) { counters.blocked++; return deny(res); }
 
+  // ---- extra defences (dashboard -> Defense options) ----
+  const ua = String(req.headers['user-agent'] || '');
+  if (S.lockdown && MODE !== 'off' && !req.path.startsWith('/api/security') && !req.path.startsWith('/api/sentinel') && req.path !== '/health') {
+    return res.status(503).json({ error: 'Service temporarily unavailable' });       // LOCKDOWN: only allow-listed IPs get through
+  }
+  if (S.blockTools && TOOL_UA.test(ua) && enforce(req, res, ip, { id: 'ATTACK_TOOL_UA', severity: 'HIGH', name: 'Known attack tool: ' + ua.slice(0, 50) }, S.banMinutes, true)) return;
+  if (S.blockEmptyUA && !ua && enforce(req, res, ip, { id: 'EMPTY_USER_AGENT', severity: 'MEDIUM', name: 'Request without User-Agent' }, S.banMinutes, true)) return;
+
   const rc = rateCheck(ip);
   if (rc === 'ban') {
     if (MODE !== 'monitor') blockIp(ip, 15, 'DDOS_FLOOD', 'auto');
@@ -205,12 +234,12 @@ function guard(req, res, next) {
   if (req.path.startsWith('/api/security') || req.path.startsWith('/api/sentinel')) return next();
 
   const hit = detectUrl(req);
-  if (hit && enforce(req, res, ip, hit, hit.id === 'SCANNER_PROBE' ? 24 * 60 : 60, true)) return;
+  if (hit && enforce(req, res, ip, hit, hit.id === 'SCANNER_PROBE' ? S.probeBanHours * 60 : S.banMinutes, true)) return;
 
   // payload patterns in the query string
   const qs = (req.originalUrl || '').split('?')[1] || '';
   const ph = qs ? detectPayload(qs) : null;
-  if (ph && enforce(req, res, ip, ph, 60, MODE === 'strict')) return;
+  if (ph && enforce(req, res, ip, ph, S.banMinutes, MODE === 'strict')) return;
 
   next();
 }
@@ -225,7 +254,7 @@ function bodyGuard(req, res, next) {
   let text = '';
   try { text = JSON.stringify(req.body).slice(0, 20000); } catch (e) { return next(); }
   const hit = detectPayload(text);
-  if (hit && enforce(req, res, ip, hit, 60, MODE === 'strict')) return;
+  if (hit && enforce(req, res, ip, hit, S.banMinutes, MODE === 'strict')) return;
   next();
 }
 
@@ -233,19 +262,6 @@ function bodyGuard(req, res, next) {
 const router = express.Router();
 const failed = new Map(); // ip -> { n, t }
 
-function ownerOk(req, res) {
-  const configured = process.env.SENTINEL_OWNER_CODE;
-  if (!configured) { res.status(503).json({ error: 'Set SENTINEL_OWNER_CODE on Render to use the security dashboard.' }); return false; }
-  const ip = clientIp(req);
-  const provided = req.header('x-owner-code') || req.query.code;
-  const crypto = require('crypto');
-  const same = typeof provided === 'string' &&
-    crypto.timingSafeEqual(crypto.createHash('sha256').update(provided).digest(), crypto.createHash('sha256').update(configured).digest());
-  if (same) { failed.delete(ip); return true; }
-  registerFailure(req, ip, 'owner code');
-  res.status(401).json({ error: 'owner code required' });
-  return false;
-}
 function registerFailure(req, ip, what) {
   const f = failed.get(ip) || { n: 0, t: Date.now() };
   if (Date.now() - f.t > 10 * 60 * 1000) { f.n = 0; f.t = Date.now(); }
@@ -253,29 +269,25 @@ function registerFailure(req, ip, what) {
   if (f.n >= 5) { failed.delete(ip); if (blockIp(ip, 30, 'OWNER_CODE_BRUTEFORCE', 'auto')) record(req, ip, 'OWNER_CODE_BRUTEFORCE', 'HIGH', 'BLOCKED', `5 wrong ${what} attempts`); }
 }
 
-const LOGIN = (wrong) => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aureon Security — Locked</title>
-<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0d;color:#eee;font-family:-apple-system,sans-serif}
-form{background:#15151b;border:1px solid #24242e;border-radius:12px;padding:28px;width:90%;max-width:320px;text-align:center}
-h1{color:#d4af37;font-size:18px;margin:0 0 18px}input{width:100%;background:#101014;border:1px solid #24242e;color:#eee;padding:10px 12px;border-radius:8px;font-size:14px;margin-bottom:12px}
-button{width:100%;background:#d4af37;color:#141414;border:none;border-radius:8px;padding:10px;font-weight:600;font-size:14px;cursor:pointer}.err{color:#ff6b6b;font-size:12px;margin:-6px 0 12px}</style>${THEME_TAGS}</head>
-<body><form method="GET" action="/api/security/dashboard"><h1>🔐 Aureon Security</h1>${wrong ? '<div class="err">Galat code, dobara try karo.</div>' : ''}<input name="code" type="password" placeholder="Owner code" autofocus><button type="submit">Unlock</button></form></body></html>`;
-
 let DASH_TEMPLATE = null;
-function dashHtml(code) {
+function dashHtml() {
   if (!DASH_TEMPLATE) DASH_TEMPLATE = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8').replace('<!--THEME-->', THEME_TAGS);
-  const codeJson = JSON.stringify(String(code)).replace(/</g, '\\u003c');
-  return DASH_TEMPLATE.split('__OWNER_CODE_JSON__').join(codeJson).split('__MODE__').join(MODE);
+  return DASH_TEMPLATE.split('__OWNER_CODE_JSON__').join('""').split('__MODE__').join(MODE);   // no secret is ever put in the page
 }
 
-router.get('/dashboard', (req, res) => {
-  const configured = process.env.SENTINEL_OWNER_CODE;
-  if (!configured) return res.status(503).type('html').send(LOGIN(false).replace('<input', '<div class="err">SENTINEL_OWNER_CODE set nahi hai — Render → Environment mein add karo.</div><input'));
-  if (!req.query.code) return res.type('html').send(LOGIN(false));
-  const crypto = require('crypto');
-  const ok = crypto.timingSafeEqual(crypto.createHash('sha256').update(String(req.query.code)).digest(), crypto.createHash('sha256').update(configured).digest());
-  if (!ok) { ownerOk(req, { status: () => ({ json: () => {} }) }); return res.type('html').send(LOGIN(true)); }
-  res.setHeader('Cache-Control', 'no-store');
-  res.type('html').send(dashHtml(req.query.code));
+auth.init({ blockIp: (ip, min, reason, by) => blockIp(ip, min, reason, by), record: recordEvent, alert: (s, t) => sendAlert(s, t, { urgent: true }) });
+router.use(auth.shieldHeaders);
+router.use('/auth', auth.router);                                  // login, 2FA, sessions, audit  (see dash-auth.js)
+router.get('/dashboard', (req, res) => auth.dashboard(req, res, () => res.type('html').send(dashHtml())));
+
+// ---- the Android app reports phone security here (its own scoped device key; can ONLY submit reports) ----
+router.post('/device/report', (req, res) => {
+  const dev = device.verifyKey(req.header('x-device-key'));
+  if (!dev) { registerFailure(req, clientIp(req), 'device key'); return auth.notFound(req, res); }
+  try {
+    const a = device.ingest(dev, req.body, { record: recordEvent, alert: (s, t) => sendAlert(s, t, { urgent: true }) });
+    res.json({ ok: true, score: a.score, level: a.level, findings: a.findings.length });
+  } catch (e) { res.status(400).json({ error: 'bad report' }); }
 });
 
 // ---- other apps report here (authenticated by per-app key, not the owner code) ----
@@ -299,12 +311,12 @@ router.post('/ingest', (req, res) => {
   res.json({ ok: true, blocked: Object.keys(blocked).slice(0, 500) }); // lets every app enforce bans made anywhere
 });
 
-router.use((req, res, next) => (ownerOk(req, res) ? next() : undefined));
+router.use(auth.apiGate);                      // everything below needs a logged-in owner session (or code+2FA header)
 
 // ---- GitHub Guard management ----
 router.get('/github', (req, res) => res.json({ repos: github.list(), webhookConfigured: !!process.env.GITHUB_WEBHOOK_SECRET, tokenConfigured: !!process.env.GITHUB_TOKEN }));
-router.post('/github', (req, res) => { try { res.json(github.add(req.body || {})); } catch (e) { res.status(400).json({ error: e.message }); } });
-router.delete('/github/:id', (req, res) => (github.remove(req.params.id) ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' })));
+router.post('/github', (req, res) => { if (!auth.stepUp(req, res)) return; try { res.json(github.add(req.body || {})); } catch (e) { res.status(400).json({ error: e.message }); } });
+router.delete('/github/:id', (req, res) => (!auth.stepUp(req, res) ? undefined : github.remove(req.params.id) ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' })));
 router.post('/github/check', async (req, res) => { await github.runAll(); res.json({ ok: true }); });
 
 router.get('/stats', (req, res) => {
@@ -326,6 +338,7 @@ router.get('/stats', (req, res) => {
 });
 
 router.post('/unblock', (req, res) => {
+  if (!auth.stepUp(req, res)) return; auth.action(req, 'unblock ' + String((req.body || {}).ip));
   const ip = String((req.body && req.body.ip) || '').trim();
   if (!blocked[ip]) return res.status(404).json({ error: 'not blocked' });
   delete blocked[ip]; persistSoon();
@@ -333,6 +346,7 @@ router.post('/unblock', (req, res) => {
 });
 
 router.post('/block', (req, res) => {
+  if (!auth.stepUp(req, res)) return; auth.action(req, 'block ' + String((req.body || {}).ip));
   const ip = String((req.body && req.body.ip) || '').trim();
   const minutes = Math.min(Math.max(parseInt(req.body && req.body.minutes, 10) || 60, 1), 60 * 24 * 30);
   if (!isValidIp(ip)) return res.status(400).json({ error: 'invalid IP' });
@@ -342,5 +356,55 @@ router.post('/block', (req, res) => {
 });
 
 router.get('/scan', (req, res) => res.json(runScan(req.app, MODE)));
+
+
+// ---------------- defense options ----------------
+const clampInt = (v, lo, hi, d) => Math.min(Math.max(parseInt(v, 10) || d, lo), hi);
+router.get('/settings', (req, res) => res.json({ settings: S, effective: { mode: MODE, rateMax: RATE_MAX }, env: { mode: ENV_MODE, rateMax: ENV_RATE } }));
+router.post('/settings', (req, res) => {
+  if (!auth.stepUp(req, res)) return;
+  const b = req.body || {};
+  ['lockdown', 'blockTools', 'blockEmptyUA', 'alertEmail'].forEach((k) => { if (typeof b[k] === 'boolean') S[k] = b[k]; });
+  if (['off', 'monitor', 'protect', 'strict'].includes(b.mode)) S.mode = b.mode; else if (b.mode === 'env' || b.mode === null) S.mode = null;
+  if (b.rateMax !== undefined) S.rateMax = b.rateMax ? clampInt(b.rateMax, 20, 5000, ENV_RATE) : null;
+  if (b.probeBanHours !== undefined) S.probeBanHours = clampInt(b.probeBanHours, 1, 168, 24);
+  if (b.banMinutes !== undefined) S.banMinutes = clampInt(b.banMinutes, 5, 10080, 60);
+  if (Array.isArray(b.allowIps)) S.allowIps = b.allowIps.map((x) => String(x).trim()).filter(isValidIp).slice(0, 30);
+  applySettings(); saveSettings(); auth.action(req, 'defense settings: ' + Object.keys(b).join(','));
+  res.json({ ok: true, settings: S, effective: { mode: MODE, rateMax: RATE_MAX } });
+});
+
+// ---------------- link / message / file checker ----------------
+const scanHits = new Map();
+function scanLimit(req, res) {
+  const k = (req.auth && req.auth.sid) || clientIp(req), now = Date.now();
+  const a = (scanHits.get(k) || []).filter((t) => now - t < 60000);
+  if (a.length >= 20) { res.status(429).json({ error: 'Thoda ruko — 1 minute mein 20 se zyada scan nahi' }); return false; }
+  a.push(now); scanHits.set(k, a); if (scanHits.size > 500) scanHits.clear(); return true;
+}
+router.post('/scan/link', async (req, res) => {
+  if (!scanLimit(req, res)) return;
+  try { res.json(await linkscan.analyzeUrl((req.body || {}).url)); } catch (e) { res.status(500).json({ error: 'scan fail: ' + String(e.message).slice(0, 80) }); }
+});
+router.post('/scan/text', async (req, res) => {
+  if (!scanLimit(req, res)) return;
+  try { res.json(await textscan.analyzeText((req.body || {}).text)); } catch (e) { res.status(500).json({ error: 'scan fail: ' + String(e.message).slice(0, 80) }); }
+});
+// send the raw file bytes with Content-Type: application/octet-stream  (?name=original-file-name)
+router.post('/scan/file', express.raw({ type: '*/*', limit: filescan.MAX_BYTES + 4096 }), async (req, res) => {
+  if (!scanLimit(req, res)) return;
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'file nahi mili (octet-stream body bhejo)' });
+  try {
+    const r = filescan.analyzeFile(req.body, String(req.query.name || 'file'));
+    if (!r.error) { const vt = await filescan.vtLookup(r.info.sha256); if (vt) { r.virustotalResult = vt; if (vt.malicious >= 3) { r.score = 100; r.verdict = 'DANGEROUS'; r.reasons.unshift({ sev: 'HIGH', w: 80, text: `VirusTotal: ${vt.malicious} antivirus engines ise malware bol rahe hain` }); } } }
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'scan fail: ' + String(e.message).slice(0, 80) }); }
+});
+
+// ---------------- my phone(s) ----------------
+router.get('/devices', (req, res) => res.json(device.list()));
+router.post('/devices', (req, res) => { if (!auth.stepUp(req, res)) return; auth.action(req, 'new device key'); res.json(device.createDevice((req.body || {}).name)); });
+router.delete('/devices/:id', (req, res) => { if (!auth.stepUp(req, res)) return; auth.action(req, 'remove device'); return device.removeDevice(req.params.id) ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' }); });
+router.get('/devices/:id', (req, res) => { const l = device.latest(req.params.id); return l ? res.json({ latest: l, history: device.history(req.params.id) }) : res.status(404).json({ error: 'abhi tak koi report nahi aayi' }); });
 
 module.exports = { guard, bodyGuard, githubWebhook: github.webhook, router, ready, _internals: { blockIp, blocked, incidents, detectUrl, detectPayload } };

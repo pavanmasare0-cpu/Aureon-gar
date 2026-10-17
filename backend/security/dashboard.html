@@ -33,6 +33,24 @@
   .ALERT { background:rgba(255,107,107,.13); color:var(--danger); border:1px solid rgba(255,107,107,.3); }
   .apptag { font-size:10px; padding:2px 8px; border-radius:20px; background:rgba(139,143,153,.15); color:var(--muted); margin-left:6px; font-weight:600; }
   details.help { margin:6px 0 12px; font-size:12px; color:var(--muted); } details.help summary { cursor:pointer; color:var(--gold); } details.help code { background:var(--bg2); padding:2px 6px; border-radius:4px; word-break:break-all; }
+  .tabs { display:flex; gap:8px; overflow-x:auto; margin:6px 0 16px; padding-bottom:4px; }
+  .tabs button { flex:none; background:var(--card); color:var(--text); border:1px solid var(--card-border); border-radius:999px; padding:8px 14px; font-size:13px; }
+  .tabs button.on { background:var(--gold); color:#141414; border-color:transparent; }
+  .tab { display:none; } .tab.on { display:block; }
+  textarea { width:100%; min-height:90px; background:var(--bg2); border:1px solid var(--card-border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:13px; font-family:inherit; resize:vertical; }
+  select { background:var(--bg2); border:1px solid var(--card-border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:13px; width:100%; }
+  label.opt { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--card-border); font-size:13px; }
+  label.opt input { width:auto; margin-top:2px; } label.opt span small { display:block; color:var(--muted); margin-top:2px; font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; } .grid2 label { font-size:12px; color:var(--muted); }
+  .verdict { font-size:15px; font-weight:800; letter-spacing:.5px; padding:6px 14px; border-radius:999px; display:inline-block; }
+  .v-LOW { background:rgba(74,222,128,.15); color:var(--ok); border:1px solid rgba(74,222,128,.4); }
+  .v-SUSPICIOUS { background:rgba(245,165,36,.15); color:var(--warn); border:1px solid rgba(245,165,36,.4); }
+  .v-DANGEROUS, .v-RISK { background:rgba(255,107,107,.15); color:var(--danger); border:1px solid rgba(255,107,107,.45); }
+  .v-GOOD { background:rgba(74,222,128,.15); color:var(--ok); border:1px solid rgba(74,222,128,.4); } .v-ATTENTION { background:rgba(245,165,36,.15); color:var(--warn); border:1px solid rgba(245,165,36,.4); }
+  .bar { height:8px; border-radius:6px; background:var(--bg2); overflow:hidden; margin:10px 0; } .bar i { display:block; height:100%; }
+  ul.rs { margin:8px 0 0; padding-left:0; list-style:none; } ul.rs li { font-size:13px; padding:7px 0; border-bottom:1px solid var(--card-border); display:flex; gap:8px; align-items:flex-start; }
+  .keybox { word-break:break-all; background:var(--bg2); border:1px dashed var(--gold); border-radius:8px; padding:10px; font-size:12px; margin:10px 0; user-select:all; }
+  .warnbox { border:1px solid rgba(255,107,107,.45); background:rgba(255,107,107,.08); border-radius:8px; padding:10px; font-size:12px; margin:8px 0; }
   .FLAGGED, .MONITORED { background:rgba(245,165,36,.13); color:var(--warn); border:1px solid rgba(245,165,36,.3); }
   button { background:var(--gold); color:#141414; border:none; border-radius:8px; padding:8px 14px; font-weight:600; font-size:13px; cursor:pointer; }
   button.ghost { background:transparent; color:var(--text); border:1px solid var(--card-border); }
@@ -49,6 +67,10 @@
   <div class="sub">Mode: <span class="mode __MODE__">__MODE__</span> · auto-refresh 15s · defensive only (blocks requests, never attacks back)</div>
   <div class="nav"><a id="sentinel-link" href="#">🛡️ Sentinel Dashboard →</a></div>
   <div class="chips" id="chips"></div>
+  <div class="tabs" id="tabs">
+    <button class="on" data-t="overview">📊 Overview</button><button data-t="checker">🔎 Link / File check</button><button data-t="phone">📱 My Phone</button><button data-t="defense">🛡️ Defense</button><button data-t="access">🔑 Dashboard access</button>
+  </div>
+  <div class="tab on" id="tab-overview">
 
   <div class="columns">
     <div class="col">
@@ -88,13 +110,53 @@
     </div>
   </div>
 
+</div>
+
+  <div class="tab" id="tab-checker">
+    <h2>Link, message ya file check karo</h2>
+    <div class="sub">Koi link, SMS / WhatsApp message paste karo — ya file chuno. Scam / phishing / malware ka andaza milega. (Link tumhare phone se nahi, server se khola jaata hai. File sirf memory mein jaanchi jaati hai, save nahi hoti.)</div>
+    <textarea id="chk-in" placeholder="https://... ya poora message yahan paste karo"></textarea>
+    <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap"><button onclick="checkText()" id="chk-btn">Check karo</button><button class="ghost" onclick="document.getElementById('chk-file').click()">📎 File chuno</button><input type="file" id="chk-file" style="display:none" onchange="checkFile(this)"></div>
+    <div id="chk-out"></div>
+  </div>
+
+  <div class="tab" id="tab-phone">
+    <h2>Mera phone</h2>
+    <div class="sub">Aureon app phone ki security settings aur installed apps ki list tumhare backend ko bhejti hai (kisi third party ko nahi). Ye ek posture check hai — antivirus nahi.</div>
+    <div style="margin-bottom:12px"><button onclick="addDevice()">+ Naya phone jodo</button></div>
+    <div id="dev-key"></div><div id="devices"></div>
+  </div>
+
+  <div class="tab" id="tab-defense">
+    <h2>Defense options</h2>
+    <div class="sub">Live badalte hain — redeploy nahi chahiye. Effective mode abhi: <b id="eff-mode"></b></div>
+    <div class="card" id="def-form"></div>
+  </div>
+
+  <div class="tab" id="tab-access">
+    <h2>Dashboard ka tala</h2>
+    <div class="sub">Sentinel aur Security dono dashboards ki suraksha yahin se control hoti hai.</div>
+    <div class="card" id="acc-status"></div>
+    <h2 style="margin-top:22px">Access log</h2><div id="acc-audit"></div>
+  </div>
+
 <script>
 const API = '/api/security';
 const OWNER_CODE = __OWNER_CODE_JSON__;
-document.getElementById('sentinel-link').href = '/api/sentinel/dashboard?code=' + encodeURIComponent(OWNER_CODE);
+document.getElementById('sentinel-link').href = '/api/sentinel/dashboard';
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
-function authFetch(url, opts) { opts = opts || {}; opts.headers = Object.assign({ 'x-owner-code': OWNER_CODE }, opts.headers); return fetch(url, opts); }
+async function authFetch(url, opts) {
+  opts = opts || {}; opts.headers = Object.assign({ 'x-csrf': '1' }, opts.headers);
+  if (OWNER_CODE) opts.headers['x-owner-code'] = OWNER_CODE;
+  let r = await fetch(url, opts);
+  if (r.status === 403) {                                    // step-up: fresh 2FA code wanted for this action
+    const j = await r.clone().json().catch(() => ({}));
+    if (j.needTotp) { const c = prompt('2FA code (Authenticator ka 6-digit) daalo:'); if (c) { opts.headers['x-totp'] = c.trim(); r = await fetch(url, opts); } }
+  }
+  if (r.status === 401) { document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#999">Session khatam ho gaya.<br>Dashboard link dobara kholo.</div>'; throw new Error('session expired'); }
+  return r;
+}
 function ago(t) { const s = Math.max(1, Math.round((Date.now() - (typeof t === 'number' ? t : Date.parse(t))) / 1000)); return s < 90 ? s + 's ago' : s < 5400 ? Math.round(s/60) + 'm ago' : s < 129600 ? Math.round(s/3600) + 'h ago' : Math.round(s/86400) + 'd ago'; }
 function left(t) { const m = Math.max(0, Math.round((t - Date.now()) / 60000)); return m >= 90 ? Math.round(m/60) + 'h left' : m + 'm left'; }
 
@@ -175,6 +237,144 @@ async function addRepo() {
 }
 async function rmRepo(id) { if (!confirm('Is repo ki monitoring band karein?')) return; await authFetch(API + '/github/' + id, { method:'DELETE' }); loadGithub(); }
 async function checkGithub() { const b = document.getElementById('gh-btn'); b.disabled = true; b.textContent = 'Checking…'; await authFetch(API + '/github/check', { method:'POST' }); b.disabled = false; b.textContent = 'Check now'; loadGithub(); load(); }
+
+// ============ tabs ============
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === 'tab-' + b.dataset.t));
+  if (b.dataset.t === 'phone') loadDevices(); if (b.dataset.t === 'defense') loadDefense(); if (b.dataset.t === 'access') loadAccess();
+});
+
+// ============ link / message / file checker ============
+function verdictBlock(r) {
+  if (r.error) return '<div class="card"><div class="meta" style="color:var(--danger)">' + esc(r.error) + '</div></div>';
+  const cls = r.verdict === 'LOW RISK' ? 'LOW' : r.verdict;
+  const color = r.score >= 60 ? 'var(--danger)' : r.score >= 25 ? 'var(--warn)' : 'var(--ok)';
+  let h = '<div class="card"><div class="row"><span class="verdict v-' + esc(cls) + '">' + esc(r.verdict) + '</span><b style="font-size:20px">' + r.score + '<small style="font-size:12px;color:var(--muted)"> / 100 risk</small></b></div>';
+  h += '<div class="bar"><i style="width:' + r.score + '%;background:' + color + '"></i></div>';
+  if (r.aiOpinion) h += '<div class="meta" style="margin:6px 0 10px">🤖 AI ki raay: ' + esc(r.aiOpinion) + '</div>';
+  h += '<ul class="rs">' + (r.reasons || []).map(x => '<li><span class="badge ' + esc(x.sev) + '">' + esc(x.sev) + '</span><span>' + esc(x.text) + '</span></li>').join('') + '</ul>';
+  if (r.links && r.links.length) h += '<h2 style="margin-top:14px">Message ke andar ke links</h2>' + r.links.map(l => '<div class="meta"><b>' + esc(l.verdict) + ' ' + l.score + '</b> · ' + esc(l.url) + '<br>' + esc((l.top || []).join(' · ')) + '</div>').join('');
+  const i = r.info || {};
+  const bits = [];
+  if (i.finalUrl) bits.push('Asli destination: ' + i.finalUrl); if (i.domainAgeDays != null) bits.push('Domain umar: ' + i.domainAgeDays + ' din'); if (i.title) bits.push('Page title: ' + i.title);
+  if (i.contentType) bits.push('Type: ' + i.contentType); if (i.detectedType) bits.push('File type: ' + i.detectedType); if (i.sha256) bits.push('SHA-256: ' + i.sha256);
+  if (i.redirects && i.redirects.length > 1) bits.push('Redirects: ' + i.redirects.join(' → '));
+  if (i.permissions && i.permissions.length) bits.push('APK permissions: ' + i.permissions.map(p => p.name).join(', '));
+  if (bits.length) h += '<details style="margin-top:10px"><summary>Technical details</summary>' + bits.map(b => '<div class="meta">' + esc(b) + '</div>').join('') + (i.virustotal ? '<div class="meta"><a style="color:var(--gold)" href="' + esc(i.virustotal) + '" target="_blank" rel="noopener noreferrer">VirusTotal par is hash ko dekho</a></div>' : '') + '</details>';
+  h += '<div class="warnbox" style="margin-top:12px"><b>Kya karna chahiye</b><br>' + (r.actions || []).map(a => '• ' + esc(a)).join('<br>') + '</div>';
+  return h + '<div class="meta">' + esc(r.note || '') + '</div></div>';
+}
+async function checkText() {
+  const t = document.getElementById('chk-in').value.trim(); if (!t) return;
+  const btn = document.getElementById('chk-btn'); btn.disabled = true; btn.textContent = 'Check ho raha hai…';
+  document.getElementById('chk-out').innerHTML = '<div class="empty">Link khol kar dekh rahe hain… (10-20 sec lag sakte hain)</div>';
+  try {
+    const single = /^\S+$/.test(t) && /[.:\/]/.test(t);
+    const r = await (await authFetch(API + (single ? '/scan/link' : '/scan/text'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(single ? { url: t } : { text: t }) })).json();
+    document.getElementById('chk-out').innerHTML = verdictBlock(r);
+  } catch (e) { document.getElementById('chk-out').innerHTML = '<div class="empty">Check fail: ' + esc(e.message) + '</div>'; }
+  btn.disabled = false; btn.textContent = 'Check karo';
+}
+async function checkFile(inp) {
+  const f = inp.files[0]; if (!f) return;
+  if (f.size > 15 * 1024 * 1024) { alert('File 15 MB se badi hai'); return; }
+  document.getElementById('chk-out').innerHTML = '<div class="empty">' + esc(f.name) + ' jaanchi ja rahi hai…</div>';
+  try {
+    const r = await (await authFetch(API + '/scan/file?name=' + encodeURIComponent(f.name), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f })).json();
+    document.getElementById('chk-out').innerHTML = verdictBlock(r);
+  } catch (e) { document.getElementById('chk-out').innerHTML = '<div class="empty">Check fail: ' + esc(e.message) + '</div>'; }
+  inp.value = '';
+}
+
+// ============ my phone ============
+async function loadDevices() {
+  const el = document.getElementById('devices');
+  try {
+    const d = await (await authFetch(API + '/devices')).json();
+    el.innerHTML = d.length ? d.map(x => '<div class="card"><div class="row"><div><div class="name">📱 ' + esc(x.name) + '</div><div class="meta">' + (x.last ? 'last check ' + ago(x.last.t) + ' · ' + x.last.findings + ' issue(s)' : 'abhi tak koi report nahi aayi') + '</div></div>' +
+      '<div>' + (x.last ? '<span class="verdict v-' + esc(x.last.level) + '">' + x.last.score + ' · ' + esc(x.last.level) + '</span> ' : '') + '<button class="ghost" data-id="' + esc(x.id) + '" onclick="showDevice(this.dataset.id)">Dekho</button> <button class="ghost" data-id="' + esc(x.id) + '" onclick="delDevice(this.dataset.id)">✕</button></div></div><div id="dev-' + esc(x.id) + '"></div></div>').join('') : '<div class="empty">Koi phone nahi jura. "+ Naya phone jodo" dabao.</div>';
+  } catch (e) { el.innerHTML = '<div class="empty">Load nahi hua</div>'; }
+}
+async function addDevice() {
+  const name = prompt('Phone ka naam (jaise "Pavan ka phone"):', 'My phone'); if (!name) return;
+  const r = await authFetch(API + '/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  if (!r.ok) return; const k = await r.json();
+  document.getElementById('dev-key').innerHTML = '<div class="card"><b>Device key — sirf ABHI dikh rahi hai</b><div class="keybox" id="kb">' + esc(k.key) + '</div><div class="meta">Aureon app → Settings → <b>Phone Security</b> → "Device key" mein paste karo, phir "Abhi check karo". Ye key sirf reports bhej sakti hai, dashboard nahi khol sakti. Kho jaye to naya phone jodo.</div><button class="ghost" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById(\'kb\').textContent);this.textContent=\'Copied ✓\'">Copy</button></div>';
+  loadDevices();
+}
+async function delDevice(id) { if (!confirm('Is phone ko hata dein? (uski saari reports delete)')) return; await authFetch(API + '/devices/' + id, { method: 'DELETE' }); loadDevices(); }
+async function showDevice(id) {
+  const box = document.getElementById('dev-' + id); box.innerHTML = '<div class="empty">…</div>';
+  const r = await authFetch(API + '/devices/' + id); if (!r.ok) { box.innerHTML = '<div class="empty">Abhi koi report nahi — app mein "Abhi check karo" dabao.</div>'; return; }
+  const d = await r.json(), l = d.latest, h = l.health || {};
+  let x = '<div class="bar"><i style="width:' + l.score + '%;background:' + (l.score >= 80 ? 'var(--ok)' : l.score >= 50 ? 'var(--warn)' : 'var(--danger)') + '"></i></div>';
+  x += '<div class="meta">' + esc(l.device.model || '') + ' · Android ' + esc(l.device.release || '?') + ' · patch ' + esc(l.device.patch || '?') + ' · ' + l.appCount + ' apps' + (h.storageFreePct != null ? ' · storage ' + h.storageFreePct + '% khali' : '') + (h.batteryTempC != null ? ' · battery ' + h.batteryTempC + '°C' : '') + '</div>';
+  x += '<ul class="rs">' + (l.findings.length ? l.findings.map(f => '<li><span class="badge ' + esc(f.sev) + '">' + esc(f.sev) + '</span><span>' + esc(f.text) + (f.fix ? '<br><small style="color:var(--muted)">→ ' + esc(f.fix) + '</small>' : '') + '</span></li>').join('') : '<li>Koi issue nahi mila ✅</li>') + '</ul>';
+  if (l.newApps && l.newApps.length) x += '<div class="meta" style="margin-top:8px">Pichhli report ke baad naye apps: ' + esc(l.newApps.map(a => a.label).join(', ')) + '</div>';
+  x += '<div class="meta" style="margin-top:6px">Score history: ' + d.history.map(p => p.score).join(' → ') + '</div>';
+  box.innerHTML = x;
+}
+
+// ============ defense options ============
+async function loadDefense() {
+  const d = await (await authFetch(API + '/settings')).json(), s = d.settings;
+  document.getElementById('eff-mode').textContent = d.effective.mode.toUpperCase() + ' · rate ' + d.effective.rateMax + '/10s' + (s.lockdown ? ' · 🔒 LOCKDOWN ON' : '');
+  const chk = (k, t, sub) => '<label class="opt"><input type="checkbox" id="d-' + k + '"' + (s[k] ? ' checked' : '') + '><span>' + t + '<small>' + sub + '</small></span></label>';
+  document.getElementById('def-form').innerHTML =
+    '<label style="font-size:12px;color:var(--muted)">Mode</label><select id="d-mode">' + ['env', 'monitor', 'protect', 'strict', 'off'].map(m => '<option value="' + m + '"' + ((s.mode || 'env') === m ? ' selected' : '') + '>' + ({ env: 'Render env wala (' + d.env.mode + ')', monitor: 'monitor — sirf log, block nahi', protect: 'protect — hamlon ko block (recommended)', strict: 'strict — SQL/XSS jaise patterns bhi block', off: 'off — band' }[m]) + '</option>').join('') + '</select>' +
+    '<div class="grid2"><div><label>Rate limit (req / 10 sec / IP)</label><input id="d-rate" type="number" min="20" max="5000" value="' + (s.rateMax || '') + '" placeholder="' + d.env.rateMax + ' (default)"></div><div><label>Auto-ban kitni der (min)</label><input id="d-ban" type="number" min="5" value="' + s.banMinutes + '"></div><div><label>Scanner-probe ban (ghante)</label><input id="d-probe" type="number" min="1" max="168" value="' + s.probeBanHours + '"></div></div>' +
+    chk('blockTools', 'Hacking tools ko block karo', 'sqlmap, nikto, nmap, nuclei, gobuster jaise tools ka User-Agent dikhte hi ban') +
+    chk('blockEmptyUA', 'Bina User-Agent wali requests block karo', 'Bots aksar ye chhodte hain. Dhyan: kuch asli clients bhi bina UA ke ho sakte hain') +
+    chk('alertEmail', 'HIGH attack par email alert', 'RESEND_API_KEY + ALERT_EMAIL_TO set hona chahiye') +
+    chk('lockdown', '🔒 LOCKDOWN (emergency)', 'Sirf neeche wali Allow-list ke IP aur ye dashboards chalenge; baaki sab 503. Asli users bhi ruk jayenge — sirf attack ke waqt on karo') +
+    '<label style="font-size:12px;color:var(--muted);display:block;margin-top:10px">Allow-list IPs (kabhi block nahi honge, lockdown mein bhi chalenge) — comma se alag</label><input id="d-allow" value="' + esc((s.allowIps || []).join(', ')) + '" placeholder="203.0.113.5, 198.51.100.7">' +
+    '<div style="margin-top:14px"><button onclick="saveDefense()">Save karo</button> <span class="meta" id="d-msg"></span></div>';
+}
+async function saveDefense() {
+  const g = id => document.getElementById(id);
+  if (g('d-lockdown').checked && !confirm('LOCKDOWN on karne se asli users bhi block ho jayenge (sirf allow-list chalegi). Pakka?')) return;
+  const body = { mode: g('d-mode').value, rateMax: g('d-rate').value ? parseInt(g('d-rate').value, 10) : 0, banMinutes: g('d-ban').value, probeBanHours: g('d-probe').value, blockTools: g('d-blockTools').checked, blockEmptyUA: g('d-blockEmptyUA').checked, alertEmail: g('d-alertEmail').checked, lockdown: g('d-lockdown').checked, allowIps: g('d-allow').value.split(/[ ,\n]+/).filter(Boolean) };
+  const r = await authFetch(API + '/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  g('d-msg').textContent = r.ok ? 'Save ho gaya ✓' : 'Save nahi hua'; loadDefense();
+}
+
+// ============ dashboard access (2FA, stealth, sessions, audit) ============
+async function loadAccess() {
+  const [st, au] = await Promise.all([authFetch(API + '/auth/status').then(r => r.json()), authFetch(API + '/auth/audit').then(r => r.json())]);
+  const chk = (id, on, t, sub) => '<label class="opt"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + ' onchange="saveAccess()"><span>' + t + '<small>' + sub + '</small></span></label>';
+  document.getElementById('acc-status').innerHTML =
+    '<div class="row"><div><b>2-Step (Authenticator app)</b><div class="meta">' + (st.totpEnabled ? '✅ ON' : '⚠️ OFF — abhi sirf owner code se khulta hai') + (st.recoveryMode ? ' · recovery mode (DASH_TOTP_DISABLE=1)' : '') + '</div></div>' + (st.totpEnabled ? '<button class="ghost" onclick="disable2fa()">Band karo</button>' : '<button onclick="setup2fa()">Setup 2FA</button>') + '</div><div id="totp-setup"></div>' +
+    chk('a-stealth', st.stealth, 'Stealth mode', 'Bina login wale ko normal "404 Cannot GET" dikhta hai — scanners ko pata hi nahi chalta ki ye dashboard yahan hai') +
+    chk('a-stepup', st.stepUp, 'Step-up 2FA', 'Fix approve karna, IP block/unblock, settings badalna — in par har baar naya 2FA code poocha jaye (2FA on hona chahiye)') +
+    '<div class="grid2"><div><label>Session idle timeout (min)</label><input id="a-idle" type="number" min="5" max="240" value="' + st.idleMin + '" onchange="saveAccess()"></div></div>' +
+    '<label style="font-size:12px;color:var(--muted)">Dashboard sirf in IP se khule (optional, khali = sab) — tumhara abhi ka IP: <b>' + esc(st.yourIp) + '</b></label><input id="a-ips" value="' + esc((st.allowIps || []).join(', ')) + '" placeholder="khali chhodo, ya IP daalo (mobile data mein IP badalta rehta hai)" onchange="saveAccess()">' +
+    '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="ghost" onclick="revokeOthers()">Baaki sab sessions band karo (' + (st.sessions - 1 > 0 ? st.sessions - 1 : 0) + ')</button><button class="ghost" onclick="logout()">Logout</button></div>' +
+    (st.globalLock ? '<div class="warnbox">⚠️ Abhi naye logins band hain (bahut galat attempts). 15 min mein khulenge.</div>' : '');
+  document.getElementById('acc-audit').innerHTML = au.length ? au.slice(0, 40).map(a => '<div class="card"><div class="row"><div class="name" style="font-size:13px">' + esc(a.event) + '</div><div class="meta">' + ago(a.t) + '</div></div><div class="meta">' + esc(a.ip) + ' · ' + esc(a.detail) + '</div><div class="meta" style="opacity:.7">' + esc(a.ua) + '</div></div>').join('') : '<div class="empty">Abhi koi entry nahi</div>';
+}
+async function saveAccess() {
+  const body = { stealth: document.getElementById('a-stealth').checked, stepUp: document.getElementById('a-stepup').checked, idleMin: document.getElementById('a-idle').value, allowIps: document.getElementById('a-ips').value.split(/[ ,\n]+/).filter(Boolean) };
+  const r = await authFetch(API + '/auth/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'Save nahi hua'); } loadAccess();
+}
+async function setup2fa() {
+  const r = await authFetch(API + '/auth/totp/start', { method: 'POST' }); if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'fail'); return; }
+  const d = await r.json();
+  document.getElementById('totp-setup').innerHTML = '<div class="keybox">' + esc(d.secret) + '</div><div class="meta">Authenticator app (Google / Microsoft / Aegis) mein "Enter a setup key" se ye key daalo, ya neeche link dabao (phone par seedha app khulega):</div><div style="margin:8px 0"><a style="color:var(--gold)" href="' + esc(d.otpauth) + '">Authenticator mein add karo</a></div><input id="totp-c" inputmode="numeric" maxlength="6" placeholder="app ka 6-digit code" style="max-width:200px"> <button onclick="confirm2fa()">Confirm</button>';
+}
+async function confirm2fa() {
+  const r = await authFetch(API + '/auth/totp/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: document.getElementById('totp-c').value }) });
+  if (r.ok) { alert('2FA ON ho gaya ✅\nLost phone ho jaye to Render par DASH_TOTP_DISABLE=1 daal kar wapas aa sakte ho.'); loadAccess(); } else { const e = await r.json().catch(() => ({})); alert(e.error || 'galat code'); }
+}
+async function disable2fa() {
+  const c = prompt('2FA band karne ke liye abhi ka 6-digit code daalo:'); if (!c) return;
+  const r = await authFetch(API + '/auth/totp/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: c }) });
+  if (!r.ok) alert('Galat code'); loadAccess();
+}
+async function revokeOthers() { await authFetch(API + '/auth/sessions/revoke', { method: 'POST' }); loadAccess(); }
+async function logout() { await authFetch(API + '/auth/logout', { method: 'POST' }); document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#999">Logout ho gaye.</div>'; }
+
 load(); loadGithub(); setInterval(load, 15000); setInterval(loadGithub, 60000);
 </script>
 </body>

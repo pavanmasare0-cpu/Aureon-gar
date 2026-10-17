@@ -28,8 +28,9 @@ public class AureonAccessibilityService extends AccessibilityService {
     private static long lastAlarmAnnounceAt = 0;
     private static final long ALARM_ANNOUNCE_COOLDOWN_MS = 15000;
 
-    @Override public void onServiceConnected() { instance = this; }
+    @Override public void onServiceConnected() { instance = this; AvaTeach.attach(this); }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        try { AvaTeach.onEvent(this, event); } catch (Throwable ignored) { }
         if (event != null && event.getEventType() != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             lastScreenText = readScreen();
             maybeAnnounceAlarm(lastScreenText);

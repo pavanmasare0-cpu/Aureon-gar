@@ -226,6 +226,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
         if (!getDb()) return res.status(503).json({ error: 'Firebase Admin not configured' });
         const decoded = await admin.auth().verifyIdToken(m[1]);
         req.avaWho = 'user:' + decoded.uid;
+        req.avaEmail = decoded.email || null; req.avaUid = decoded.uid;
         const csv = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
         req.avaIsOwner = csv(process.env.AVA_OWNER_UIDS).includes(String(decoded.uid).toLowerCase()) ||
           (!!decoded.email && decoded.email_verified === true && csv(process.env.AVA_OWNER_EMAILS).includes(decoded.email.toLowerCase()));
@@ -245,6 +246,13 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
 
   // ---------------- v2: screen memory, discoveries, self-reflection ----------------
   const extra = require('./ava-extra')({ router, auth, getDb, callGemini, helpers: { newId, norm, parseJSON, limited, sameCode } });
+  const mind = require('./ava-mind')({ router, auth, callGemini, helpers: { newId, norm, parseJSON, limited }, kv: extra.kv, redact: extra.redact });
+  // Ava Lab (Sentinel dashboard, backend/ava-self.js): lets Ava write her own upgrade drafts with HER brain and read her live signals.
+  // Read-only hook: it can only produce text; files are changed solely by the owner's Approve click in Sentinel.
+  global.__avaSelf = {
+    llm: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava reviewing your own source code. Output JSON only.', false),
+    signals: () => ({ mind: mind.brainSummary() }),
+  };
 
   // ---------------- routes ----------------
   router.get('/widget.js', (req, res) => {
@@ -256,6 +264,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
   router.get('/brain', auth, (req, res) => {
     res.json({
       ...extra.brainExtras(req.avaWho, req.avaIsOwner),
+      mind: mind.brainSummary(),
       knowledge: facts.slice(0, 12).map(({ topic, fact, why, createdAt }) => ({ topic, fact, why, createdAt })),
       thoughts: thoughts.slice(0, 5),
       status: { learning, topic: learningTopic, lastLearnedAt: meta.lastLearnedAt, lastTopic: meta.lastTopic, total: facts.length, lastError },
@@ -301,7 +310,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
       }
       const k = knowledgeBlock(10);
       if (k) system += `\n\nThings you (Ava) learned recently on your own — use them when relevant:\n${k}`;
-      system += extra.promptBlock() + extra.sentinelBlock(req.avaIsOwner);
+      system += extra.promptBlock() + extra.sentinelBlock(req.avaIsOwner) + mind.promptBlock(String((messages[messages.length - 1] || {}).content || ''), req.avaIsOwner);
 
       let reply;
       try {
@@ -314,6 +323,7 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
       const lastQ = messages[messages.length - 1].content;
       if (extra.isComplex(lastQ)) reply = await extra.refine(lastQ, reply);
       extra.logTurn(lastQ, reply);
+      mind.logTurn(lastQ, reply, req.avaIsOwner);
 
       const actions = [];
       if (mode === 'sentinel') {
@@ -331,6 +341,6 @@ module.exports = function createAva({ getDb, admin, callGemini, callGroq }) {
     }
   });
 
-  load().then(() => { startLoop(); extra.start(); });
+  load().then(() => { startLoop(); extra.start(); mind.start(); });
   return router;
 };

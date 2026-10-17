@@ -92,3 +92,22 @@ Settings → General me "Ava (udta hua bot)" switch se Ava poori band/on hoti ha
 - Bolo: **"mere servers kaise hain?"** → health score, kaun down, kitne fix approval ke liye, uptime 24h.
 - **Sirf owner ko** milta hai. Dashboard/owner-code se hamesha; Aureon **app** me chahiye to Render env me apna login daalo: `AVA_OWNER_EMAILS=tumhara@gmail.com` (ya `AVA_OWNER_UIDS=<firebase uid>`). Baaki app users ko server info nahi dikhti.
 - Sentinel dashboard par Ava ka bubble wapas aa gaya.
+
+## Sikhao: jo mai karun wo Ava yaad rakhe aur khud kare (Teach)
+1. Pehle ek baar: Phone Settings -> Accessibility -> Aureon -> ON (Ava khud ye Settings khol deti hai).
+2. Ava se bolo: **"seekho wifi band karna"** (naam kuch bhi). Ava panel band ho jata hai.
+3. Ab tum apna kaam karo (Settings, koi bhi app). Ava har tap / likha hua text / app badalna yaad rakhti hai.
+4. Ava par tap karo aur bolo **"bas"** -> "Yaad kar liya".
+5. Baad me bolo **"wifi band karna karo"** -> Ava puchti hai "chalau?" -> **"haan"** -> wo khud sab steps karti hai. Beech me **"ruko"**.
+- Commands: `seekho <naam>`, `bas`, `cancel`, `<naam> karo` + `haan`, `tumne kya kya seekha`, `bhool ja <naam>`.
+- Safety: password field, OTP jaisa text, banking/payment/authenticator apps kabhi record nahi hote. Replay me "pay / transfer / erase / uninstall / purchase" jaisa step aaye to Ava ruk jaati hai. Kuch na mile to guess nahi karti, ruk kar batati hai.
+- Sab kuch sirf phone me (SharedPreferences) rehta hai, server par nahi jata.
+- Dhyan: switch/toggle ko replay me *dobara dabaya* jata hai (ON hai to OFF ho sakta hai). Screen ya app badal jaye to step na mile, tab Ava ruk jaati hai. Max 60 steps.
+
+## Screen par text / photo padhna
+Screen-watch (👁) ab har ~6 sec ke frame me dikhne wala important text bhi padhta hai (photo, screenshot, meme, video caption ke andar ka bhi) aur yaad rakhta hai. Pucho: "screen par kya likha tha?". Ye video ko lagataar nahi, har kuch second ke frame se samajhta hai (awaaz nahi sunta).
+
+## Video mode (screen par video chal raha ho)
+- Jab screen lagataar badal rahi ho (video / scroll), Ava ~2 sec ke gap se 4 frame leti hai aur unhe **ek 2x2 contact sheet** banake bhejti hai (~9 sec me ek baar). AI ko "kya hua" (action, scene badalna, kaun kya kar raha) samajh aata hai, sirf ek tasveer nahi.
+- Video ka alag hourly budget hai: Render env `AVA_VIDEO_MAX_PER_HOUR` (default 120 = lagbhag 16 min lagataar video / ghanta). Normal screen ka `AVA_SCREEN_MAX_PER_HOUR` (default 90) alag.
+- Awaaz abhi nahi sunti (sirf dikhne wala text/caption padhti hai).

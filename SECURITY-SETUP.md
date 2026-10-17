@@ -97,6 +97,41 @@ app.use(shield({ app: 'omnisell', reportUrl: 'https://aureone.onrender.com', key
    ~1 minute mein lagu ho jata hai.
 Aureon ka Android app khud server nahi hai — uski suraksha uska backend (upar wala) karta hai.
 
+## v8 — Dashboard ka tala (koi Sentinel / Security dashboard ko touch bhi na kar sake)
+Dono dashboards ab ek hi shared lock (`backend/dash-auth.js`) se bandh hain:
+
+| Layer | Kya karta hai |
+|---|---|
+| **Stealth** | Bina login wale ko normal "Cannot GET ..." 404 dikhta hai — scanner ko pata hi nahi chalta ki yahan dashboard hai (dashboard ke andar band/chalu kar sakte ho) |
+| **Code sirf ek baar** | `?code=` ek baar chalta hai, session ban jata hai aur URL se code gayab. Page ke HTML mein koi secret nahi rehta |
+| **2FA (Authenticator)** | Google Authenticator / Aegis / Microsoft. Dashboard → *Dashboard access* → Setup 2FA. Replay-proof (ek code ek baar) |
+| **Step-up** | Fix approve, IP block/unblock, settings, naya phone — har sensitive kaam par naya 2FA code (ek baar daalne ke baad 5 min chhoot) |
+| **Session** | Random id, HttpOnly + Secure + SameSite=Strict cookie, 30 min idle / 8 ghante max, tumhare browser se bandha, jab chaho "baaki sab sessions band" |
+| **Lockout** | 5 galat try → IP 30 min ban. 10 min mein 25 galat try (kisi bhi IP se) → naye logins 15 min band + email |
+| **IP allow-list** (optional) | Dashboard sirf tumhare IP se khule |
+| **Audit log** | Har login / galat try / action ka record dashboard mein; naye device se login par email |
+| **Headers** | CSP, no-frame, no-referrer, no-store, nosniff |
+
+**Zaroori:** `SENTINEL_OWNER_CODE` ab **compulsory** hai. Pehle ye set na ho to dashboard khula rehta tha (warning ke saath); ab set na ho to 503 deta hai. Lamba random code rakho, aur alag se `SENTINEL_ENC_KEY` bhi set karo (2FA secret / tokens usi se encrypt hote hain).
+**Phone kho jaye / 2FA nahi chal raha:** Render par `DASH_TOTP_DISABLE=1` daalo, code se login karo, naya 2FA lagao, phir wo variable hata do.
+Aureon app ka "Sentinel Dashboard" button pehle jaisa hi kaam karta hai (code → session → clean URL).
+
+## Link / message / file checker (dashboard → "Link / File check")
+- **Link:** URL ki shakal (look-alike naam jaise paytrn.com, punycode, IP, .apk, shortener...), server-side par link kholkar asli destination aur page (password box, form kahin aur bhej raha?), domain kitna naya hai (RDAP), SSL certificate, aur optional Google Safe Browsing / VirusTotal (`GOOGLE_SAFE_BROWSING_KEY`, `VT_API_KEY`). Link **server** kholta hai, tumhara phone nahi. Internal/private addresses scan nahi hote (SSRF-safe).
+- **Message:** SMS/WhatsApp text paste karo — OTP/PIN maangna, KYC/Aadhaar bahana, digital-arrest, lottery, task-job, UPI collect jaise scam pattern + message ke andar ke links ki jaanch (+ `GROQ_API_KEY` ho to AI ki chhoti raay).
+- **File** (15 MB tak): asli type (magic bytes) vs naam, `invoice.pdf.exe`, RTL trick, APK ki permissions (SMS/accessibility/overlay combo), macro wale Office file, PDF ke andar JavaScript, zip ke andar exe, khatarnaak scripts. File sirf memory mein jaanchi jaati hai — save/execute nahi. SHA-256 + VirusTotal link milta hai.
+- Verdict: LOW RISK / SUSPICIOUS / DANGEROUS + wajah + kya karna hai. **Ye andaza hai, antivirus nahi** — "LOW RISK" ka matlab "100% safe" nahi.
+
+## Mera phone (dashboard → "My Phone" + app → Settings → Phone Security)
+1. Dashboard → My Phone → **Naya phone jodo** → device key (sirf ek baar dikhti hai; ye key sirf report bhej sakti hai, dashboard nahi khol sakti).
+2. Repo mein `python3 apply-phone-guard.py` chalao (plugin, permission, Settings row jodta hai), `npx cap sync android`, APK rebuild.
+3. App → Settings → **Phone Security** → key paste → *Abhi check karo*. Uske baad app khulne par roz apne aap.
+Kya dekhta hai: screen lock, root/test-keys, USB debugging, security patch / Android version, **Accessibility / Device-admin / Notification-listener** wale apps, Play Store ke bahar se aaye apps jo SMS (OTP) padh sakte hain, stalkerware jaise naam, remote-control apps (AnyDesk...), naye install hue shak wale apps, storage / battery / restart. Score + kya karna hai; naya HIGH khatra mile to email.
+**Seedhi baat:** ye settings + app-list ka *posture check* hai. Ye dusre apps ke andar nahi dekh sakta, phone ki files scan nahi karta, aur sirf tab chalta hai jab app khulti hai (background scan nahi). Pure Android API padhta hai, kuch badalta nahi. `QUERY_ALL_PACKAGES` permission Play Store par restricted hai — tumhari sideloaded APK ke liye theek hai, Play Store par daalna ho to alag se form bharna padega.
+
+## Defense options (dashboard → "Defense")
+Live badalte hain (redeploy nahi): mode (monitor / protect / strict / off), rate-limit, auto-ban kitni der, scanner-probe ban ghante, hacking-tools (sqlmap, nikto, nuclei...) ko User-Agent se block, bina-User-Agent block, email alert on/off, IP allow-list, aur **LOCKDOWN** (emergency: sirf allow-list ke IP + ye dashboards chalte hain, baaki sab 503 — asli users bhi rukte hain, isliye sirf attack mein).
+
 ## Safety nets (khud ko lockout se bachane ke liye)
 - Private/loopback IPs (127.x, 10.x, 192.168.x, 172.16-31.x) **kabhi block nahi**.
 - `SECURITY_ALLOW_IPS` wale IP kabhi block nahi.
@@ -126,7 +161,7 @@ sirf local file (deploy par chali jaati hai).
 ```bash
 cd /workspaces/Aureon-gar && git pull
 unzip -o Aureon-sentinel-security-v5.zip -d v5tmp
-cp -r v5tmp/backend/. backend/ && cp -r v5tmp/shield-lite . && cp v5tmp/*.md . && python3 v5tmp/apply-server-patch.py backend/server.js && rm -rf v5tmp
+cp -r v5tmp/backend/. backend/ && cp -r v5tmp/shield-lite v5tmp/android-phone-guard . && cp v5tmp/*.md v5tmp/apply-phone-guard.py . && python3 v5tmp/apply-server-patch.py backend/server.js && rm -rf v5tmp
 printf "\nsentinel-data/\nsecurity-data/\n*.bak-before-security\n" >> backend/.gitignore
 git status        # server.js (5 lines), sentinel-dashboard.js + naye files dikhne chahiye
 git add -A && git commit -m "Sentinel: Firestore persistence + GitHub hardening; Security Operations dashboard"

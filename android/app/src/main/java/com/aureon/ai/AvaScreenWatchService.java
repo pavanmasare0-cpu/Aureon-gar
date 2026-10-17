@@ -89,6 +89,18 @@ public class AvaScreenWatchService extends Service {
     private long intervalMs = 6000;
     private long lastSentAt = 0;
     private int[] prevThumb;
+
+    // ---- video mode ----
+    // While the screen keeps moving (a video), take 4 frames ~2s apart and send them as ONE
+    // 2x2 contact sheet, so the AI can follow what happens over time (and costs 1 call, not 4).
+    private final java.util.ArrayList<Bitmap> burst = new java.util.ArrayList<>();
+    private long lastBurstAt = 0;
+    private boolean videoLike = false;
+    private int[] lastGrabThumb;
+    private int calmGrabs = 0;
+    private static final int VIDEO_DIFF = 14;          // average brightness change that counts as "video / lots of motion"
+    private static final long BURST_GAP_MS = 1800;
+    private static final int BURST_FRAMES = 4;
     private int outW, outH;
     private BroadcastReceiver screenReceiver;
     private boolean running = false;
@@ -165,7 +177,9 @@ public class AvaScreenWatchService extends Service {
         KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
         if (km != null && km.isKeyguardLocked()) return; // never look at the lock screen
         long now = System.currentTimeMillis();
-        if (now - lastSentAt < intervalMs) return;
+        boolean due = now - lastSentAt >= intervalMs;
+        boolean burstTime = videoLike && now - lastBurstAt >= BURST_GAP_MS;
+        if (!due && !burstTime) return;
 
         Image img = reader.acquireLatestImage();
         if (img == null) return;
@@ -197,6 +211,25 @@ public class AvaScreenWatchService extends Service {
         }
         t.recycle();
         if (sum / 256 < 4) { frame.recycle(); return; }
+
+        // How much did the screen change since the previous grab? Big and steady = a video.
+        long mdiff = 0;
+        if (lastGrabThumb != null) {
+            for (int i = 0; i < 256; i++) mdiff += Math.abs(cur[i] - lastGrabThumb[i]);
+            mdiff /= 256;
+        }
+        lastGrabThumb = cur;
+        if (mdiff >= VIDEO_DIFF) { videoLike = true; calmGrabs = 0; }
+        else if (videoLike && ++calmGrabs >= 2) { videoLike = false; calmGrabs = 0; }
+        if (videoLike) {
+            if (!burst.isEmpty() && now - lastBurstAt > 12000) clearBurst(); // stale tiles from an earlier clip
+            burst.add(frame); // the frame becomes a tile (not recycled here)
+            lastBurstAt = now;
+            if (burst.size() >= BURST_FRAMES) sendSheet();
+            return;
+        }
+        if (!burst.isEmpty()) { if (burst.size() >= 2) sendSheet(); else clearBurst(); }
+        if (!due) { frame.recycle(); return; }
         if (prevThumb != null) {
             long diff = 0;
             for (int i = 0; i < 256; i++) diff += Math.abs(cur[i] - prevThumb[i]);
@@ -215,7 +248,42 @@ public class AvaScreenWatchService extends Service {
         });
     }
 
-    private void post(String b64) {
+    private void clearBurst() {
+        for (Bitmap b : burst) b.recycle();
+        burst.clear();
+    }
+
+    /** Joins the collected tiles into one 2-column contact sheet (time order: left to right, top to bottom) and uploads it. */
+    private void sendSheet() {
+        final int n = burst.size();
+        if (n == 0) return;
+        int cols = 2, rows = (n + 1) / 2;
+        Bitmap first = burst.get(0);
+        int tw = first.getWidth(), th = first.getHeight();
+        Bitmap sheet = Bitmap.createBitmap(tw * cols, th * rows, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas cv = new android.graphics.Canvas(sheet);
+        cv.drawColor(android.graphics.Color.BLACK);
+        android.graphics.Paint pn = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        for (int i = 0; i < n; i++) {
+            Bitmap b = burst.get(i);
+            cv.drawBitmap(b, (i % cols) * tw, (i / cols) * th, pn);
+            b.recycle();
+        }
+        burst.clear();
+        ByteArrayOutputStream out = new ByteArrayOutputStream(160 * 1024);
+        sheet.compress(Bitmap.CompressFormat.JPEG, 50, out);
+        sheet.recycle();
+        final String b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+        lastSentAt = System.currentTimeMillis();
+        uploading = true;
+        uploader.execute(() -> {
+            try { post(b64, n); } finally { uploading = false; }
+        });
+    }
+
+    private void post(String b64) { post(b64, 1); }
+
+    private void post(String b64, int frames) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(endpoint).openConnection();
@@ -225,7 +293,7 @@ public class AvaScreenWatchService extends Service {
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json");
             c.setRequestProperty("x-ava-device", key);
-            byte[] body = ("{\"image\":\"" + b64 + "\",\"w\":" + outW + ",\"h\":" + outH + "}").getBytes(StandardCharsets.UTF_8);
+            byte[] body = ("{\"image\":\"" + b64 + "\",\"w\":" + outW + ",\"h\":" + outH + ",\"frames\":" + frames + "}").getBytes(StandardCharsets.UTF_8);
             try (OutputStream os = c.getOutputStream()) { os.write(body); }
             int code = c.getResponseCode();
             if (code == 401 || code == 403) stopSelf(); // key revoked / feature switched off on the server

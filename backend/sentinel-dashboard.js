@@ -68,6 +68,7 @@ let changeLog = loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, c
 const store = require('./persist');
 const { THEME_TAGS } = require('./ui-theme');
 const lib = require('./sentinel-lib');
+const auth = require('./dash-auth');   // shared lock: stealth 404, session cookie, 2FA, audit (see dash-auth.js)
 
 // Last-seen content of each file (one small doc per file) — lets Sentinel show
 // WHAT changed between two scans, not just that something changed.
@@ -792,9 +793,16 @@ setTimeout(() => { runMonitorCycle().catch((e) => console.error('[sentinel] firs
 // (as the x-owner-code header, which the dashboard page's own JS sends
 // automatically once you've unlocked it).
 router.use((req, res, next) => {
-  if (req.path === '/dashboard') return next(); // has its own login page below
-  return requireOwnerCode(req, res, next);
+  if (req.path === '/dashboard' || req.path === '/ava-lab') return next(); // the pages themselves run the login flow (auth.dashboard)
+  return auth.apiGate(req, res, next);
 });
+
+// ---------------- Ava Lab: Ava writes her own upgrades, you approve (see backend/ava-self.js, AVA-LAB.md) ----------------
+try {
+  const avaSelf = require('./ava-self')({ lib, auth, store, DATA_DIR, callLLM, logEvent });
+  router.use('/ava', avaSelf.router);
+  router.get('/ava-lab', (req, res) => auth.dashboard(req, res, () => res.type('html').send(avaSelf.page)));
+} catch (e) { console.error('[sentinel] Ava Lab disabled:', e.message); }
 
 router.get('/servers', (req, res) => res.json(servers.map(publicServer)));
 
@@ -851,6 +859,8 @@ router.get('/events', (req, res) => res.json(events.slice(0, 60)));
 // The ONLY place that ever writes a file or calls a webhook — and it only
 // runs because a human clicked Approve on the dashboard.
 router.post('/proposals/:id/approve', async (req, res) => {
+  if (!auth.stepUp(req, res)) return;              // fresh 2FA code when "step-up" is on
+  auth.action(req, 'sentinel approve ' + req.params.id);
   const p = proposals.find((x) => x.id === req.params.id);
   if (!p) return res.status(404).json({ error: 'not found' });
   if (p.status !== 'pending') return res.status(400).json({ error: `already ${p.status}` });
@@ -915,27 +925,9 @@ router.post('/servers/:id/scan-now', async (req, res) => {
   res.json({ found: found.length, scan: server.lastScan || null });
 });
 
-router.get('/dashboard', (req, res) => {
-  const ip = getClientIp(req);
-  if (isBlocked(ip)) {
-    return res.status(429).type('html').send(LOGIN_HTML(false, true));
-  }
-  const status = checkOwnerCode(req);
-  if (status === 'denied') {
-    recordFailedAttempt(ip);
-    return res.type('html').send(LOGIN_HTML(true, false));
-  }
-  if (status === 'ok') clearFailedAttempts(ip);
-  if (status === 'unprotected') {
-    return res.type('html').send(
-      DASHBOARD_HTML.replace("'__OWNER_CODE__'", () => '""').replace('__UNPROTECTED__', 'true')
-    );
-  }
-  const code = req.query.code || '';
-  res.type('html').send(
-    DASHBOARD_HTML.replace("'__OWNER_CODE__'", () => JSON.stringify(String(code)).replace(/</g, '\\u003c')).replace('__UNPROTECTED__', 'false')
-  );
-});
+router.get('/dashboard', (req, res) => auth.dashboard(req, res, () =>
+  res.type('html').send(DASHBOARD_HTML.replace("'__OWNER_CODE__'", () => '""').replace('__UNPROTECTED__', 'false'))   // no secret goes into the page any more
+));
 
 const LOGIN_HTML = (wrongAttempt, blocked) => `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
@@ -1048,6 +1040,7 @@ ${THEME_TAGS}
     <h1>🛡️ Aureon Sentinel</h1>
     <div class="sub">Every fix is diagnosed and proposed — never applied — until you click Approve.</div>
     <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
+    <a class="sec-link" href="/api/sentinel/ava-lab" style="margin-left:12px">🧪 Ava Lab →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
       ⚠️ SENTINEL_OWNER_CODE set nahi hai Render pe — ye page abhi kisi ke liye bhi locked nahi hai. Render → Environment me add karo.
     </div>
@@ -1104,12 +1097,22 @@ const API = '/api/sentinel';
 const OWNER_CODE = '__OWNER_CODE__';
 const UNPROTECTED = __UNPROTECTED__;
 if (UNPROTECTED) document.getElementById('unprotected-banner').style.display = 'block';
-document.getElementById('sec-link').href = '/api/security/dashboard?code=' + encodeURIComponent(OWNER_CODE);
+document.getElementById('sec-link').href = '/api/security/dashboard';
 
-function authFetch(url, opts) {
+async function authFetch(url, opts) {
   opts = opts || {};
-  opts.headers = Object.assign({}, opts.headers, { 'x-owner-code': OWNER_CODE });
-  return fetch(url, opts);
+  opts.headers = Object.assign({ 'x-csrf': '1' }, opts.headers);
+  if (OWNER_CODE) opts.headers['x-owner-code'] = OWNER_CODE;
+  var r = await fetch(url, opts);
+  if (r.status === 403) {                                   // step-up: server wants a fresh 2FA code
+    var j = await r.clone().json().catch(function () { return {}; });
+    if (j.needTotp) {
+      var c = prompt('2FA code (Authenticator ka 6-digit) daalo:');
+      if (c) { opts.headers['x-totp'] = c.trim(); r = await fetch(url, opts); }
+    }
+  }
+  if (r.status === 401) { document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#999">Session khatam ho gaya.<br>Dashboard link dobara kholo.</div>'; throw new Error('session expired'); }
+  return r;
 }
 
 async function load() {
@@ -1125,6 +1128,27 @@ async function load() {
   renderProposals(proposals);
   renderChanges(changes);
   renderEvents(events);
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+function statChips(st) {
+  if (!st) return '';
+  return '<span class="stat-add">+' + st.added + '</span> <span class="stat-del">-' + st.removed + '</span>';
+}
+
+function renderDiff(hunks, st) {
+  if (!hunks || !hunks.length) return '<div class="meta">Koi line-diff nahi.</div>';
+  var h = '<div class="diff">';
+  hunks.forEach(function (k) {
+    h += '<div class="h">@@ -' + k.oldStart + ',' + k.oldLines + ' +' + k.newStart + ',' + k.newLines + ' @@</div>';
+    k.rows.forEach(function (r) {
+      var cls = r[0] === '+' ? 'add' : r[0] === '-' ? 'del' : '';
+      h += '<div class="r ' + cls + '"><span class="ln">' + (r[1] || '') + '</span><span class="ln">' + (r[2] || '') + '</span><span class="sg">' + (r[0] === ' ' ? '' : r[0]) + '</span><span class="tx">' + esc(r[3]) + '</span></div>';
+    });
+  });
+  if (st && st.truncated) h += '<div class="h">... diff lamba hai, baaki hissa yahan nahi dikhaya</div>';
+  return h + '</div>';
 }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }

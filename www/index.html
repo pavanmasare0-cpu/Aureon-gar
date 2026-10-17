@@ -211,6 +211,13 @@
       <div class="settings-scroll" id="settings-scroll">
         <div id="settings-list">
           <div class="list-group">
+          <button class="list-row" data-open="phoneguard">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span class="row-text"><span class="row-title">Phone Security</span><span class="row-sub" id="sub-phoneguard">Device key daalo</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+          <div class="list-group">
           <button class="list-row" data-open="theme">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
             <span class="row-text"><span class="row-title">Theme</span><span class="row-sub" id="sub-theme">Nebula Aurora</span></span>
@@ -266,6 +273,15 @@
           </button>
           </div>
         </div>
+
+        <section class="settings-card settings-pane hidden" data-pane="phoneguard" data-title="Phone Security">
+          <p class="card-sub">Ye phone ki security settings (screen lock, root, USB debugging, patch) aur installed apps ki list tumhare <b>apne backend</b> ko bhejta hai — kisi aur ko nahi. Kuch badalta nahi, sirf padhta hai. Result: Security dashboard → My Phone. Ye antivirus nahi hai.</p>
+          <label style="display:block;font-size:12px;opacity:.7;margin:6px 0">Device key (dashboard → My Phone → Naya phone jodo)</label>
+          <input id="pg-key" type="password" autocomplete="off" placeholder="dk_..." style="width:100%;box-sizing:border-box;padding:12px;border-radius:12px;border:1px solid var(--border-gold);background:var(--cream);color:inherit;font-size:14px">
+          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="pg-save" style="flex:1">Key save</button><button class="primary-btn" id="pg-run" style="flex:2">Abhi check karo</button></div>
+          <label style="display:flex;gap:10px;align-items:center;font-size:13px;margin:8px 0"><input type="checkbox" id="pg-auto" checked> Roz apne aap check (app khulne par)</label>
+          <div id="pg-result"></div>
+        </section>
 
         <section class="settings-card settings-pane hidden" data-pane="theme" data-title="Theme">
           <p class="card-sub">Aureon ka look chuno. Turant lagta hai aur yaad rehta hai.</p>
@@ -361,6 +377,7 @@
   <script src="firebase-config.js"></script>
   <script src="capacitor-shim.js"></script>
   <script src="app.js"></script>
+  <script src="device-guard.js"></script>
   <script src="theme.js"></script>
   <script src="ava-bot.js"></script>
 </body>

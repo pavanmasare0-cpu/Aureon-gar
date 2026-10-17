@@ -491,9 +491,26 @@ async function resolveModelList(forceRefresh = false, key = firstGeminiKey()) {
   return cachedGeminiModel;
 }
 
+// v9: a message may carry several photos (m.images) — or the old single m.image. Only the NEWEST photo-message is
+// sent to the model (older ones are dropped by the app already; this also protects against old app versions).
+const MAX_INLINE_IMAGE_CHARS = 18 * 1024 * 1024; // Gemini's request limit is ~20 MB
+function imagesOf(m) {
+  if (!m) return [];
+  if (Array.isArray(m.images) && m.images.length) return m.images;
+  return m.image ? [m.image] : [];
+}
+function lastImageIndex(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const x = messages[i];
+    if (x && x.role === 'user' && imagesOf(x).some((im) => im && im.data)) return i;
+  }
+  return -1;
+}
+
 async function callGeminiWithModel(modelName, messages, systemPrompt, useTools, key = firstGeminiKey()) {
+  const lastImgIdx = lastImageIndex(messages);
   const payload = {
-    contents: messages.map(m => {
+    contents: messages.map((m, mi) => {
       // A turn where Aureon (the model) previously requested a tool call.
       // thoughtSignature must be echoed back exactly as Gemini sent it —
       // "thinking" models reject/degrade multi-turn function calling
@@ -508,8 +525,15 @@ async function callGeminiWithModel(modelName, messages, systemPrompt, useTools, 
         return { role: 'user', parts: [{ functionResponse: m.functionResponse }] };
       }
       const parts = [{ text: m.content || '' }];
-      if (m.image && m.image.data && m.image.mimeType) {
-        parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
+      if (mi === lastImgIdx) {
+        let used = 0, skipped = 0;
+        for (const im of imagesOf(m)) {
+          if (!im || !im.data || !im.mimeType) continue;
+          if (used + im.data.length > MAX_INLINE_IMAGE_CHARS) { skipped++; continue; }
+          used += im.data.length;
+          parts.push({ inlineData: { mimeType: im.mimeType, data: im.data } });
+        }
+        if (skipped) parts[0].text += `\n[${skipped} more photo(s) were too much to send at once and were left out]`;
       }
       return { role: m.role === 'assistant' ? 'model' : 'user', parts };
     })
@@ -844,19 +868,19 @@ async function shareScreenshot(messages) {
   let idx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m && m.role === 'user' && m.image && m.image.data) { idx = i; break; }
+    if (m && m.role === 'user' && imagesOf(m).some((im) => im && im.data)) { idx = i; break; }
   }
   if (idx < 0) return { groqMessages: messages, vision: '' };
   let vision = '';
   try {
     vision = asText(await withRetry(() => callGemini(
-      [{ role: 'user', content: 'Read this screenshot for a developer. Transcribe ALL visible text exactly (error messages, terminal output, code, button labels) and briefly describe the UI/layout and anything highlighted. Do not guess.', image: messages[idx].image }],
+      [{ role: 'user', content: 'Read this screenshot for a developer. Transcribe ALL visible text exactly (error messages, terminal output, code, button labels) and briefly describe the UI/layout and anything highlighted. Do not guess. If there are several images, describe each one in order.', images: imagesOf(messages[idx]) }],
       'You are a precise screenshot reader.', false)));
   } catch (e) { vision = ''; }
   const note = vision
     ? `\n\n[Screenshot attached — its contents, read by the vision brain:]\n${vision}`
     : '\n\n[A screenshot was attached but could not be read right now.]';
-  const groqMessages = messages.map((x, i) => (i === idx ? { ...x, image: undefined, content: (x.content || '') + note } : x));
+  const groqMessages = messages.map((x, i) => (i === idx ? { ...x, image: undefined, images: undefined, content: (x.content || '') + note } : x));
   return { groqMessages, vision };
 }
 
