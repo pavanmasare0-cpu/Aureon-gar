@@ -28,7 +28,7 @@ const AUDIT_FILE = path.join(DATA_DIR, 'dash-audit.json');
 const COOKIE = 'aureon_sid';
 const MAX_SESSION_MS = 8 * 3600 * 1000;
 
-let cfg = { totp: { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }, stealth: true, stepUp: false, allowIps: [], idleMin: 30, knownUa: [] };
+let cfg = { totp: { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }, stealth: false, stepUp: false, allowIps: [], idleMin: 30, knownUa: [] };
 let audit = [];
 let hooks = { blockIp() { return false; }, record() {}, alert() {} };
 const sessions = new Map();     // sid -> { iat, last, uaHash, ip }
@@ -41,6 +41,7 @@ const ready = (async () => {
   await store.whenFirestore(20000);
   const c = await store.load('dash_auth', CFG_FILE);
   if (c.value && typeof c.value === 'object') cfg = Object.assign(cfg, c.value, { totp: Object.assign(cfg.totp, c.value.totp || {}) });
+  cfg.stealth = process.env.DASH_STEALTH === '1';   // fake 404 is gone: the login page shows (DASH_STEALTH=1 brings it back)
   const a = await store.load('dash_audit', AUDIT_FILE);
   if (Array.isArray(a.value)) audit = a.value.slice(-300);
 })().catch((e) => console.error('[dash-auth] hydrate failed:', e.message));
@@ -212,11 +213,11 @@ function dashboard(req, res, render) {
   const a = authenticate(req);
   if (a.ok) return render(a);
   if (a.reason === 'no-owner-code') return res.status(503).type('html').send(pageShell('Setup', '<h1>Setup baaki hai</h1><p>Render → Environment mein <b>SENTINEL_OWNER_CODE</b> set karo, phir dobara kholo.</p>'));
-  if (a.reason === 'ip') { log(req, 'blocked_ip', 'not in allow-list'); return notFound(req, res); }
+  if (a.reason === 'ip') { log(req, 'blocked_ip', 'not in allow-list'); return res.status(403).type('html').send(pageShell('Aureon — Access', '<h1>Access nahi</h1><p>Is network (IP ' + esc(ipOf(req)) + ') se dashboard allowed nahi hai. Security dashboard → Access me IP allow-list check karo.</p>')); }
   const next = cleanNext(req);
   const code = req.query && req.query.code;
   if (typeof code === 'string' && code) {
-    if (Date.now() < globalLockUntil) { log(req, 'locked', 'global lockout'); return notFound(req, res); }
+    if (Date.now() < globalLockUntil) { log(req, 'locked', 'global lockout'); return res.status(429).type('html').send(pageShell('Aureon — Locked', '<h1>Login abhi band hai</h1><p>Bahut galat attempts hui thi. 15 minute baad dobara try karo.</p>')); }
     if (!codeOk(code)) { registerFailure(req, 'owner code'); return cfg.stealth ? notFound(req, res) : res.type('html').send(loginPage(next)); }
     if (!totpOn()) { createSession(req, res); return res.redirect(302, next); }
     return res.type('html').send(totpPage(newPending(req), next));
@@ -236,7 +237,8 @@ function apiGate(req, res, next) {
   }
   if (a.reason === 'expired') return res.status(401).json({ error: 'session expired — dashboard link dobara kholo' });
   if (a.reason === 'need-totp') return res.status(403).json({ error: '2FA code chahiye', needTotp: true });
-  if (cfg.stealth || a.reason === 'ip') return notFound(req, res);
+  if (cfg.stealth) return notFound(req, res);
+  if (a.reason === 'ip') return res.status(403).json({ error: 'is IP ko dashboard access nahi' });
   return res.status(401).json({ error: 'login required' });
 }
 
@@ -261,7 +263,7 @@ router.use(shieldHeaders);
 router.post('/login', (req, res) => {
   if (!process.env.SENTINEL_OWNER_CODE) return res.status(503).json({ error: 'owner code not configured' });
   if (Date.now() < globalLockUntil) return res.status(429).json({ error: 'abhi login band hai, kuch der baad try karo' });
-  if (!ipAllowed(req)) return notFound(req, res);
+  if (!ipAllowed(req)) return res.status(403).json({ error: 'is IP ko dashboard access nahi' });
   if (!codeOk(req.body && req.body.code)) { registerFailure(req, 'owner code'); return res.status(401).json({ error: 'Galat code' }); }
   if (!totpOn()) { createSession(req, res); return res.json({ ok: true }); }
   res.json({ ok: false, needTotp: true, pending: newPending(req) });
@@ -307,7 +309,6 @@ router.post('/totp/disable', (req, res) => {
 router.post('/settings', (req, res) => {
   if (!stepUp(req, res)) return;
   const b = req.body || {};
-  if (typeof b.stealth === 'boolean') cfg.stealth = b.stealth;
   if (typeof b.stepUp === 'boolean') { if (b.stepUp && !totpOn()) return res.status(400).json({ error: 'Step-up ke liye pehle 2FA on karo' }); cfg.stepUp = b.stepUp; }
   if (b.idleMin !== undefined) cfg.idleMin = Math.min(Math.max(parseInt(b.idleMin, 10) || 30, 5), 240);
   if (Array.isArray(b.allowIps)) {

@@ -345,7 +345,6 @@ async function loadAccess() {
   const chk = (id, on, t, sub) => '<label class="opt"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + ' onchange="saveAccess()"><span>' + t + '<small>' + sub + '</small></span></label>';
   document.getElementById('acc-status').innerHTML =
     '<div class="row"><div><b>2-Step (Authenticator app)</b><div class="meta">' + (st.totpEnabled ? '✅ ON' : '⚠️ OFF — abhi sirf owner code se khulta hai') + (st.recoveryMode ? ' · recovery mode (DASH_TOTP_DISABLE=1)' : '') + '</div></div>' + (st.totpEnabled ? '<button class="ghost" onclick="disable2fa()">Band karo</button>' : '<button onclick="setup2fa()">Setup 2FA</button>') + '</div><div id="totp-setup"></div>' +
-    chk('a-stealth', st.stealth, 'Stealth mode', 'Bina login wale ko normal "404 Cannot GET" dikhta hai — scanners ko pata hi nahi chalta ki ye dashboard yahan hai') +
     chk('a-stepup', st.stepUp, 'Step-up 2FA', 'Fix approve karna, IP block/unblock, settings badalna — in par har baar naya 2FA code poocha jaye (2FA on hona chahiye)') +
     '<div class="grid2"><div><label>Session idle timeout (min)</label><input id="a-idle" type="number" min="5" max="240" value="' + st.idleMin + '" onchange="saveAccess()"></div></div>' +
     '<label style="font-size:12px;color:var(--muted)">Dashboard sirf in IP se khule (optional, khali = sab) — tumhara abhi ka IP: <b>' + esc(st.yourIp) + '</b></label><input id="a-ips" value="' + esc((st.allowIps || []).join(', ')) + '" placeholder="khali chhodo, ya IP daalo (mobile data mein IP badalta rehta hai)" onchange="saveAccess()">' +
@@ -354,7 +353,7 @@ async function loadAccess() {
   document.getElementById('acc-audit').innerHTML = au.length ? au.slice(0, 40).map(a => '<div class="card"><div class="row"><div class="name" style="font-size:13px">' + esc(a.event) + '</div><div class="meta">' + ago(a.t) + '</div></div><div class="meta">' + esc(a.ip) + ' · ' + esc(a.detail) + '</div><div class="meta" style="opacity:.7">' + esc(a.ua) + '</div></div>').join('') : '<div class="empty">Abhi koi entry nahi</div>';
 }
 async function saveAccess() {
-  const body = { stealth: document.getElementById('a-stealth').checked, stepUp: document.getElementById('a-stepup').checked, idleMin: document.getElementById('a-idle').value, allowIps: document.getElementById('a-ips').value.split(/[ ,\n]+/).filter(Boolean) };
+  const body = { stepUp: document.getElementById('a-stepup').checked, idleMin: document.getElementById('a-idle').value, allowIps: document.getElementById('a-ips').value.split(/[ ,\n]+/).filter(Boolean) };
   const r = await authFetch(API + '/auth/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'Save nahi hua'); } loadAccess();
 }
