@@ -7,7 +7,7 @@
 //                   code disappears from the URL (no more codes in browser history / logs).
 //  3. 2FA (TOTP)  — Google Authenticator / any TOTP app. Optional "step-up": ask for a fresh
 //                   code again before approving fixes, blocking IPs, changing settings.
-//  4. SESSIONS    — random server-side id in an HttpOnly + Secure + SameSite=Strict cookie,
+//  4. SESSIONS    — random server-side id in an HttpOnly + Secure + SameSite=Lax cookie,
 //                   30 min idle / 8 h max, bound to your browser's User-Agent. Revocable.
 //  5. LOCKOUTS    — 5 wrong tries => IP banned 30 min; 25 wrong tries from ANYONE in 10 min
 //                   => no new logins for 15 min (stops distributed guessing).
@@ -68,9 +68,10 @@ function log(req, event, detail) {
   if (audit.length > 300) audit.shift();
   saveAudit();
 }
+const normCode = (v) => String(v == null ? '' : v).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();   // phone keyboards / Render env often add spaces, newlines or quotes
 function codeOk(code) {
-  const configured = process.env.SENTINEL_OWNER_CODE;
-  return !!configured && typeof code === 'string' && crypto.timingSafeEqual(sha(code), sha(configured));
+  const configured = normCode(process.env.SENTINEL_OWNER_CODE);
+  return !!configured && typeof code === 'string' && crypto.timingSafeEqual(sha(normCode(code)), sha(configured));
 }
 
 // ------------------------------------------------------------ TOTP (RFC 6238, SHA-1, 6 digits, 30 s)
@@ -123,7 +124,7 @@ function createSession(req, res) {
   const now = Date.now(), ua = uaHash(req);
   sessions.set(sid, { iat: now, last: now, uaHash: ua, ip: ipOf(req) });
   if (sessions.size > 200) { for (const [k, v] of sessions) if (now - v.last > cfg.idleMin * 60000) sessions.delete(k); }
-  res.append('Set-Cookie', `${COOKIE}=${sid}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${MAX_SESSION_MS / 1000}${isSecure(req) ? '; Secure' : ''}`);
+  res.append('Set-Cookie', `${COOKIE}=${sid}; Path=/api; HttpOnly; SameSite=Lax; Max-Age=${MAX_SESSION_MS / 1000}${isSecure(req) ? '; Secure' : ''}`);
   log(req, 'login_ok', totpOn() ? 'code + 2FA' : 'code');
   if (cfg.knownUa.length && !cfg.knownUa.includes(ua)) hooks.alert('Aureon Security: naye device se dashboard login', `IP ${ipOf(req)}\n${String(req.headers['user-agent'] || '').slice(0, 120)}\n${new Date().toISOString()}\n\nAgar ye tum nahi ho: dashboard → Dashboard access → "Saare sessions band karo", aur SENTINEL_OWNER_CODE badal do.`);
   if (!cfg.knownUa.includes(ua)) { cfg.knownUa = cfg.knownUa.concat(ua).slice(-20); saveCfg(); }
@@ -274,7 +275,7 @@ router.post('/verify', (req, res) => {
 });
 router.post('/logout', (req, res) => {
   const sid = cookies(req)[COOKIE]; if (sid) sessions.delete(sid);
-  log(req, 'logout', ''); res.append('Set-Cookie', `${COOKIE}=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0`); res.json({ ok: true });
+  log(req, 'logout', ''); res.append('Set-Cookie', `${COOKIE}=; Path=/api; HttpOnly; SameSite=Lax; Max-Age=0`); res.json({ ok: true });
 });
 
 router.use(apiGate);

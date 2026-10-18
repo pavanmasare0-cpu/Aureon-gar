@@ -2074,4 +2074,11 @@ app.use('/api/ava', require('./ava')({
   callGroq,
 }));
 
+// ---------- v12: APK Studio (AI writes the app, GitHub Actions builds the APK; same owner lock as Sentinel) ----------
+app.use('/api/apk', require('./apk-maker')({
+  callGemini,
+  auth: require('./dash-auth'),
+  store: require('./persist'),
+}));
+
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));

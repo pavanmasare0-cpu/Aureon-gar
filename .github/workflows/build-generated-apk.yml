@@ -1,0 +1,94 @@
+name: Build generated APK
+# Started by APK Studio (backend/apk-maker.js). It wraps the AI-written web app in a fresh Capacitor Android project.
+run-name: APK ${{ inputs.jobId }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:      { description: 'app folder under apps/', required: true }
+      appName:   { description: 'launcher name',          required: true }
+      appId:     { description: 'android package id',     required: true }
+      color:     { description: 'accent colour #RRGGBB',  required: false, default: '#0E7C66' }
+      jobId:     { description: 'APK Studio job id',      required: true }
+      appsBranch: { description: 'branch holding apps/',  required: false, default: 'apk-apps' }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check inputs
+        env:
+          SLUG: ${{ inputs.slug }}
+          APP_ID: ${{ inputs.appId }}
+          COLOR: ${{ inputs.color }}
+          JOB: ${{ inputs.jobId }}
+        run: |
+          [[ "$SLUG"   =~ ^[a-z0-9-]{1,40}$ ]]                       || { echo "bad slug"; exit 1; }
+          [[ "$APP_ID" =~ ^com\.aureon\.gen\.a[a-z0-9]{0,30}$ ]]     || { echo "bad appId"; exit 1; }
+          [[ "$COLOR"  =~ ^#[0-9a-fA-F]{6}$ ]]                       || { echo "bad colour"; exit 1; }
+          [[ "$JOB"    =~ ^[a-f0-9]{8}$ ]]                           || { echo "bad job id"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.appsBranch }}
+          path: src
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Create Capacitor Android project
+        env:
+          SLUG: ${{ inputs.slug }}
+          APP_NAME: ${{ inputs.appName }}
+          APP_ID: ${{ inputs.appId }}
+        run: |
+          set -e
+          test -f "src/apps/$SLUG/www/index.html" || { echo "no index.html for $SLUG"; exit 1; }
+          mkdir shell && cd shell
+          npm init -y >/dev/null
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          mkdir www && cp -r "../src/apps/$SLUG/www/." www/
+          npx cap init "$APP_NAME" "$APP_ID" --web-dir www
+          npx cap add android
+          npx cap sync android
+
+      - name: Launcher icon (colour + first letter) — optional
+        continue-on-error: true
+        env:
+          APP_NAME: ${{ inputs.appName }}
+          COLOR: ${{ inputs.color }}
+        run: |
+          cd shell/android/app/src/main/res
+          LETTER="$(printf '%s' "$APP_NAME" | cut -c1 | tr '[:lower:]' '[:upper:]')"
+          sed -i "s|<color name=\"ic_launcher_background\">[^<]*</color>|<color name=\"ic_launcher_background\">$COLOR</color>|" values/ic_launcher_background.xml
+          convert -size 432x432 xc:none -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 230 -annotate 0 "$LETTER" /tmp/fg.png
+          convert -size 192x192 "xc:$COLOR" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 110 -annotate 0 "$LETTER" /tmp/sq.png
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp /tmp/fg.png mipmap-$d/ic_launcher_foreground.png
+            cp /tmp/sq.png mipmap-$d/ic_launcher.png
+            cp /tmp/sq.png mipmap-$d/ic_launcher_round.png
+          done
+
+      - name: Optional fixed signing key (so updates install over the old app)
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore; fi
+
+      - name: Build debug APK
+        working-directory: shell/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ inputs.jobId }}
+          path: shell/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

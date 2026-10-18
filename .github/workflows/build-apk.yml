@@ -1,9 +1,16 @@
 name: Build debug APK
+# APK Studio starts this with a jobId so it can find the run again; normal pushes keep the plain title.
+run-name: ${{ github.event.inputs.jobId && format('APK {0}', github.event.inputs.jobId) || 'Build debug APK' }}
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      jobId:
+        description: 'APK Studio job id (optional)'
+        required: false
+        default: ''
 
 jobs:
   build:

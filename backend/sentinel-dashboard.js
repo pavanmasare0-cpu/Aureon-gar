@@ -39,6 +39,7 @@ const PROPOSALS_PATH = path.join(DATA_DIR, 'proposals.json');
 const SNAPSHOTS_PATH = path.join(DATA_DIR, 'snapshots.json');
 const CHANGELOG_PATH = path.join(DATA_DIR, 'changelog.json');
 const EVENTS_PATH = path.join(DATA_DIR, 'events.json');
+const POSTDEPLOY_PATH = path.join(DATA_DIR, 'postdeploy.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -58,6 +59,7 @@ function saveJSON(p, data) {
 let servers = loadJSON(SERVERS_PATH, []);
 let proposals = loadJSON(PROPOSALS_PATH, []);
 let snapshots = loadJSON(SNAPSHOTS_PATH, {}); // key -> sha256 hash of last-seen content
+let postDeploy = loadJSON(POSTDEPLOY_PATH, []); // v12: approved GitHub commits being watched after deploy
 let events = loadJSON(EVENTS_PATH, []); // live timeline: down / up / proposal / approved / rejected
 let changeLog = loadJSON(CHANGELOG_PATH, []); // [{serverId, serverName, file, changedAt}], newest first
 
@@ -91,6 +93,7 @@ const PERSISTED = {
   snapshots: { file: SNAPSHOTS_PATH, get: () => snapshots, set: (v) => { snapshots = v; } },
   changelog: { file: CHANGELOG_PATH, get: () => changeLog, set: (v) => { changeLog = v; } },
   events:    { file: EVENTS_PATH,    get: () => events,    set: (v) => { events = v; } },
+  postdeploy: { file: POSTDEPLOY_PATH, get: () => postDeploy, set: (v) => { postDeploy = v; } },
 };
 const isEmptyVal = (v) => (Array.isArray(v) ? v.length === 0 : !v || Object.keys(v).length === 0);
 
@@ -856,6 +859,70 @@ router.get('/changes', (req, res) => res.json(changeLog));
 router.get('/summary', (req, res) => res.json(getSummary()));
 router.get('/events', (req, res) => res.json(events.slice(0, 60)));
 
+// ---------------- v12: deploy watch + rollback proposal ----------------
+// After you Approve a GitHub fix, Render redeploys. Sentinel then pings the server's health URL every 2 minutes (up to
+// 8 times). First healthy answer = "deploy OK". If it never comes back, Sentinel does NOT auto-revert — it creates a NEW
+// pending "ROLLBACK" proposal (previous file version) that you approve like any other fix. The watch list is persisted
+// because a redeploy of Aureon's own backend restarts this very process.
+const DEPLOY_EVERY_MS = 2 * 60000, DEPLOY_MAX_CHECKS = 8;
+function schedulePostDeploy(p, server, commitSha) {
+  if (!server || !server.healthUrl || !commitSha) return;
+  postDeploy.push({ id: newId(), proposalId: p.id, serverId: server.id, serverName: server.name, ghRepo: p.ghRepo, ghBranch: p.ghBranch, ghFilePath: p.ghFilePath, commitSha, description: String(p.description || '').slice(0, 160), due: Date.now() + 3 * 60000, checks: 0 });
+  persist('postdeploy');
+  logEvent('deploy_watch', server, 'deploy ko watch kar raha hu (commit ' + String(commitSha).slice(0, 7) + ')');
+}
+async function buildRollbackProposal(w, server) {
+  if (proposals.some((x) => x.status === 'pending' && x.rollbackOf === w.commitSha)) return null;
+  const target = { ...server, ghRepo: w.ghRepo, ghBranch: w.ghBranch };
+  const commit = await githubApi(target, `/commits/${w.commitSha}`, { method: 'GET' });
+  const parent = commit && commit.parents && commit.parents[0] && commit.parents[0].sha;
+  if (!parent) throw new Error('commit ka parent nahi mila');
+  const prev = await githubApi(target, `/contents/${w.ghFilePath}?ref=${parent}`, { method: 'GET' });
+  const prevContent = Buffer.from(prev.content || '', 'base64').toString('utf8');
+  const cur = await githubReadFile(target, w.ghFilePath);
+  if (cur.content === prevContent) return null; // someone already reverted
+  const d = lib.makeDiff(cur.content, prevContent, { maxRows: 400 });
+  return {
+    id: newId(), serverId: server.id, serverName: server.name, kind: 'patch', source: 'rollback', rollbackOf: w.commitSha, target: 'github',
+    description: `ROLLBACK: fix deploy hone ke baad ${server.name} ${DEPLOY_MAX_CHECKS} checks me bhi UP nahi aaya — ${w.ghFilePath} ko pichhle version par wapas laao (commit ${String(w.commitSha).slice(0, 7)} ke pehle ka).`,
+    oldContent: cur.content, newContent: prevContent, key: `github:${w.ghRepo}:${w.ghFilePath}`,
+    ghRepo: w.ghRepo, ghBranch: w.ghBranch, ghFilePath: w.ghFilePath, ghSha: cur.sha, filePath: `${w.ghRepo}/${w.ghFilePath}`,
+    status: 'pending', createdAt: new Date().toISOString(), diff: d.hunks, stats: { added: d.added, removed: d.removed, truncated: d.truncated },
+  };
+}
+let deployBusy = false;
+async function deployWatchTick() {
+  if (deployBusy || !postDeploy.length) return;
+  deployBusy = true;
+  try {
+    await ready;
+    for (const w of postDeploy.slice()) {
+      if (Date.now() < w.due) continue;
+      const server = servers.find((x) => x.id === w.serverId);
+      if (!server || !server.healthUrl) { postDeploy = postDeploy.filter((x) => x !== w); persist('postdeploy'); continue; }
+      const r = await pingOnce(server.healthUrl, 20000);
+      w.checks++;
+      if (r.ok) {
+        postDeploy = postDeploy.filter((x) => x !== w); persist('postdeploy');
+        logEvent('deploy_ok', server, 'deploy theek — server healthy (' + w.checks + '. check)');
+        await sendAlertEmail(`Aureon Sentinel: deploy OK ✅ — ${server.name}`, `${w.description}\n\n${server.name} deploy ke baad healthy hai.`);
+      } else if (w.checks >= DEPLOY_MAX_CHECKS) {
+        postDeploy = postDeploy.filter((x) => x !== w); persist('postdeploy');
+        logEvent('deploy_bad', server, 'deploy ke baad UP nahi aaya — rollback proposal bana raha hu');
+        try {
+          const rb = await buildRollbackProposal(w, server);
+          if (rb) { proposals.push(rb); persistProposals(); }
+          await sendAlertEmail(`Aureon Sentinel: ${server.name} deploy ke baad DOWN ❌`, `${w.description}\n\n${server.name} ${DEPLOY_MAX_CHECKS} checks me bhi healthy nahi hua.\n` + (rb ? 'Maine ek ROLLBACK proposal banaya hai — Sentinel dashboard me Approve karo.' : 'Rollback proposal nahi ban paya — GitHub me khud revert karo.'));
+        } catch (e) {
+          await sendAlertEmail(`Aureon Sentinel: ${server.name} deploy ke baad DOWN ❌`, `${w.description}\n\nRollback proposal banane me error: ${e.message}\nGitHub me khud revert karo.`);
+        }
+      } else { w.due = Date.now() + DEPLOY_EVERY_MS; persist('postdeploy'); }
+    }
+  } catch (e) { console.error('[sentinel] deploy watch:', e.message); }
+  finally { deployBusy = false; }
+}
+{ const t = setInterval(() => { deployWatchTick(); }, 60000); if (t.unref) t.unref(); }
+
 // The ONLY place that ever writes a file or calls a webhook — and it only
 // runs because a human clicked Approve on the dashboard.
 router.post('/proposals/:id/approve', async (req, res) => {
@@ -874,7 +941,8 @@ router.post('/proposals/:id/approve', async (req, res) => {
       if (p.oldContent !== undefined && cur.content !== p.oldContent) {
         return res.status(409).json({ error: 'GitHub par ye file proposal ke baad badal chuki hai — proposal purana hai. Reject karo aur "Review now" dobara chalao.' });
       }
-      await githubWriteFile(target, p.ghFilePath, p.newContent, cur.sha, `Aureon Sentinel: ${p.description}`);
+      const wr = await githubWriteFile(target, p.ghFilePath, p.newContent, cur.sha, `Aureon Sentinel: ${p.description}`);
+      try { schedulePostDeploy(p, server, wr && wr.commit && wr.commit.sha); } catch (e) { /* watching is a bonus, never block the approve */ }
     } else if (p.kind === 'patch') {
       fs.writeFileSync(p.filePath, p.newContent, 'utf8');
     } else if (p.kind === 'restart') {
@@ -1041,6 +1109,7 @@ ${THEME_TAGS}
     <div class="sub">Every fix is diagnosed and proposed — never applied — until you click Approve.</div>
     <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
     <a class="sec-link" href="/api/sentinel/ava-lab" style="margin-left:12px">🧪 Ava Lab →</a>
+    <a class="sec-link" href="/api/apk/studio" style="margin-left:12px">📱 APK Studio →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
       ⚠️ SENTINEL_OWNER_CODE set nahi hai Render pe — ye page abhi kisi ke liye bhi locked nahi hai. Render → Environment me add karo.
     </div>
@@ -1328,4 +1397,5 @@ setInterval(load, 10000);
 
 router.getSummary = getSummary; // used by Ava (owner-only status line)
 router._test = { runMonitorCycle, getSummary, events: () => events, generateAIFixProposal, generateProactiveFindings, checkServer, servers: () => servers, proposals: () => proposals, changeLog: () => changeLog };
+router.deployWatching = () => postDeploy.length;
 module.exports = router;

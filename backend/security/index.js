@@ -46,7 +46,7 @@ const ENV_ALLOW = new Set(csv(process.env.SECURITY_ALLOW_IPS));
 let ALLOW = new Set(ENV_ALLOW);
 const TOOL_UA = /(sqlmap|nikto|nmap|masscan|acunetix|nessus|wpscan|dirbuster|gobuster|zgrab|hydra|havij|openvas|w3af|burpsuite|zaproxy|nuclei|ffuf|feroxbuster|metasploit|commix|whatweb|wfuzz)/i;
 const BLOCKLIST = new Set(csv(process.env.SECURITY_BLOCKLIST));
-const BODY_SKIP = csv(process.env.SECURITY_BODY_SKIP || '/api/chat,/chat,/api/ava,/api/sentinel,/api/security,/api/memory');
+const BODY_SKIP = csv(process.env.SECURITY_BODY_SKIP || '/api/chat,/chat,/api/ava,/api/sentinel,/api/security,/api/memory,/api/apk');
 
 const DATA_DIR = path.join(__dirname, '..', 'security-data');
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* read-only is fine */ }

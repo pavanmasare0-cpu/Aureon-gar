@@ -36,6 +36,7 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
         aureonFullscreen(); // v9: hide status + navigation bars (immersive)
+        aureonKeyboardResize(); // fix: edge-to-edge breaks adjustResize, so the keyboard covered the input box
 
         // Watchdog: catch any app-wide crash and report it (next launch) to
         // the backend, which emails the owner. See watchdog.js /
@@ -180,6 +181,25 @@ public class MainActivity extends BridgeActivity {
                 c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                 c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
             }
+        } catch (Throwable ignored) { /* never break startup over cosmetics */ }
+    }
+
+
+    // ---- Keyboard fix. With setDecorFitsSystemWindows(false) (edge-to-edge) Android ignores
+    // android:windowSoftInputMode="adjustResize", so the keyboard slid OVER the chat box and the
+    // page looked cut/odd. We now shrink the content area by the keyboard height ourselves, so the
+    // WebView (and its 100dvh layout) gets smaller and the input stays visible above the keyboard.
+    private void aureonKeyboardResize() {
+        try {
+            final android.view.View content = findViewById(android.R.id.content);
+            if (content == null) return;
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+                int imeBottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+                boolean imeShown = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime());
+                v.setPadding(0, 0, 0, imeShown ? imeBottom : 0);
+                return insets; // not consumed: WebView still receives cutout/safe-area insets
+            });
+            androidx.core.view.ViewCompat.requestApplyInsets(content);
         } catch (Throwable ignored) { /* never break startup over cosmetics */ }
     }
 

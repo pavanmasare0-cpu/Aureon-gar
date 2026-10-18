@@ -459,10 +459,22 @@ const VISION_PROMPT =
       return { score: m.score, total: m.total, down: m.down, pending: m.pending, avgUptime24: m.avgUptime24, incidents24: m.incidents24 };
     } catch (e) { return null; }
   }
+  function apkLine() {
+    try {
+      const a = require('./apk-maker').summary(); if (!a || !a.configured) return '';
+      let sd = null; try { const m = require('./sentinel-dashboard'); sd = typeof m.deployWatching === 'function' ? m.deployWatching() : 0; } catch (e) { /* optional */ }
+      const bits = [];
+      if (a.building.length) bits.push('APK build chal rahi: ' + a.building.join(', '));
+      if (a.lastDone) bits.push('last APK ready: ' + a.lastDone.name);
+      if (a.lastFailed) bits.push('last APK build FAIL: ' + a.lastFailed.name);
+      if (sd) bits.push(sd + ' deploy ko Sentinel watch kar raha hai');
+      return bits.length ? ' APK Studio: ' + bits.join('; ') + '.' : '';
+    } catch (e) { return ''; }
+  }
   function sentinelBlock(isOwner) {
     if (!isOwner) return '';
     const s = sentinelSnapshot(); if (!s || !s.total) return '';
-    return `\n\nLive server status from Sentinel (owner only): health score ${s.score}/100, ${s.total} server(s), ${s.down.length ? 'DOWN: ' + s.down.join(', ') : 'all up'}, ${s.pending} fix(es) awaiting approval, uptime 24h ${s.avgUptime24 == null ? 'n/a' : s.avgUptime24 + '%'}. Mention it only when relevant or asked.`;
+    return `\n\nLive server status from Sentinel (owner only): health score ${s.score}/100, ${s.total} server(s), ${s.down.length ? 'DOWN: ' + s.down.join(', ') : 'all up'}, ${s.pending} fix(es) awaiting approval, uptime 24h ${s.avgUptime24 == null ? 'n/a' : s.avgUptime24 + '%'}. Mention it only when relevant or asked.${apkLine()}`;
   }
 
   // ---------------- what /brain adds ----------------

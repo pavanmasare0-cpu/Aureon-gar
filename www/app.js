@@ -539,10 +539,36 @@ state.pendingImages = []; // v9: any number of photos for one message
 state.pendingFileText = null; // extracted text for txt files
 state.pendingFileName = null;
 
-$('btn-attach-2')?.addEventListener('click', () => $('image-input').click());
-$('btn-attach')?.addEventListener('click', () => {
-  startChatFrom(''); // home screen's attach has no preview bar of its own — hop into chat first
-  $('image-input').click();
+// ➕ opens a bottom sheet (like the Claude app): Photos = gallery with MANY-photo select (image-only input),
+// Files = pdf / zip / video / docs (separate input). One picker that accepts both makes Android show the plain file
+// browser where a tap selects only ONE file, so the two live in separate pickers.
+function showAttachSheet(beforeOpen) {
+  document.getElementById('attach-sheet')?.remove();
+  const wrap = document.createElement('div'); wrap.id = 'attach-sheet';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'width:100%;max-width:520px;background:#1c1b18;color:#F2EEE3;border-top:1px solid #3A3222;border-radius:22px 22px 0 0;padding:10px 12px calc(14px + env(safe-area-inset-bottom,0px));font:600 16px Manrope,sans-serif;transform:translateY(100%);transition:transform .18s ease';
+  const grab = document.createElement('div'); grab.style.cssText = 'width:40px;height:4px;border-radius:4px;background:#5a5242;margin:2px auto 10px'; sheet.appendChild(grab);
+  const close = () => { sheet.style.transform = 'translateY(100%)'; setTimeout(() => wrap.remove(), 160); };
+  const row = (icon, label, sub, fn) => { const b = document.createElement('button'); b.type = 'button';
+    b.style.cssText = 'display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;padding:14px 10px;border-radius:12px;cursor:pointer';
+    b.innerHTML = '<span style="font-size:22px;width:28px;text-align:center">' + icon + '</span><span><div>' + label + '</div><div style="font-weight:500;font-size:12px;color:#A69C87;margin-top:2px">' + sub + '</div></span>';
+    b.onclick = () => { close(); if (beforeOpen) beforeOpen(); setTimeout(fn, 0); }; sheet.appendChild(b); };
+  row('🖼️', 'Photos', 'Ek saath kai photos chuno', () => $('image-input').click());
+  row('📄', 'Files', 'PDF, zip, doc, txt, video', () => $('file-input').click());
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+  wrap.appendChild(sheet); document.body.appendChild(wrap);
+  requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
+}
+$('btn-attach-2')?.addEventListener('click', () => showAttachSheet());
+$('btn-attach')?.addEventListener('click', () => showAttachSheet(() => startChatFrom(''))); // home screen's attach has no preview bar of its own — hop into chat first
+
+// files picked from the sheet go through the exact same handler as before
+$('file-input')?.addEventListener('change', (e) => {
+  const picked = Array.from(e.target.files || []); if (!picked.length) return;
+  const dt = new DataTransfer(); picked.forEach((f) => dt.items.add(f));
+  const main = $('image-input'); main.files = dt.files; e.target.value = '';
+  main.dispatchEvent(new Event('change'));
 });
 
 if ($('image-input')) $('image-input').multiple = true;
