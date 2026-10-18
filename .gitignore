@@ -16,3 +16,4 @@ android/app/build/
 android/.gradle/
 *.bak*
 *.zip
+.upgrade7-backups/

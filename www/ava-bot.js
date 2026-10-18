@@ -169,7 +169,7 @@
 .mood-angry .ava-ico,.mood-sad .ava-ico,.mood-shy .ava-ico{opacity:1;animation:avaIco .9s ease-in-out infinite alternate}\
 @keyframes avaIco{from{transform:scale(.9) rotate(-8deg)}to{transform:scale(1.18) rotate(8deg)}}\
 html.ava-panel,html.ava-panel body{background:transparent!important;background-image:none!important}\
-html.ava-panel body::before,html.ava-panel body::after{display:none!important}\
+html.ava-panel::before,html.ava-panel::after,html.ava-panel body::before,html.ava-panel body::after{display:none!important;content:none!important}\
 html.ava-panel body>*:not(#ava-root){display:none!important}';
   var style = el('style'); style.id = 'ava-style'; style.textContent = css; document.head.appendChild(style);
 
@@ -219,15 +219,28 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   var AAp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
   function closePanelMode() { try { AAp && AAp.closeAvaPanel && AAp.closeAvaPanel(); } catch (e) {} }
   function enterPanelMode() {
+    if (PANEL) return;
     PANEL = true; hidden = false; off = false; vis = true; interacted = true;
     document.documentElement.classList.add('ava-panel');
     orbEl.style.display = ''; nubEl.style.display = 'none';
     W = innerWidth; H = innerHeight; o.x = W - SIZE - 14; o.y = H * 0.3;
     openPanel();
     window.addEventListener('pointerdown', function (e) { if (!root.contains(e.target)) closePanelMode(); }, true);
+    // tell Android the Ava-only screen is ready (until now the window stays invisible, so Aureon never flashes)
+    setTimeout(function () { try { AAp && AAp.avaPanelReady && AAp.avaPanelReady(); } catch (e) {} }, 250);
+    try { var A0 = aaT(); if (A0) A0.getTeach().then(function (s0) { teach.recording = !!s0.recording; status(); }).catch(function () {}); } catch (e) {}
   }
-  if (!IS_SENTINEL && AAp && AAp.avaPanelMode) {
-    try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
+  if (!IS_SENTINEL) {
+    var panelTries = 0;
+    (function detectPanel() {
+      if (PANEL) return;
+      AAp = AAp || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions);
+      if (window.__AVA_PANEL) { enterPanelMode(); return; }
+      if (AAp && AAp.avaPanelMode) {
+        try { AAp.avaPanelMode().then(function (r) { if (r && r.panel) enterPanelMode(); }).catch(function () {}); } catch (e) {}
+      }
+      if (++panelTries < 16) setTimeout(detectPanel, 400);
+    })();
   }
 
   // ---------- moods: angry / sad (crying) / shy ----------
@@ -258,6 +271,9 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   function onScreenMood(m) { if (MOOD_ICO[m]) setMood(m, 14000, true, true); }
   function reactMood(t) {
     t = String(t || '');
+    if (/\b(gussa|angry)\b.*\b(dikhao|karo|show|ho ja)|\bgusse (me|mein) aao\b/i.test(t)) { setMood('angry', 9000, 'Hmph! 😠 Dekho, ab mai gusse me hu.'); return; }
+    if (/\b(ro|roo|rona|cry|sad)\b.*\b(dikhao|karo|show|ke dikhao)/i.test(t)) { setMood('sad', 9000, 'Huhuhu… 😢 mujhe rona aa gaya.'); return; }
+    if (/\b(sharma\w*|shy|blush)\b/i.test(t)) { setMood('shy', 9000, 'Hayyy… 🙈 sharam aa rahi hai.'); return; }
     if (/\b(gadh[aei]|bekar|bewakoof|pagal|nikamm?[ae]|stupid|idiot|useless|shut ?up|chup kar)\b/i.test(t)) setMood('angry', 7000, 'Hmph! 😠 Aise mat bolo, mujhe bura lagta hai.');
     else if (/\b(cute|pyaari|pyari|sundar|beautiful|love you|i love you|pretty)\b/i.test(t)) setMood('shy', 7000, 'Hayy 🙈 itni taareef mat karo…');
     else if (/\b(bye|alvida|goodbye|chhod ke ja)\b/i.test(t)) setMood('sad', 7000, 'Aww… jaa rahe ho? 😢 Jaldi aana.');
@@ -272,7 +288,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
   function happy() { flash('hop', 650); flash('happy', 1500); try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
   var dart = { x: 0, y: 0 };
   setInterval(function () { if (o.mode === 'roam' && Math.hypot(o.vx, o.vy) < 30) { dart.x = rnd(-2, 2); dart.y = rnd(-1.5, 1.5); } else { dart.x = dart.y = 0; } }, 2200);
-  function status() { subEl.textContent = busy ? 'soch rahi hu…' : learning ? 'naya seekh rahi hu…' : seeOn ? '👁 screen dekh rahi hu' : 'online'; }
+  function status() { subEl.textContent = busy ? 'soch rahi hu…' : teach.recording ? '🎓 seekh rahi hu…' : learning ? 'naya seekh rahi hu…' : seeOn ? '👁 screen dekh rahi hu' : 'online'; }
 
   // ---------- roaming engine ----------
   function pickTarget() {
@@ -589,7 +605,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     if (AAv && AAv.startScreenWatch) {
       var k = await api('POST', '/api/ava/screen/enroll', {});
       var r = await AAv.startScreenWatch({ backendUrl: state.backendUrl.replace(/\/$/, ''), key: k.key, intervalMs: 6000 });
-      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui (permission cancel?).');
+      if (!r || !r.started) throw new Error('Screen capture shuru nahi hui' + (r && r.resultCode !== undefined ? ' (code ' + r.resultCode + (r.resultCode === 0 ? ' = Android popup cancel hua/aaya hi nahi' : '') + ')' : '') + '. Popup me "Start now" dabana hai; "Ava phone screen par" pehle off karke try karo.');
     } else await startWebWatch();
     seeOn = true; seeBtn.classList.add('on'); lsSet('ava_see', '1'); status();
   }
@@ -656,6 +672,121 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     addMsg('ai', out); speak(out); return true;
   }
 
+
+  // ---------- teach Ava: watch what I do, remember it, repeat on command ----------
+  // "seekho wifi band karna" -> I do the steps in other apps -> "bas" -> later: "wifi band karo"
+  // (steps are recorded + replayed by the Aureon accessibility service; everything stays on the phone)
+  var teach = { recording: false, name: '', pending: null, askName: false };
+  var T_VERBS = /\b(karo|kar do|kardo|kar de|chalao|chala do|run|shuru karo|start karo)\b/g;
+  var T_FILL = /\b(ava|ye|wo|woh|ab|please|plz|na|zara|mera|meri|mere|ko|ka|ki|ke|wala|wali)\b/g;
+  function aaT() { AAp = AAp || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions); return AAp && AAp.getTeach ? AAp : null; }
+  function sayT(msg) { addMsg('ai', msg); try { speak(msg.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, '')); } catch (e) {} }
+  function tnorm(x) { return String(x || '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim(); }
+  function findMacro(list, q) {
+    var qt = tnorm(q).replace(T_VERBS, ' ').replace(T_FILL, ' ').split(' ').filter(Boolean), best = null, bs = 0;
+    if (!qt.length) return null;
+    (list || []).forEach(function (m) {
+      var nt = tnorm(m.name).replace(T_FILL, ' ').split(' ').filter(Boolean);
+      if (!nt.length) return;
+      var common = nt.filter(function (w) { return qt.indexOf(w) >= 0; }).length, sc = common / Math.max(nt.length, qt.length);
+      if (common && sc > bs) { bs = sc; best = m; }
+    });
+    return bs >= 0.5 ? best : null;
+  }
+  async function startTeach(name) {
+    var A = aaT(), r;
+    try { r = await A.teachStart({ name: name }); } catch (e) { sayT('Seekh nahi paayi: ' + (e.message || e)); return true; }
+    if (!r || !r.ok) {
+      if (r && r.error === 'accessibility_off') {
+        sayT('Seekhne ke liye Aureon ki Accessibility service on honi chahiye. Settings khol rahi hu: Accessibility → Installed/Downloaded apps → Aureon → ON. On karke mujhe dobara bolo.');
+        try { await A.openAccessibilitySettings(); } catch (e) {}
+      } else sayT('Seekh nahi paayi: ' + ((r && r.error) || 'pata nahi kyu'));
+      return true;
+    }
+    teach.recording = true; teach.name = r.name || name; status();
+    sayT('🎓 Theek hai, "' + teach.name + '" seekh rahi hu. Ab jo karna hai wo karo. Pura ho jaye to mujh par tap karke "bas" bolo. (Password aur banking apps record nahi karti.)');
+    if (PANEL) setTimeout(closePanelMode, 2200);
+    return true;
+  }
+  async function stopTeach(save) {
+    var A = aaT(), r = {};
+    try { r = await A.teachStop({ save: save }); } catch (e) {}
+    teach.recording = false; status();
+    if (!save) { sayT('Theek hai, rehne diya.'); return true; }
+    if (r && r.ok) sayT('✅ Yaad kar liya: "' + r.name + '" — ' + r.steps + ' steps' + (r.apps && r.apps.length ? ' (' + r.apps.join(' → ') + ')' : '') + '. Ab bolo: "' + r.name + ' karo".' + (r.skippedSensitive ? ' (Banking/payment wale steps record nahi kiye.)' : ''));
+    else sayT('Kuch record nahi hua — koi tap ya step dikha hi nahi. Dobara try karo?' + (r && r.skippedSensitive ? ' (Banking/payment app me record nahi karti.)' : ''));
+    return true;
+  }
+  function pollMacro() {
+    var n = 0, A = aaT();
+    var iv = setInterval(async function () {
+      n++; var st2;
+      try { st2 = await A.getTeach(); } catch (e) { clearInterval(iv); return; }
+      if (!st2.playing) { clearInterval(iv); sayT((st2.lastOk ? '✅ ' : '⚠️ ') + st2.lastMsg); } else if (n > 90) clearInterval(iv);
+    }, 1500);
+  }
+  async function runMacro(name) {
+    var A = aaT(), r;
+    try { r = await A.macroPlay({ name: name }); } catch (e) { sayT('Chala nahi paayi: ' + (e.message || e)); return true; }
+    if (!r || !r.ok) {
+      if (r && r.error === 'accessibility_off') { sayT('Accessibility service band hai — Settings → Accessibility → Aureon → ON karo.'); try { await A.openAccessibilitySettings(); } catch (e) {} }
+      else sayT('Chala nahi paayi: ' + ((r && r.error) || '?'));
+      return true;
+    }
+    sayT('▶️ "' + name + '" shuru kar rahi hu…');
+    if (PANEL) setTimeout(closePanelMode, 1200); else pollMacro();
+    return true;
+  }
+  async function teachIntent(text) {
+    if (IS_SENTINEL) return false;
+    var A = aaT(); if (!A) return false;
+    var low = tnorm(text), st;
+    if (teach.askName) {
+      teach.askName = false;
+      if (/^(cancel|rehne do|nahi|nhi|mat)\b/.test(low)) { sayT('Theek hai, nahi seekhti.'); return true; }
+      return await startTeach(String(text).trim());
+    }
+    if (teach.pending) {
+      var pn = teach.pending; teach.pending = null;
+      if (/^(haan|han|ha|haa|yes|ok|okay|chalao|kar do|karo|theek hai|ji|sure)\b/.test(low)) return await runMacro(pn);
+      if (/^(nahi|nhi|no|cancel|mat|rehne do|ruko)\b/.test(low)) { sayT('Theek hai, nahi chalaungi.'); return true; }
+    }
+    try { st = await A.getTeach(); } catch (e) { return false; }
+    teach.recording = !!st.recording; status();
+    if (st.recording) {
+      if (/^(bas|ho gaya|ho gya|done|stop|khatam|save|band karo|ruko|yaad kar lo)\b/.test(low)) return await stopTeach(true);
+      if (/^(cancel|raddh|rehne do|mat seekho|chhodo)\b/.test(low)) return await stopTeach(false);
+    }
+    if (st.playing && /^(ruko|stop|bas|band|rok do)\b/.test(low)) { try { await A.macroStop(); } catch (e) {} sayT('Ruk gayi ✋'); return true; }
+    var macros = st.macros || [];
+    if (/\b(kya kya|konse|kaun se|kon se|kitne)\b.*\b(seekha|sikha|macro|process|kaam)\b|\b(mere|saare|sab) (macro|process|seekhe)\b/.test(low)) {
+      sayT(macros.length ? 'Mujhe ye kaam aate hain:\n' + macros.map(function (m) { return '• ' + m.name + ' (' + m.steps + ' steps)'; }).join('\n') : 'Abhi mujhe koi kaam nahi sikhaya. Bolo: "seekho <kaam ka naam>".');
+      return true;
+    }
+    var fm = low.match(/^(?:bhool ja|bhul ja|bhool jao|delete|hata do|mita do)\s+(.+)$/);
+    if (fm) {
+      var tgt = findMacro(macros, fm[1]);
+      if (!tgt) { sayT('Is naam ka koi kaam mujhe yaad nahi.'); return true; }
+      try { await A.macroDelete({ name: tgt.name }); } catch (e) {}
+      sayT('"' + tgt.name + '" bhool gayi 🗑️'); return true;
+    }
+    var TRIG = /\b(seekho|sikho|sikhna|yaad rakho|yaad rakhna|yaad rakh lo|record karo)\b/g;
+    if (!st.recording && TRIG.test(low) && !/\bkya\b|\?/.test(low) && low.length < 90) {
+      var nm = low.replace(TRIG, ' ').replace(T_FILL, ' ').replace(/\b(jo|mai|main|settings|process|steps|karunga|karungi)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!nm) { teach.askName = true; sayT('Is kaam ka naam kya rakhu? (jaise "wifi band karna")'); return true; }
+      return await startTeach(nm);
+    }
+    if (!st.recording && macros.length && /\b(karo|kar do|kardo|kar de|chalao|chala do|run|shuru karo)\b/.test(low)) {
+      var mm = findMacro(macros, low);
+      if (mm) {
+        teach.pending = mm.name;
+        sayT('▶️ "' + mm.name + '" chalau? ' + mm.steps + ' steps' + (mm.apps && mm.apps.length ? ' (' + mm.apps.join(', ') + ')' : '') + '. "haan" bolo — beech me rokna ho to "ruko".');
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function send(text) {
     try { reactMood(text); } catch (e) {}
     text = String(text || '').trim();
@@ -666,6 +797,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       try { var l = await learnedList(); addMsg('ai', l); speak(l.split('\n')[1] || l); } catch (e) { addMsg('err', e.message); }
       return;
     }
+    try { if (await teachIntent(text)) return; } catch (e) { try { console.warn('[ava] teach', e); } catch (e2) {} }
     try { if (await handleV2(text)) return; } catch (e) { addMsg('err', e.message || String(e)); return; }
     hist.push({ role: 'user', content: text });
     busy = true; setState('think'); status();

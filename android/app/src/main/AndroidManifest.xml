@@ -7,6 +7,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <!-- OEM "full screen / camera notch" opt-in flags (ColorOS/Realme/Oppo, Xiaomi/MIUI, Huawei). Harmless elsewhere. -->
+        <meta-data android:name="android.notch_support" android:value="true" />
+        <meta-data android:name="notch.config" android:value="portrait|landscape" />
+        <meta-data android:name="android.max_aspect" android:value="2.4" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"

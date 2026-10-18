@@ -262,28 +262,59 @@ public class AvaOverlayService extends Service {
         });
     }
 
+    private long lastBlockedHint = 0;
+
     private void onTapped() {
         orb.hop();
-        // Open Ava's own transparent chat screen right over whatever app is on
-        // screen (AvaPanelActivity). Aureon itself does NOT open.
-        try {
-            Intent i = new Intent(this, AvaPanelActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-            startActivity(i);
-        } catch (Exception e) {
-            // Last-resort fallback: open the assistant session / the app.
-            if (!AureonVoiceInteractionService.showFromOverlay()) {
-                try {
-                    Intent i = getPackageManager().getLaunchIntentForPackage(getPackageName());
-                    if (i != null) {
-                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(i);
-                    }
-                } catch (Exception ignored) { }
+        // Open Ava's own transparent chat screen right over whatever app is on screen (AvaPanelActivity).
+        final int before = AvaPanelActivity.resumeCount;
+        boolean launched = launchPanel();
+        // Some phones (ColorOS/Realme/Oppo, MIUI, Funtouch...) silently refuse to open a screen from the background
+        // unless a "pop-up while running in background" switch is on. If the panel did not come forward, say so.
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (AvaPanelActivity.resumeCount == before) showPanelBlockedHint();
             }
+        }, launched ? 1800 : 300);
+    }
+
+    private boolean launchPanel() {
+        Intent i = new Intent(this, AvaPanelActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        if (Build.VERSION.SDK_INT >= 34) {
+            try { // Android 14+: starting from the background needs the sender to opt in explicitly
+                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0, i,
+                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+                android.app.ActivityOptions ao = android.app.ActivityOptions.makeBasic();
+                ao.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                pi.send(this, 0, null, null, null, null, ao.toBundle());
+                return true;
+            } catch (Throwable ignored) { /* fall through to the plain start */ }
         }
+        try {
+            startActivity(i);
+            return true;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    private void showPanelBlockedHint() {
+        long now = System.currentTimeMillis();
+        if (now - lastBlockedHint < 20000) return;
+        lastBlockedHint = now;
+        try {
+            android.widget.Toast.makeText(this,
+                    "Ava khul nahi paayi. Settings me Aureon ke liye \"Display pop-up windows while running in the background\" ON karo (aur Battery: Unrestricted).",
+                    android.widget.Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) { }
+        try {
+            Intent s = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + getPackageName()));
+            s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(s);
+        } catch (Throwable ignored) { }
     }
 
     private void pickTarget() {

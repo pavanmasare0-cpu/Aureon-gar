@@ -167,6 +167,7 @@ public class MainActivity extends BridgeActivity {
     // ---- v9: full screen (immersive). Swipe from an edge to peek at the system bars. ----
     private void aureonFullscreen() {
         try {
+            aureonClearFitPadding();
             android.view.Window w = getWindow();
             androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false); // draw behind bars + notch (no black strip)
             w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
@@ -206,6 +207,30 @@ public class MainActivity extends BridgeActivity {
             });
             androidx.core.view.ViewCompat.requestApplyInsets(content);
         } catch (Throwable ignored) { /* never break startup over cosmetics */ }
+    }
+
+    // ROOT CAUSE of the black strip at the top: AppCompat's decor root (action_bar_root) has fitsSystemWindows=true, so it keeps
+    // padding the page by the status-bar / camera-notch height even though the bars are hidden. Switch that padding off.
+    private void aureonClearFitPadding() {
+        try {
+            final android.view.View content = findViewById(android.R.id.content);
+            if (content == null) return;
+            android.view.ViewParent p = content.getParent();
+            while (p instanceof android.view.View) {
+                android.view.View v = (android.view.View) p;
+                if (v == getWindow().getDecorView()) break;
+                v.setFitsSystemWindows(false);
+                v.setPadding(0, 0, 0, 0);
+                p = v.getParent();
+            }
+        } catch (Throwable ignored) { /* never break startup over cosmetics */ }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        aureonClearFitPadding();
+        AvaOverlayService.startIfEnabled(this); // after the user grants "Display over other apps" and comes back, Ava appears by herself
     }
 
     @Override

@@ -29,6 +29,9 @@ import com.getcapacitor.BridgeActivity;
  */
 public class AvaPanelActivity extends BridgeActivity {
 
+    /** Counts how often the panel really came to the front. AvaOverlayService checks it after a tap to detect a blocked launch. */
+    public static volatile int resumeCount = 0;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean ready = false;
 
@@ -54,6 +57,7 @@ public class AvaPanelActivity extends BridgeActivity {
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         makeWebViewTransparent();
+        clearFitPadding();
         setWebViewAlpha(0f); // hidden until Ava's panel is ready
 
         // Tell the page "you are the Ava-only screen" and keep the WebView see-through
@@ -92,7 +96,25 @@ public class AvaPanelActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        resumeCount++;
         makeWebViewTransparent();
+        clearFitPadding();
+    }
+
+    /** AppCompat's decor root has fitsSystemWindows=true and would push the page down by the status-bar / notch height. */
+    private void clearFitPadding() {
+        try {
+            final View content = findViewById(android.R.id.content);
+            if (content == null) return;
+            android.view.ViewParent p = content.getParent();
+            while (p instanceof View) {
+                View v = (View) p;
+                if (v == getWindow().getDecorView()) break;
+                v.setFitsSystemWindows(false);
+                v.setPadding(0, 0, 0, 0);
+                p = v.getParent();
+            }
+        } catch (Throwable ignored) { }
     }
 
     private void makeWebViewTransparent() {

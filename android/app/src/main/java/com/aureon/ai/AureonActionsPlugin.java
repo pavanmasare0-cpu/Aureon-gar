@@ -151,6 +151,16 @@ public class AureonActionsPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void avaPanelReady(PluginCall call) {
+        final android.app.Activity a = getActivity();
+        if (a instanceof AvaPanelActivity) {
+            final AvaPanelActivity pa = (AvaPanelActivity) a;
+            a.runOnUiThread(new Runnable() { @Override public void run() { pa.markReady(); } });
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
     public void closeAvaPanel(PluginCall call) {
         final android.app.Activity a = getActivity();
         if (a instanceof AvaPanelActivity) a.runOnUiThread(a::finish);
@@ -179,6 +189,7 @@ public class AureonActionsPlugin extends Plugin {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(i);
             } catch (Exception ignored) { }
+            AvaOverlayService.setEnabled(ctx, true); // remembered: MainActivity.onResume starts Ava as soon as the permission is granted
             r.put("enabled", false);
             r.put("needsPermission", true);
             call.resolve(r);
