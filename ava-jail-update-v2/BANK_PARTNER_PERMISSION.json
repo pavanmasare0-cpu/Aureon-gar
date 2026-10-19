@@ -1,0 +1,22 @@
+{
+  "product": "Ava Bank Domain",
+  "integrationType": "regulated-bank-or-payment-provider",
+  "jurisdiction": "IN",
+  "authorizationStatus": "NOT_GRANTED",
+  "liveTransfersEnabled": false,
+  "providerName": null,
+  "providerContractReference": null,
+  "providerApiBaseUrl": null,
+  "oauthClientIdConfigured": false,
+  "oauthClientSecretConfigured": false,
+  "approvedCapabilities": [],
+  "requiredBeforeLive": [
+    "Written approval and onboarding from a regulated bank/payment provider",
+    "Provider-issued API credentials and official integration documentation",
+    "Provider sandbox testing and certification, where required",
+    "Legal and regulatory review for the proposed business model",
+    "KYC/AML, fraud controls, transaction limits and customer consent",
+    "Production security review and provider approval to enable live transfers"
+  ],
+  "notice": "This manifest does not grant bank permission, create a bank account, issue API credentials, or authorize money movement. Populate only with values supplied by the authorized provider after approval."
+}
