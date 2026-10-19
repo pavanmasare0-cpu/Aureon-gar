@@ -300,6 +300,75 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     finally { busy = false; }
   });
 
+  // ---- Ava Designer: Ava designs a TOP-LEVEL UI screen entirely by herself (own choice of screen + style when no brief).
+  // Pass 1 = draft, pass 2 = art-director self-critique + full rewrite. Output is a standalone HTML file that only ever
+  // lands in the Jail gallery (previewed in a sandboxed iframe, downloaded by hand). It is NEVER applied, committed or deployed.
+  const designCalls = [];
+  const DESIGN_MAX_PER_HOUR = 3;
+  async function askText(prompt) {
+    const hook = global.__avaSelf;
+    if (!(hook && typeof hook.llm === 'function')) throw new Error('Design mode ke liye Ava ka Gemini chahiye (hook.llm nahi mila)');
+    return String(await hook.llm(prompt) || '');
+  }
+  function parseDesign(text) {
+    const t = String(text || '').replace(/\r/g, '');
+    const meta = {}; const m = t.match(/===META===\n([\s\S]*?)\n===HTML===/);
+    if (m) m[1].split('\n').forEach((l) => { const k = l.match(/^(\w+):\s*(.+)$/); if (k) meta[k[1].toLowerCase()] = k[2].trim(); });
+    const h = t.match(/===HTML===\n([\s\S]*?)(?:\n===END===|$)/);
+    let html = h ? h[1] : '';
+    html = html.replace(/^\s*```[a-z]*\n/i, '').replace(/\n```\s*$/i, '').trim();
+    return { meta, html };
+  }
+  function checkDesign(html) {
+    if (!/<\/html>/i.test(html) || html.length < 1500) return 'file adhoori / chhoti hai (</html> nahi mila)';
+    if (!/viewport/i.test(html)) return 'viewport meta nahi hai';
+    if (/(<script[^>]+src=|<link[^>]+href=["']https?:|src=["']https?:|url\(\s*["']?https?:|@import|\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|\bimport\s*\()/i.test(html)) return 'bahar ke resource / network call mila — design standalone hona chahiye';
+    const sf = checkSafety('www/ava-bot.js', '', html, { added: html.split('\n').length, removed: 0, addedText: html });
+    if (sf) return 'safety: ' + sf;
+    const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map((x) => x[1]).filter((x) => x.trim());
+    for (const sc of scripts) { const sb = sandbox('www/ava-bot.js', sc); if (!sb.ok) return 'script syntax fail: ' + String(sb.log).slice(0, 120); }
+    return null;
+  }
+  const DESIGN_RULES = [
+    'You are Ava, and you are also a world-class product/UI designer. This is your DESIGN STUDIO (the Jail): pure creative work, never applied or deployed automatically — the owner will preview it and decide.',
+    'TASK: design the BEST possible top-level UI screen for the Aureon app / its Sentinel dashboard. If the owner gave a brief, follow it. If not, YOU decide which top-level screen adds the most value (home dashboard, chat, settings, memory vault …) and what visual direction fits.',
+    'REFERENCE DIRECTION (evolve it, do not copy blindly): futuristic dark glassmorphism — deep navy, violet/cyan/pink neon glows, rounded translucent cards, a glowing orb avatar for Ava, left sidebar on desktop and bottom navigation on phones, live-status cards, progress bars, tabs.',
+    'QUALITY BAR: ONE standalone HTML file, inline CSS + JS, NO external files/fonts/images/CDN/network calls (inline SVG, emoji, CSS gradients only). Mobile-first (360–430px) AND great on desktop. Realistic sample content (Hinglish where natural). Real interactions (tabs, toggles, buttons that change state), smooth micro-animations, prefers-reduced-motion respected, strong typographic hierarchy, consistent spacing, accessible contrast and labels. No lorem ipsum, no dead buttons, no console errors. Must end with </html>.',
+    'OUTPUT FORMAT (exactly, nothing else):\n===META===\ntitle: <short creative name>\ndescription: <1-2 sentences in Hinglish: what this screen is and what makes the design special>\n===HTML===\n<!DOCTYPE html> ... </html>\n===END===',
+  ].join('\n\n');
+  async function designGenerate(brief) {
+    const b = brief ? 'Owner brief: ' + brief : 'No brief — choose the screen and the style yourself and make it exceptional.';
+    const d1 = parseDesign(await askText(DESIGN_RULES + '\n\n' + b));
+    if (!d1.html) throw new Error('Ava ka draft sahi format me nahi aaya — dobara try karo');
+    let best = d1, bad = checkDesign(d1.html);
+    const rev = 'You just produced the draft below. Now act as a ruthless art director: silently find the 6 weakest points (spacing, hierarchy, contrast, polish, mobile fit, missing interactions, boring visuals) and then output the COMPLETE improved file — more premium, more refined, still standalone — in the exact same output format.\n\nDRAFT:\n' + d1.html.slice(0, 70000);
+    try {
+      const d2 = parseDesign(await askText(DESIGN_RULES + '\n\n' + b + '\n\n' + rev));
+      if (d2.html && !checkDesign(d2.html)) { best = Object.assign({}, d2, { meta: Object.assign({}, d1.meta, d2.meta) }); bad = null; }
+    } catch (e) { /* keep the draft */ }
+    if (bad) throw new Error('Design reject: ' + bad);
+    const code = best.html;
+    const entry = {
+      id: nid(), createdAt: new Date().toISOString(), kind: 'design', category: 'ui',
+      title: String(best.meta.title || 'Ava Design').slice(0, 90), description: String(best.meta.description || '').slice(0, 400),
+      brief: String(brief || '(Ava ne khud chuna)').slice(0, 200), sandbox: { ok: true, log: 'html+js syntax checked' }, code,
+    };
+    state.jail = [entry, ...(state.jail || [])].slice(0, JAIL_CAP);
+    save();
+    if (logEvent) logEvent('proposal', { name: 'Ava' }, 'Ava Designer: naya UI design "' + entry.title + '" (sirf gallery me, kahin apply nahi hua)');
+    const { code: _c, ...pub } = entry; return pub;
+  }
+  router.post('/jail/design', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    auth.action(req, 'ava-lab designer');
+    await ready;
+    const now = Date.now(); while (designCalls.length && now - designCalls[0] > 3600000) designCalls.shift();
+    if (designCalls.length >= DESIGN_MAX_PER_HOUR) return res.status(429).json({ error: 'Ghante me ' + DESIGN_MAX_PER_HOUR + ' designs ki limit (har design me 2 AI calls lagti hain)' });
+    designCalls.push(now);
+    try { res.json({ ok: true, entry: await designGenerate(String((req.body && req.body.brief) || '').slice(0, 300)) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // ---- Jail routes: generate / list / view-code / delete. No apply, no GitHub, no deploy — ever.
   router.post('/jail/generate', async (req, res) => {
     if (!auth.stepUp(req, res)) return;
@@ -323,7 +392,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     await ready;
     const j = (state.jail || []).find((x) => x.id === req.params.id);
     if (!j || !j.code) return res.status(404).type('text/plain').send('Ye variant ka code ab nahi bacha (sirf naye ' + JAIL_KEEP_CODE + ' ka restart ke baad bachta hai) — dobara generate karo.');
-    res.type('text/javascript').set('Content-Disposition', 'attachment; filename="ava-jail-' + req.params.id + '.js"').send(j.code);
+    const isD = j.kind === 'design'; res.type(isD ? 'text/html' : 'text/javascript').set('Content-Disposition', 'attachment; filename="ava-' + (isD ? 'design-' : 'jail-') + req.params.id + (isD ? '.html' : '.js') + '"').send(j.code);
   });
 
   router.delete('/jail/:id', async (req, res) => {
@@ -574,10 +643,29 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 .jcard .row{gap:6px}
 .jcard button{padding:7px 11px;font-size:12px}
 .empty-world{color:var(--mu);font-size:13px;padding:20px;text-align:center}
+
+/* ===== Ava Lab · neon finish (only this page) ===== */
+:root{--bg:#070914;--bg2:#0c1024;--card:rgba(18,22,52,.62);--bd:rgba(120,110,255,.30);--tx:#eef0ff;--mu:#9aa0c8;--ac:#8b7bff;--ok:#3ee0a0;--danger:#ff6b8b;--warn:#ffc15e;--neon:#4fc3ff}
+html{background:#070914}body{background:radial-gradient(900px 520px at 6% -6%,rgba(139,92,246,.38),transparent 60%),radial-gradient(800px 520px at 104% 30%,rgba(34,211,238,.20),transparent 60%),radial-gradient(700px 400px at 40% 112%,rgba(16,185,129,.14),transparent 60%),#070914;background-attachment:fixed;max-width:980px;padding:max(14px,env(safe-area-inset-top)) 14px 40px}
+.card,.jcard,.jworld{backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-color:var(--bd);box-shadow:0 0 0 1px rgba(79,195,255,.05),0 10px 34px rgba(8,5,38,.55),inset 0 0 26px rgba(139,123,255,.07)}
+button{background-image:linear-gradient(135deg,#7c5cff,#3aa8ff);color:#fff;border:0;box-shadow:0 0 14px rgba(110,120,255,.35)}button.g,button.d{background-image:none}
+input[type=text],input[type=number],textarea{background:rgba(10,12,34,.8);border:1px solid var(--bd);color:var(--tx);border-radius:12px}
+h1{background:linear-gradient(90deg,#c9b8ff,#7fe3ff);-webkit-background-clip:text;background-clip:text;color:transparent}h2{color:#d9d4ff}
+.lhero{display:flex;gap:16px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:20px;padding:16px;margin:8px 0 14px;position:relative;overflow:hidden}
+.lorb{flex:none;width:92px;height:92px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#0a0d2a 54%,transparent 55%),conic-gradient(from 0deg,#4fc3ff,#7c5cff,#ff4fd8,#4fc3ff);box-shadow:0 0 34px rgba(124,92,255,.7),0 0 80px rgba(79,195,255,.3);animation:lspin 9s linear infinite;position:relative}
+.lorb::after{content:"◠ ◠";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9be7ff;font-size:20px;letter-spacing:8px;animation:lspin 9s linear infinite reverse;text-shadow:0 0 10px #4fc3ff}
+@keyframes lspin{to{transform:rotate(360deg)}}
+.lhero h1{margin:0 0 4px;font-size:22px}.lhero .sub{margin:0}.lchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.lchips span{font-size:11px;padding:4px 10px;border-radius:99px;background:rgba(20,24,64,.8);border:1px solid var(--bd);color:var(--mu)}
+.lback{display:inline-block;font-size:12px;color:var(--mu);margin-top:2px}
+.vgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:4px 0 14px}@media(min-width:760px){.vgrid{grid-template-columns:repeat(4,1fr)}}
+.vc{background:rgba(16,19,52,.7);border:1px solid var(--bd);border-radius:16px;padding:12px;text-align:center}.vc.act{border-color:#b18cff;box-shadow:0 0 18px rgba(177,140,255,.5)}
+.vav{width:52px;height:52px;border-radius:50%;margin:0 auto 6px;box-shadow:0 0 16px var(--c);background:radial-gradient(circle at 35% 30%,#fff,var(--c))}.vc b{display:block;font-size:13px}.vc small{display:block;color:var(--mu);font-size:10.5px;min-height:28px}
+.vc button{margin-top:6px;font-size:11px;padding:7px 9px;border-radius:10px;cursor:pointer;width:100%}.vc button.alt{background:rgba(30,34,78,.8);background-image:none;border:1px solid var(--bd);box-shadow:none}
+.jav{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:8px;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.35),var(--cat-color));box-shadow:0 0 16px var(--cat-color)}
+.jcard{transition:transform .15s}.jcard:hover{transform:translateY(-2px)}
 </style></head><body>
-<a href="/api/sentinel/dashboard">← Sentinel</a>
-<h1>🧪 Ava Lab</h1>
-<div class="sub">Ava apna code khud padhti hai, khud upgrade likhti hai aur yahan dikhati hai ki kya badla aur kyun. <b>Apply sirf tumhare Approve ke baad.</b></div>
+<a class="lback" href="/api/sentinel/dashboard">← Sentinel</a>
+<div class="lhero"><div class="lorb"></div><div><h1>Ava Lab</h1><div class="sub">Ava apna code khud padhti hai, khud upgrade likhti hai aur yahan dikhati hai ki kya badla aur kyun. <b>Apply sirf tumhare Approve ke baad.</b></div><div class="lchips"><span>🛡️ Approve-gate ON</span><span>🧪 Clones sirf gallery me</span><span>🔒 Owner-lock</span></div></div></div>
 <div class="card"><h3>Ava abhi</h3><div id="sig" class="meta">…</div></div>
 <div class="card"><h3>Auto-upgrade <span id="ver" class="b"></span></h3>
 <div class="row"><label><input type="checkbox" id="auto" onchange="saveSet()"> Ava khud har</label>
@@ -593,7 +681,10 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 <div class="jworld">
 <h2>🌌 Ava ki Duniya — Prototype Workshop</h2>
 <div class="jsub">Ek alag jahaan jahan Ava khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Jo pasand aaye uska code download karke khud test karo.</div>
+<div class="card" id="dcard" style="border-color:#b18cff"><h3>🎨 Ava Designer — top-level UI</h3><div class="jsub" style="margin-bottom:8px">Ava khud decide karti hai kaunsi screen aur kaisa look — pehle draft, phir khud critique karke best version. Sirf gallery me; apply tumhare haath me.</div>
+<div class="row"><input id="dbrief" type="text" placeholder="(optional) jaise 'chat screen' — khali chhodo to Ava khud chunegi"><button id="dgo">🎨 Ava, khud best UI banao</button></div><div id="dmsg" class="meta"></div></div>
 <div class="jstats" id="jstats"></div>
+<h3 style="margin:6px 0 2px">Ava Variants</h3><div class="jsub">Different moods. Same purpose. "Clone" dabao — Ava us mood ka naya variant design karegi.</div><div class="vgrid" id="vars"></div>
 <div class="card"><div class="row"><input id="jbrief" type="text" placeholder="(optional) brief: jaise 'ek log-scanner security tool' — khali chhodo to Ava khud sochegi">
 <button id="jgo" onclick="jailGen()">🧪 Naya variant banao</button></div><div id="jmsg"></div></div>
 <div class="jgrid" id="jail"></div>
@@ -644,10 +735,11 @@ async function rollback(id){if(!confirm('Is upgrade ko wapas undo karein?'))retu
  var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'↩ Rollback ho gaya (server restart par chalega)':'❌ '+(j.error||r.status);load()}
 var JCAT={ui:['🎨','#8b7bff'],security:['🛡️','#ef6a6a'],utility:['🔧','#f5b740'],game:['🎮','#4fd1c5'],other:['🧩','#9aa0ab']};
 function jcard(j){var c=JCAT[j.category]||JCAT.other;
- return '<div class="jcard" style="--cat-color:'+c[1]+'"><div class="jicon">'+c[0]+'</div><span class="jcat">'+esc(j.category||'other')+'</span><h4>'+esc(j.title)+'</h4>'
+ return '<div class="jcard" style="--cat-color:'+c[1]+'"><div class="jav">'+c[0]+'</div><span class="jcat">'+esc(j.category||'other')+'</span><h4>'+esc(j.title)+'</h4>'
  +'<div class="jdesc">'+esc(j.description)+'</div>'
  +'<div class="row" style="margin-bottom:8px"><span class="b '+(j.sandbox&&j.sandbox.ok?'low':'high')+'">sandbox '+(j.sandbox&&j.sandbox.ok?'✓':'✗')+'</span><span class="meta">'+when(j.createdAt)+'</span></div>'
  +'<div class="row">'+(j.hasCode?'<a href="/api/sentinel/ava/jail/'+esc(j.id)+'/code"><button class="g">⬇ Code</button></a>':'<span class="meta">(code gaya)</span>')
+ +(j.kind==='design'&&j.hasCode?'<button data-pv="'+esc(j.id)+'">👁 Preview</button>':'')
  +'<button class="d" onclick="jailDel(\''+esc(j.id)+'\')">✖</button></div></div>'}
 function jstats(list){var byCat={};list.forEach(function(j){byCat[j.category||'other']=(byCat[j.category||'other']||0)+1});
  var s='<div class="jstat"><b>'+list.length+'</b> total variants</div>';
@@ -661,5 +753,20 @@ async function jailGen(){var b=document.getElementById('jgo'),m=document.getElem
   if(!r.ok){m.style.color='var(--danger)';m.textContent='❌ '+(j.error||r.status)}else{m.style.color='var(--ok)';m.textContent='✅ Naya variant gallery me aa gaya.'}}
  catch(e){m.textContent='Error: '+e.message}b.disabled=false;jailLoad()}
 async function jailDel(id){if(!confirm('Ye variant gallery se hata dein?'))return;await af('/api/sentinel/ava/jail/'+id,{method:'DELETE'});jailLoad()}
+var VARS=[['Ava-Kiddo','Playful · Friendly','#ff8fd8','cute playful companion widget with pastel clouds and soft bounce'],['Ava-Classic','Professional · Calm','#4fc3ff','professional calm minimal assistant widget'],['Ava-Shadow','Focused · Silent','#8b5cff','focused silent dark hacker-mode assistant widget'],['Ava-Pro','Strategic · Future','#3ee0a0','strategic futuristic pro-mode assistant widget with insights']];
+var actV=0;try{actV=Math.max(0,+localStorage.getItem('ava_variant_i')||0)}catch(e){}
+function drawVars(){var h='';VARS.forEach(function(v,i){h+='<div class="vc'+(i===actV?' act':'')+'"><div class="vav" style="--c:'+v[2]+'"></div><b>'+v[0]+'</b><small>'+v[1]+'</small><button class="alt" data-i="'+i+'" data-a="pick">'+(i===actV?'Active ✓':'Select')+'</button><button data-i="'+i+'" data-a="clone">✨ Clone</button></div>'});document.getElementById('vars').innerHTML=h}
+document.getElementById('vars').onclick=function(e){var b=e.target.closest('button');if(!b)return;var i=+b.getAttribute('data-i');if(b.getAttribute('data-a')==='pick'){actV=i;try{localStorage.setItem('ava_variant_i',i)}catch(x){}drawVars()}else{document.getElementById('jbrief').value='Variant "'+VARS[i][0]+'": '+VARS[i][3];jailGen()}};
+drawVars();
+document.getElementById('dgo').onclick=async function(){var b=this,m=document.getElementById('dmsg');b.disabled=true;m.style.color='';m.textContent='Ava design kar rahi hai — draft, phir khud critique (1–2 min)…';
+ try{var r=await af('/api/sentinel/ava/jail/design',{method:'POST',body:JSON.stringify({brief:document.getElementById('dbrief').value})});var j=await r.json();
+  if(r.ok){m.style.color='var(--ok)';m.textContent='✅ Naya design gallery me: '+((j.entry&&j.entry.title)||'')}else{m.style.color='var(--danger)';m.textContent='❌ '+(j.error||r.status)}}
+ catch(e){m.style.color='var(--danger)';m.textContent='Error: '+e.message}b.disabled=false;jailLoad()};
+document.getElementById('jail').addEventListener('click',async function(e){var b=e.target.closest('button[data-pv]');if(!b)return;
+ var r=await af('/api/sentinel/ava/jail/'+b.getAttribute('data-pv')+'/code');var html=await r.text();
+ var w=document.createElement('div');w.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(4,5,16,.92);display:flex;flex-direction:column';
+ var bar=document.createElement('div');bar.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:10px 14px;color:#cfd2ff;font:600 13px system-ui';bar.innerHTML='<span>👁 Preview (sandbox — kuch bhi apply nahi hota)</span>';
+ var x=document.createElement('button');x.textContent='✖ Band';x.onclick=function(){w.remove()};bar.appendChild(x);
+ var f=document.createElement('iframe');f.setAttribute('sandbox','allow-scripts');f.style.cssText='flex:1;border:0;background:#070914;width:100%';f.srcdoc=html;w.appendChild(bar);w.appendChild(f);document.body.appendChild(w)});
 load();jailLoad();
 </script></body></html>`;
