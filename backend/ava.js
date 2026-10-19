@@ -69,7 +69,13 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
       if (!fs.existsSync(FILE_PATH)) return;
       const d = JSON.parse(fs.readFileSync(FILE_PATH, 'utf8'));
       facts = d.facts || []; thoughts = d.thoughts || []; meta = Object.assign(meta, d.meta || {});
-    } catch (e) { console.warn('[ava] could not read brain.json:', e.message); }
+    } catch (e) {
+      console.warn('[ava] could not read brain.json:', e.message);
+      // reset to empty defaults on error
+      facts = [];
+      thoughts = [];
+      meta = { cycle: 0, lastLearnedAt: 0, lastTopic: '' };
+    }
   }
   function fsSave() {
     try {
