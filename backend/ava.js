@@ -54,11 +54,11 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
       catch (e2) { throw new Error('Gemini: ' + String(e.message).slice(0, 160) + ' | Groq: ' + String(e2.message).slice(0, 160)); }
     }
   }
+  function parseJSON(str) {
+    try { return JSON.parse(str); }
+    catch { return null; }
+  }
   const router = express.Router();
-// Health check endpoint
-router.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
   // ---------------- storage ----------------
   const DATA_DIR = path.join(__dirname, 'ava-data');
@@ -71,15 +71,9 @@ router.get('/health', (req, res) => {
   function fsLoad() {
     try {
       if (!fs.existsSync(FILE_PATH)) return;
-      const d = JSON.parse(fs.readFileSync(FILE_PATH, 'utf8'));
+      const d = parseJSON(fs.readFileSync(FILE_PATH, 'utf8'));
       facts = d.facts || []; thoughts = d.thoughts || []; meta = Object.assign(meta, d.meta || {});
-    } catch (e) {
-      console.warn('[ava] could not read brain.json:', e.message);
-      // reset to empty defaults on error
-      facts = [];
-      thoughts = [];
-      meta = { cycle: 0, lastLearnedAt: 0, lastTopic: '' };
-    }
+    } catch (e) { console.warn('[ava] could not read brain.json:', e.message); }
   }
   function fsSave() {
     try {
