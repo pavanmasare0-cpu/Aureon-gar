@@ -28,6 +28,14 @@ const ALLOWED_HOSTS = /^https?:\/\/(generativelanguage\.googleapis\.com|api\.gro
 const MAX_CHANGED_LINES = 160;
 const MAX_FILE_SHOWN = 70000;
 const HISTORY_MAX = 40;
+// ---- Ava's Jail: pure creative sandbox. Ava designs standalone UI/widget
+// variants here — generate -> sandbox syntax check -> save to a capped
+// gallery. NOTHING here ever touches a real file, commits to GitHub, or
+// goes live. The owner reviews the gallery and downloads code by hand if
+// they want to use/test a variant themselves, outside this system.
+const JAIL_CAP = 12;         // oldest entries drop beyond this
+const JAIL_KEEP_CODE = 3;    // only the newest few keep their full code across a cold restart
+const JAIL_MAX_PER_HOUR = 8; // separate budget from the real /improve pipeline
 
 module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, logEvent }) {
   const express = require('express');
@@ -36,7 +44,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   const BK_DIR = path.join(DATA_DIR, 'ava-self-backups');
   try { fs.mkdirSync(BK_DIR, { recursive: true }); } catch (e) { /* read-only disk: backups stay in memory/history */ }
 
-  let state = { proposals: [], history: [], version: 0, settings: { auto: false, hours: 6, autoApply: false }, lastAuto: 0 };
+  let state = { proposals: [], history: [], jail: [], version: 0, settings: { auto: false, hours: 6, autoApply: false }, lastAuto: 0 };
   let busy = false;
   const calls = [];
   const ready = (async () => {
@@ -52,6 +60,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
       version: state.version, settings: state.settings, lastAuto: state.lastAuto,
       proposals: state.proposals.slice(-30).map((p) => (p.status === 'pending' ? p : (({ oldContent, newContent, ...r }) => r)(p))),
       history: state.history.slice(0, HISTORY_MAX).map((h, i) => (i < 4 ? h : (({ backups, newContents, ...r }) => r)(h))),
+      jail: (state.jail || []).slice(0, JAIL_CAP).map((j, i) => (i < JAIL_KEEP_CODE ? j : (({ code, ...r }) => r)(j))),
     };
   }
 
@@ -222,6 +231,38 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     return { proposal: pubP(r.p) };
   }
 
+  // ---- Jail: Ava designs a standalone, experimental widget-UI variant.
+  // Pure creative output — read-only reference to the real widget for
+  // inspiration, same safety checks (sandbox + checkSafety) as the real
+  // pipeline, but the result only ever lands in a capped gallery list.
+  const jailCalls = [];
+  async function jailGenerate(brief) {
+    const refFile = EDITABLE.find((f) => /ava-bot\.js$/.test(f));
+    const ref = refFile && fs.existsSync(abs(refFile)) ? read(refFile).slice(0, MAX_FILE_SHOWN) : '';
+    const who = `You are Ava, an AI assistant that lives in the Aureon app and Sentinel. This is a PURE CREATIVE PROTOTYPE exercise: design a brand-new, self-contained, experimental variant of your own floating chat-widget UI. This is NEVER applied to the real app automatically — the owner will look at it later and may manually pick ideas from it. Be creative with the look/feel/animation; keep the same basic contract (a single self-contained JS file for a floating widget) but you may restyle freely.`;
+    const b = brief ? `Owner's brief for this variant: ${brief}` : 'No specific brief — invent your own creative direction.';
+    const refNote = ref ? `For reference, here is the CURRENT real widget (do not just copy it — design something distinctly different):\n<<<FILE\n${ref}\nFILE>>>` : '(no reference file found)';
+    const r = await askJSON(`${who}\n${b}\n${refNote}\n\nReturn ONLY JSON: {"title":"short creative name for this variant","description":"1-2 sentences in Hinglish: what's different/creative about this design","code":"the COMPLETE standalone JS file for this variant"}`);
+    if (!r || !r.code) throw new Error('Ava ne valid variant nahi diya — dobara try karo');
+    const code = String(r.code);
+    const sf = checkSafety('www/ava-bot.js', '', code, { added: code.split('\n').length, removed: 0, addedText: code });
+    if (sf) throw new Error('Variant reject (safety check): ' + sf);
+    const sb = sandbox('www/ava-bot.js', code);
+    if (!sb.ok) throw new Error('sandbox test fail: ' + sb.log);
+    const entry = {
+      id: nid(), createdAt: new Date().toISOString(),
+      title: String(r.title || 'Untitled variant').slice(0, 90),
+      description: String(r.description || '').slice(0, 400),
+      brief: String(brief || '').slice(0, 200),
+      sandbox: sb, code,
+    };
+    state.jail = [entry, ...(state.jail || [])].slice(0, JAIL_CAP);
+    save();
+    if (logEvent) logEvent('proposal', { name: 'Ava' }, 'Ava Jail: naya variant "' + entry.title + '" (sirf gallery me, kahin apply nahi hua)');
+    const { code: _omit, ...pub } = entry;
+    return pub;
+  }
+
   const pubP = (p) => { const { oldContent, newContent, ...r } = p; return r; };
   const hashOf = (c) => crypto.createHash('sha256').update(c).digest('hex');
   const isLive = (h) => { try { return (h.files || [h.file]).every((t) => hashOf(read(t)) === h.newHash); } catch (e) { return false; } };
@@ -255,6 +296,40 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     try { res.json({ ok: true, ...(await improve(String((req.body && req.body.goal) || '').slice(0, 300), false)) }); }
     catch (e) { res.status(500).json({ error: e.message }); }
     finally { busy = false; }
+  });
+
+  // ---- Jail routes: generate / list / view-code / delete. No apply, no GitHub, no deploy — ever.
+  router.post('/jail/generate', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    auth.action(req, 'ava-lab jail generate');
+    await ready;
+    const now = Date.now(); while (jailCalls.length && now - jailCalls[0] > 3600000) jailCalls.shift();
+    if (jailCalls.length >= JAIL_MAX_PER_HOUR) return res.status(429).json({ error: 'Ghante me ' + JAIL_MAX_PER_HOUR + ' jail-variants ki limit' });
+    const hook = global.__avaSelf;
+    if (!(hook && hook.llm) && !process.env.GROQ_API_KEY) return res.status(503).json({ error: 'Ava ka AI (Gemini) ya GROQ_API_KEY set nahi hai' });
+    jailCalls.push(now);
+    try { res.json({ ok: true, entry: await jailGenerate(String((req.body && req.body.brief) || '').slice(0, 300)) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  router.get('/jail/list', async (req, res) => {
+    await ready;
+    res.json((state.jail || []).map(({ code, ...r }) => ({ ...r, hasCode: !!code })));
+  });
+
+  router.get('/jail/:id/code', async (req, res) => {
+    await ready;
+    const j = (state.jail || []).find((x) => x.id === req.params.id);
+    if (!j || !j.code) return res.status(404).type('text/plain').send('Ye variant ka code ab nahi bacha (sirf naye ' + JAIL_KEEP_CODE + ' ka restart ke baad bachta hai) — dobara generate karo.');
+    res.type('text/javascript').set('Content-Disposition', 'attachment; filename="ava-jail-' + req.params.id + '.js"').send(j.code);
+  });
+
+  router.delete('/jail/:id', async (req, res) => {
+    auth.action(req, 'ava-lab jail delete ' + req.params.id);
+    await ready;
+    state.jail = (state.jail || []).filter((x) => x.id !== req.params.id);
+    save();
+    res.json({ ok: true });
   });
 
   function applyProposal(p, isAuto) {
@@ -497,6 +572,11 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 <div class="meta" id="prot"></div></div>
 <h2 style="font-size:16px">Pending proposals</h2><div id="pend"></div>
 <h2 style="font-size:16px">Ava ne khud ko kya upgrade kiya (history)</h2><div id="hist"></div>
+<h2 style="font-size:16px">🔒 Jail — Ava ke UI prototypes</h2>
+<div class="sub">Yahan sirf prototype banta hai — kabhi apply/deploy nahi hota. Jo pasand aaye uska code download karke khud test karo.</div>
+<div class="card"><div class="row"><input id="jbrief" type="text" placeholder="(optional) brief: jaise 'ek cat jaisi dikhe' — khali chhodo to Ava khud sochegi">
+<button id="jgo" onclick="jailGen()">🧪 Naya variant banao</button></div><div id="jmsg"></div></div>
+<div id="jail"></div>
 <script src="/api/ava/widget.js"></script>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -541,5 +621,15 @@ async function saveSet(){var r=await af('/api/sentinel/ava/settings',{method:'PO
 async function restoreTo(n){if(!confirm('Ava v'+n+' par wapas jaana hai? Usse naye saare upgrades undo honge.'))return;var r=await af('/api/sentinel/ava/versions/'+n+'/restore',{method:'POST'});var j=await r.json();var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'⏪ Ava v'+n+' par wapas (server restart par chalega)':'❌ '+(j.error||r.status);load()}
 async function rollback(id){if(!confirm('Is upgrade ko wapas undo karein?'))return;var r=await af('/api/sentinel/ava/history/'+id+'/rollback',{method:'POST'});var j=await r.json();
  var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'↩ Rollback ho gaya (server restart par chalega)':'❌ '+(j.error||r.status);load()}
-load();
+function jcard(j){return '<div class="card"><h3>'+esc(j.title)+'</h3><div class="row"><span class="b '+(j.sandbox&&j.sandbox.ok?'low':'high')+'">sandbox '+(j.sandbox&&j.sandbox.ok?'✓':'✗')+'</span>'+(j.brief?'<span class="b">brief: '+esc(j.brief)+'</span>':'')+'<span class="meta">'+when(j.createdAt)+'</span></div><p>'+esc(j.description)+'</p><div class="row" style="margin-top:8px">'
+ +(j.hasCode?'<a href="/api/sentinel/ava/jail/'+esc(j.id)+'/code"><button class="g">⬇ Code download karo</button></a>':'<span class="meta">(code ab nahi bacha, naya banao)</span>')
+ +'<button class="d" onclick="jailDel(\''+esc(j.id)+'\')">✖ Delete</button></div></div>'}
+async function jailLoad(){var r=await af('/api/sentinel/ava/jail/list');var list=await r.json();
+ document.getElementById('jail').innerHTML=list.length?list.map(jcard).join(''):'<div class="meta">Abhi koi variant nahi banaya.</div>'}
+async function jailGen(){var b=document.getElementById('jgo'),m=document.getElementById('jmsg');b.disabled=true;m.style.color='';m.textContent='Ava naya UI variant design kar rahi hai… (30–60 sec)';
+ try{var r=await af('/api/sentinel/ava/jail/generate',{method:'POST',body:JSON.stringify({brief:document.getElementById('jbrief').value})});var j=await r.json();
+  if(!r.ok){m.style.color='var(--danger)';m.textContent='❌ '+(j.error||r.status)}else{m.style.color='var(--ok)';m.textContent='✅ Naya variant gallery me aa gaya.'}}
+ catch(e){m.textContent='Error: '+e.message}b.disabled=false;jailLoad()}
+async function jailDel(id){if(!confirm('Ye variant gallery se hata dein?'))return;await af('/api/sentinel/ava/jail/'+id,{method:'DELETE'});jailLoad()}
+load();jailLoad();
 </script></body></html>`;
