@@ -28,7 +28,7 @@ const AUDIT_FILE = path.join(DATA_DIR, 'dash-audit.json');
 const COOKIE = 'aureon_sid';
 const MAX_SESSION_MS = 8 * 3600 * 1000;
 
-let cfg = { totp: { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }, stealth: true, stepUp: false, allowIps: [], idleMin: 30, knownUa: [] };
+let cfg = { totp: { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }, stealth: false, stepUp: false, allowIps: [], idleMin: 30, knownUa: [] };
 let audit = [];
 let hooks = { blockIp() { return false; }, record() {}, alert() {} };
 const sessions = new Map();     // sid -> { iat, last, uaHash, ip }
@@ -41,6 +41,7 @@ const ready = (async () => {
   await store.whenFirestore(20000);
   const c = await store.load('dash_auth', CFG_FILE);
   if (c.value && typeof c.value === 'object') cfg = Object.assign(cfg, c.value, { totp: Object.assign(cfg.totp, c.value.totp || {}) });
+  if (process.env.DASH_STEALTH !== '1') cfg.stealth = false;
   const a = await store.load('dash_audit', AUDIT_FILE);
   if (Array.isArray(a.value)) audit = a.value.slice(-300);
 })().catch((e) => console.error('[dash-auth] hydrate failed:', e.message));
