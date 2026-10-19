@@ -236,22 +236,24 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   // inspiration, same safety checks (sandbox + checkSafety) as the real
   // pipeline, but the result only ever lands in a capped gallery list.
   const jailCalls = [];
+  const JAIL_CATEGORIES = { ui: '🎨', security: '🛡️', utility: '🔧', game: '🎮', other: '🧩' };
   async function jailGenerate(brief) {
     const refFile = EDITABLE.find((f) => /ava-bot\.js$/.test(f));
-    const ref = refFile && fs.existsSync(abs(refFile)) ? read(refFile).slice(0, MAX_FILE_SHOWN) : '';
-    const who = `You are Ava, an AI assistant that lives in the Aureon app and Sentinel. This is a PURE CREATIVE PROTOTYPE exercise: design a brand-new, self-contained, experimental variant of your own floating chat-widget UI. This is NEVER applied to the real app automatically — the owner will look at it later and may manually pick ideas from it. Be creative with the look/feel/animation; keep the same basic contract (a single self-contained JS file for a floating widget) but you may restyle freely.`;
-    const b = brief ? `Owner's brief for this variant: ${brief}` : 'No specific brief — invent your own creative direction.';
-    const refNote = ref ? `For reference, here is the CURRENT real widget (do not just copy it — design something distinctly different):\n<<<FILE\n${ref}\nFILE>>>` : '(no reference file found)';
-    const r = await askJSON(`${who}\n${b}\n${refNote}\n\nReturn ONLY JSON: {"title":"short creative name for this variant","description":"1-2 sentences in Hinglish: what's different/creative about this design","code":"the COMPLETE standalone JS file for this variant"}`);
+    const ref = refFile && fs.existsSync(abs(refFile)) ? read(refFile).slice(0, 4000) : '';
+    const who = `You are Ava, an AI assistant that lives in the Aureon app and Sentinel. This is a PURE CREATIVE PROTOTYPE exercise (Ava's "Jail" / workshop): design a brand-new, self-contained, standalone JS module or tool prototype. This is NEVER applied to the real app automatically, NEVER executed server-side, and NEVER deployed — it only ever lands in a gallery for the owner to look at later and manually pick/extract code from. You may design anything that fits a single safe JS file: a restyled variant of your own floating widget, a small defensive cybersecurity utility (rate-limiter, input validator, log-pattern scanner, that kind of legitimate defensive tool), a small game, or any other standalone idea. Never anything resembling a real company's or bank's branded product, login flow, or payment handling — that's off-limits regardless of brief.`;
+    const b = brief ? `Owner's brief for this variant: ${brief}` : 'No specific brief — invent your own creative direction (pick whatever category feels most useful right now).';
+    const refNote = ref ? `For reference, here is a snippet of your current real widget (only if relevant to the brief — do not just copy it):\n<<<FILE\n${ref}\nFILE>>>` : '';
+    const r = await askJSON(`${who}\n${b}\n${refNote}\n\nReturn ONLY JSON: {"title":"short creative name for this variant","category":"one of: ui, security, utility, game, other","description":"1-2 sentences in Hinglish: what this prototype is and what's interesting about it","code":"the COMPLETE standalone JS file for this prototype"}`);
     if (!r || !r.code) throw new Error('Ava ne valid variant nahi diya — dobara try karo');
     const code = String(r.code);
     const sf = checkSafety('www/ava-bot.js', '', code, { added: code.split('\n').length, removed: 0, addedText: code });
     if (sf) throw new Error('Variant reject (safety check): ' + sf);
-    const sb = sandbox('www/ava-bot.js', code);
+    const sb = sandbox('www/ava-bot.js', code); // deliberately the syntax-only check path — Jail code is never require()'d/executed, only validated
     if (!sb.ok) throw new Error('sandbox test fail: ' + sb.log);
     const entry = {
       id: nid(), createdAt: new Date().toISOString(),
       title: String(r.title || 'Untitled variant').slice(0, 90),
+      category: JAIL_CATEGORIES[r.category] ? r.category : 'other',
       description: String(r.description || '').slice(0, 400),
       brief: String(brief || '').slice(0, 200),
       sandbox: sb, code,
@@ -556,6 +558,22 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 .add-n{color:var(--ok)}.del-n{color:var(--danger)}details summary{cursor:pointer;color:var(--ac);margin-top:8px}
 .note{border-left:3px solid var(--ac);padding:4px 10px;margin-top:8px;color:var(--mu);font-style:italic}
 #msg{min-height:20px;font-size:13px;margin:8px 0}
+.jworld{background:linear-gradient(160deg,rgba(139,123,255,.14),rgba(139,123,255,.02) 60%);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-top:16px}
+.jworld h2{margin:0 0 2px;font-size:17px}
+.jsub{color:var(--mu);font-size:12px;margin-bottom:12px}
+.jstats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.jstat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--mu)}
+.jstat b{color:var(--tx);font-size:14px}
+.jgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:10px}
+.jcard{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;position:relative;overflow:hidden}
+.jcard::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--cat-color,var(--ac))}
+.jicon{font-size:26px;line-height:1;margin-bottom:6px}
+.jcard h4{margin:0 0 4px;font-size:14px}
+.jcat{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--mu);margin-bottom:6px}
+.jdesc{font-size:12.5px;color:var(--mu);margin:6px 0 10px;min-height:32px}
+.jcard .row{gap:6px}
+.jcard button{padding:7px 11px;font-size:12px}
+.empty-world{color:var(--mu);font-size:13px;padding:20px;text-align:center}
 </style></head><body>
 <a href="/api/sentinel/dashboard">← Sentinel</a>
 <h1>🧪 Ava Lab</h1>
@@ -572,11 +590,14 @@ button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14
 <div class="meta" id="prot"></div></div>
 <h2 style="font-size:16px">Pending proposals</h2><div id="pend"></div>
 <h2 style="font-size:16px">Ava ne khud ko kya upgrade kiya (history)</h2><div id="hist"></div>
-<h2 style="font-size:16px">🔒 Jail — Ava ke UI prototypes</h2>
-<div class="sub">Yahan sirf prototype banta hai — kabhi apply/deploy nahi hota. Jo pasand aaye uska code download karke khud test karo.</div>
-<div class="card"><div class="row"><input id="jbrief" type="text" placeholder="(optional) brief: jaise 'ek cat jaisi dikhe' — khali chhodo to Ava khud sochegi">
+<div class="jworld">
+<h2>🌌 Ava ki Duniya — Prototype Workshop</h2>
+<div class="jsub">Ek alag jahaan jahan Ava khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Jo pasand aaye uska code download karke khud test karo.</div>
+<div class="jstats" id="jstats"></div>
+<div class="card"><div class="row"><input id="jbrief" type="text" placeholder="(optional) brief: jaise 'ek log-scanner security tool' — khali chhodo to Ava khud sochegi">
 <button id="jgo" onclick="jailGen()">🧪 Naya variant banao</button></div><div id="jmsg"></div></div>
-<div id="jail"></div>
+<div class="jgrid" id="jail"></div>
+</div>
 <script src="/api/ava/widget.js"></script>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -621,11 +642,20 @@ async function saveSet(){var r=await af('/api/sentinel/ava/settings',{method:'PO
 async function restoreTo(n){if(!confirm('Ava v'+n+' par wapas jaana hai? Usse naye saare upgrades undo honge.'))return;var r=await af('/api/sentinel/ava/versions/'+n+'/restore',{method:'POST'});var j=await r.json();var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'⏪ Ava v'+n+' par wapas (server restart par chalega)':'❌ '+(j.error||r.status);load()}
 async function rollback(id){if(!confirm('Is upgrade ko wapas undo karein?'))return;var r=await af('/api/sentinel/ava/history/'+id+'/rollback',{method:'POST'});var j=await r.json();
  var m=document.getElementById('msg');m.style.color=r.ok?'var(--ok)':'var(--danger)';m.textContent=r.ok?'↩ Rollback ho gaya (server restart par chalega)':'❌ '+(j.error||r.status);load()}
-function jcard(j){return '<div class="card"><h3>'+esc(j.title)+'</h3><div class="row"><span class="b '+(j.sandbox&&j.sandbox.ok?'low':'high')+'">sandbox '+(j.sandbox&&j.sandbox.ok?'✓':'✗')+'</span>'+(j.brief?'<span class="b">brief: '+esc(j.brief)+'</span>':'')+'<span class="meta">'+when(j.createdAt)+'</span></div><p>'+esc(j.description)+'</p><div class="row" style="margin-top:8px">'
- +(j.hasCode?'<a href="/api/sentinel/ava/jail/'+esc(j.id)+'/code"><button class="g">⬇ Code download karo</button></a>':'<span class="meta">(code ab nahi bacha, naya banao)</span>')
- +'<button class="d" onclick="jailDel(\''+esc(j.id)+'\')">✖ Delete</button></div></div>'}
+var JCAT={ui:['🎨','#8b7bff'],security:['🛡️','#ef6a6a'],utility:['🔧','#f5b740'],game:['🎮','#4fd1c5'],other:['🧩','#9aa0ab']};
+function jcard(j){var c=JCAT[j.category]||JCAT.other;
+ return '<div class="jcard" style="--cat-color:'+c[1]+'"><div class="jicon">'+c[0]+'</div><span class="jcat">'+esc(j.category||'other')+'</span><h4>'+esc(j.title)+'</h4>'
+ +'<div class="jdesc">'+esc(j.description)+'</div>'
+ +'<div class="row" style="margin-bottom:8px"><span class="b '+(j.sandbox&&j.sandbox.ok?'low':'high')+'">sandbox '+(j.sandbox&&j.sandbox.ok?'✓':'✗')+'</span><span class="meta">'+when(j.createdAt)+'</span></div>'
+ +'<div class="row">'+(j.hasCode?'<a href="/api/sentinel/ava/jail/'+esc(j.id)+'/code"><button class="g">⬇ Code</button></a>':'<span class="meta">(code gaya)</span>')
+ +'<button class="d" onclick="jailDel(\''+esc(j.id)+'\')">✖</button></div></div>'}
+function jstats(list){var byCat={};list.forEach(function(j){byCat[j.category||'other']=(byCat[j.category||'other']||0)+1});
+ var s='<div class="jstat"><b>'+list.length+'</b> total variants</div>';
+ Object.keys(JCAT).forEach(function(k){if(byCat[k])s+='<div class="jstat">'+JCAT[k][0]+' <b>'+byCat[k]+'</b> '+k+'</div>'});
+ document.getElementById('jstats').innerHTML=s}
 async function jailLoad(){var r=await af('/api/sentinel/ava/jail/list');var list=await r.json();
- document.getElementById('jail').innerHTML=list.length?list.map(jcard).join(''):'<div class="meta">Abhi koi variant nahi banaya.</div>'}
+ jstats(list);
+ document.getElementById('jail').innerHTML=list.length?list.map(jcard).join(''):'<div class="empty-world">🌙 Abhi Ava ki duniya khaali hai — pehla variant banao!</div>'}
 async function jailGen(){var b=document.getElementById('jgo'),m=document.getElementById('jmsg');b.disabled=true;m.style.color='';m.textContent='Ava naya UI variant design kar rahi hai… (30–60 sec)';
  try{var r=await af('/api/sentinel/ava/jail/generate',{method:'POST',body:JSON.stringify({brief:document.getElementById('jbrief').value})});var j=await r.json();
   if(!r.ok){m.style.color='var(--danger)';m.textContent='❌ '+(j.error||r.status)}else{m.style.color='var(--ok)';m.textContent='✅ Naya variant gallery me aa gaya.'}}
