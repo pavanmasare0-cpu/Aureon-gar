@@ -1116,7 +1116,6 @@ ${THEME_TAGS}
     <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
     <a class="sec-link" href="/api/sentinel/ava-desk" style="margin-left:12px">🖥 Ava Desktop →</a>
     <a class="sec-link" href="/api/sentinel/ava-lab" style="margin-left:12px">🧪 Ava Lab →</a>
-    <a class="sec-link" href="/api/apk/studio" style="margin-left:12px">📱 APK Studio →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
       ⚠️ SENTINEL_OWNER_CODE set nahi hai Render pe — ye page abhi kisi ke liye bhi locked nahi hai. Render → Environment me add karo.
     </div>

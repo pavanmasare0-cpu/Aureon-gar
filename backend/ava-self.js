@@ -311,8 +311,8 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   const DESIGN_MAX_PER_HOUR = 3;
   async function askText(prompt) {
     const hook = global.__avaSelf;
-    if (!(hook && typeof hook.llm === 'function')) throw new Error('Design mode ke liye Ava ka Gemini chahiye (hook.llm nahi mila)');
-    return String(await hook.llm(prompt) || '');
+    if (!(hook && typeof hook.llmText === 'function')) throw new Error('Design mode ke liye Ava ka Gemini chahiye (hook.llmText nahi mila — backend/ava.js bhi update karo)');
+    return String(await hook.llmText(prompt) || '');
   }
   function parseDesign(text) {
     const t = String(text || '').replace(/\r/g, '');
@@ -656,8 +656,9 @@ button{background-image:linear-gradient(135deg,#7c5cff,#3aa8ff);color:#fff;borde
 input[type=text],input[type=number],textarea{background:rgba(10,12,34,.8);border:1px solid var(--bd);color:var(--tx);border-radius:12px}
 h1{background:linear-gradient(90deg,#c9b8ff,#7fe3ff);-webkit-background-clip:text;background-clip:text;color:transparent}h2{color:#d9d4ff}
 .lhero{display:flex;gap:16px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:20px;padding:16px;margin:8px 0 14px;position:relative;overflow:hidden}
-.lorb{flex:none;width:92px;height:92px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#0a0d2a 54%,transparent 55%),conic-gradient(from 0deg,#4fc3ff,#7c5cff,#ff4fd8,#4fc3ff);box-shadow:0 0 34px rgba(124,92,255,.7),0 0 80px rgba(79,195,255,.3);animation:lspin 9s linear infinite;position:relative}
-.lorb::after{content:"◠ ◠";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9be7ff;font-size:20px;letter-spacing:8px;animation:lspin 9s linear infinite reverse;text-shadow:0 0 10px #4fc3ff}
+.lorb{flex:none;width:92px;height:92px;border-radius:50%;background:radial-gradient(circle at 50% 45%,#0a0d2a 54%,transparent 55%),conic-gradient(from 0deg,#4fc3ff,#7c5cff,#ff4fd8,#4fc3ff);box-shadow:0 0 34px rgba(124,92,255,.7),0 0 80px rgba(79,195,255,.3);position:relative}
+.lorb::after{content:"◠ ◠";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9be7ff;font-size:20px;letter-spacing:8px;text-shadow:0 0 10px #4fc3ff}
+.lorb.busy{animation:lspin 2.2s linear infinite;box-shadow:0 0 46px rgba(124,92,255,.95),0 0 100px rgba(79,195,255,.5)}.lorb.busy::after{animation:lspin 2.2s linear infinite reverse}
 @keyframes lspin{to{transform:rotate(360deg)}}
 .lhero h1{margin:0 0 4px;font-size:22px}.lhero .sub{margin:0}.lchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.lchips span{font-size:11px;padding:4px 10px;border-radius:99px;background:rgba(20,24,64,.8);border:1px solid var(--bd);color:var(--mu)}
 .lback{display:inline-block;font-size:12px;color:var(--mu);margin-top:2px}
@@ -669,7 +670,7 @@ h1{background:linear-gradient(90deg,#c9b8ff,#7fe3ff);-webkit-background-clip:tex
 .jcard{transition:transform .15s}.jcard:hover{transform:translateY(-2px)}
 </style></head><body>
 <a class="lback" href="/api/sentinel/dashboard">← Sentinel</a>
-<div class="lhero"><div class="lorb"></div><div><h1>Ava Lab</h1><div class="sub">Ava apna code khud padhti hai, khud upgrade likhti hai aur yahan dikhati hai ki kya badla aur kyun. <b>Apply sirf tumhare Approve ke baad.</b></div><div class="lchips"><span>🛡️ Approve-gate ON</span><span>🧪 Clones sirf gallery me</span><span>🔒 Owner-lock</span></div></div></div>
+<div class="lhero"><div class="lorb"></div><div><h1>Ava Lab</h1><div class="sub">Ava apna code khud padhti hai, khud upgrade likhti hai aur yahan dikhati hai ki kya badla aur kyun. <b>Apply sirf tumhare Approve ke baad.</b></div></div></div>
 <div class="card"><h3>Ava abhi</h3><div id="sig" class="meta">…</div></div>
 <div class="card"><h3>Auto-upgrade <span id="ver" class="b"></span></h3>
 <div class="row"><label><input type="checkbox" id="auto" onchange="saveSet()"> Ava khud har</label>
@@ -680,8 +681,8 @@ h1{background:linear-gradient(90deg,#c9b8ff,#7fe3ff);-webkit-background-clip:tex
 <div class="row"><input id="goal" type="text" placeholder="(optional) goal: jaise 'jawab chhote aur saaf ho' — khali chhodo to Ava khud dhoondhegi">
 <button id="go" onclick="improve()">⚡ Upgrade likho</button></div><div id="msg"></div>
 <div class="meta" id="prot"></div></div>
-<h2 style="font-size:16px">Pending proposals</h2><div id="pend"></div>
-<h2 style="font-size:16px">Ava ne khud ko kya upgrade kiya (history)</h2><div id="hist"></div>
+<h2 id="proposals" style="font-size:16px">Pending proposals</h2><div id="pend"></div>
+<h2 id="history" style="font-size:16px">Ava ne khud ko kya upgrade kiya (history)</h2><div id="hist"></div>
 <div class="jworld">
 <h2>🌌 Ava ki Duniya — Prototype Workshop</h2>
 <div class="jsub">Ek alag jahaan jahan Ava khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Jo pasand aaye uska code download karke khud test karo.</div>
@@ -757,6 +758,9 @@ async function jailGen(){var b=document.getElementById('jgo'),m=document.getElem
   if(!r.ok){m.style.color='var(--danger)';m.textContent='❌ '+(j.error||r.status)}else{m.style.color='var(--ok)';m.textContent='✅ Naya variant gallery me aa gaya.'}}
  catch(e){m.textContent='Error: '+e.message}b.disabled=false;jailLoad()}
 async function jailDel(id){if(!confirm('Ye variant gallery se hata dein?'))return;await af('/api/sentinel/ava/jail/'+id,{method:'DELETE'});jailLoad()}
+function setBusy(on){var o=document.querySelector('.lorb');if(o)o.classList.toggle('busy',on);try{parent.postMessage({ava:'busy',on:on},location.origin)}catch(e){}}
+if(window.parent!==window){var lb=document.querySelector('.lback');if(lb)lb.style.display='none'}
+var _af=af;af=async function(u,o){var q=String(u).split('?')[0];var b=!!(o&&o.method==='POST'&&(q.endsWith('/jail/generate')||q.endsWith('/jail/design')||q.endsWith('/improve')));if(b)setBusy(true);try{return await _af(u,o)}finally{if(b)setBusy(false)}};
 var VARS=[['Ava-Kiddo','Playful · Friendly','#ff8fd8','cute playful companion widget with pastel clouds and soft bounce'],['Ava-Classic','Professional · Calm','#4fc3ff','professional calm minimal assistant widget'],['Ava-Shadow','Focused · Silent','#8b5cff','focused silent dark hacker-mode assistant widget'],['Ava-Pro','Strategic · Future','#3ee0a0','strategic futuristic pro-mode assistant widget with insights']];
 var actV=0;try{actV=Math.max(0,+localStorage.getItem('ava_variant_i')||0)}catch(e){}
 function drawVars(){var h='';VARS.forEach(function(v,i){h+='<div class="vc'+(i===actV?' act':'')+'"><div class="vav" style="--c:'+v[2]+'"></div><b>'+v[0]+'</b><small>'+v[1]+'</small><button class="alt" data-i="'+i+'" data-a="pick">'+(i===actV?'Active ✓':'Select')+'</button><button data-i="'+i+'" data-a="clone">✨ Clone</button></div>'});document.getElementById('vars').innerHTML=h}

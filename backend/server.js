@@ -842,8 +842,6 @@ BUG FINDING:
 - Prefer the smallest correct fix over a rewrite.
 
 Explain in the user's language (Hinglish or English); keep code and code comments in English.
-
-TESTING (very important): after you reply, the server automatically runs a syntax check on every code block (JavaScript with node --check, Python with ast.parse, bash with bash -n, JSON, and python or js or json files written inside heredocs) and adds a "Test" result under your answer. It does NOT run the code. So: (1) write code that passes that check: complete, balanced brackets, no "..." placeholders, no pseudo-code inside a code block; (2) never write that you tested, ran or verified the code yourself and never invent test output; (3) in one short line say what the syntax check cannot cover (logic, Java or Kotlin builds, the real phone or server) and which output he should send back if it fails.
 `;
 
 const CODING_PROMPT = CODING_PROMPT_CORE + (PROJECT_CONTEXT
@@ -987,21 +985,6 @@ async function callCodingAgent(messages, systemPrompt) {
 const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal,
   // Coding mode: with tools -> fast agent path; without tools -> two brains + merge
   coding: (messages, systemPrompt, useTools) => (useTools ? callCodingAgent(messages, systemPrompt) : callCoding(messages, systemPrompt)) };
-
-// Coding mode: every code answer is syntax-checked on the server (the code is never run);
-// if a block fails, the model gets one automatic round to fix it, and the real test result is added under the answer.
-const codeCheck = require('./code-check');
-const _codingUnchecked = PROVIDERS.coding;
-PROVIDERS.coding = async (messages, systemPrompt, useTools) => {
-  const out = await _codingUnchecked(messages, systemPrompt, useTools);
-  if (typeof out !== 'string' || !out.includes('```')) return out; // tool calls go straight to the phone
-  try {
-    return await codeCheck.verifyAndFix(out, async (errorText, prev) => {
-      const again = await _codingUnchecked([...messages, { role: 'assistant', content: prev }, { role: 'user', content: errorText }], systemPrompt, false);
-      return typeof again === 'string' ? again : '';
-    });
-  } catch (e) { return out; } // the checker must never cost the user his answer
-};
 
 // ==================== Phase 5: Personal Knowledge (RAG) ====================
 

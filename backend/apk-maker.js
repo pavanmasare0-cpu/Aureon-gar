@@ -291,7 +291,11 @@ function factory(opts) {
 
   // ---------------- routes
   const router = express.Router();
-  router.get('/studio', (req, res) => auth.dashboard(req, res, () => res.type('html').send(STUDIO_HTML)));
+  // Ava Code lives ONLY inside Ava Desktop: opened as a normal page it bounces to the desk (iframe loads carry Sec-Fetch-Dest: iframe).
+  router.get('/studio', (req, res) => {
+    if (String(req.headers['sec-fetch-dest'] || '') === 'document') return res.redirect(302, '/api/sentinel/ava-desk');
+    auth.dashboard(req, res, () => res.type('html').send(STUDIO_HTML));
+  });
   router.use(auth.apiGate);
 
   const pub = (j) => ({ id: j.id, kind: j.kind, name: j.name, slug: j.slug, status: j.status, step: j.step || '', error: j.error || '', runUrl: j.runUrl || '', createdAt: j.createdAt, updatedAt: j.updatedAt, color: j.color || '' });
@@ -379,23 +383,23 @@ function factory(opts) {
 }
 
 // ------------------------------------------------------------------ the studio page
-const STUDIO_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Aureon APK Studio</title>
+const STUDIO_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Ava Code</title>
 <style>
-:root{--bg:#0a0a0d;--card:#15151b;--line:#24242e;--tx:#eee;--mu:#9a9aa8;--gold:#d4af37;--ok:#3ecf8e;--bad:#ff6b6b}
+:root{--bg:#070914;--card:rgba(18,22,52,.62);--line:rgba(120,110,255,.30);--tx:#eef0ff;--mu:#9aa0c8;--gold:#8b7bff;--ok:#3ee0a0;--bad:#ff6b8b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:max(14px,env(safe-area-inset-top)) 14px 40px}
-h1{font-size:19px;margin:6px 0 2px;color:var(--gold)}.sub{color:var(--mu);font-size:12px;margin-bottom:14px}a{color:var(--gold)}
+h1{font-size:19px;margin:6px 0 2px;background:linear-gradient(90deg,#c9b8ff,#7fe3ff);-webkit-background-clip:text;background-clip:text;color:transparent}body{background:radial-gradient(900px 520px at 6% -6%,rgba(139,92,246,.38),transparent 60%),radial-gradient(800px 520px at 104% 30%,rgba(34,211,238,.2),transparent 60%),#070914 fixed}.card{backdrop-filter:blur(14px);box-shadow:0 10px 34px rgba(8,5,38,.55),inset 0 0 26px rgba(139,123,255,.07)}.sub{color:var(--mu);font-size:12px;margin-bottom:14px}a{color:var(--gold)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
 label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}
 textarea,input{width:100%;background:#101014;border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:11px;font-size:15px;font-family:inherit}
 textarea{min-height:110px;resize:vertical}
-button{background:var(--gold);color:#141414;border:0;border-radius:10px;padding:12px 14px;font-weight:700;font-size:14px;cursor:pointer}
+button{background:linear-gradient(135deg,#7c5cff,#3aa8ff);color:#fff;box-shadow:0 0 14px rgba(110,120,255,.35);border:0;border-radius:10px;padding:12px 14px;font-weight:700;font-size:14px;cursor:pointer}
 button.ghost{background:#1d1d26;color:var(--tx);border:1px solid var(--line);font-weight:600;padding:9px 11px;font-size:13px}
 button:disabled{opacity:.5}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.warn{background:#2a1c1c;border:1px solid #5a2c2c;color:#ffb3b3;border-radius:10px;padding:10px;font-size:13px;margin-bottom:14px}
 .job{border-top:1px solid var(--line);padding:12px 0}.job:first-child{border-top:0}.top{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .nm{font-weight:700}.pill{font-size:11px;padding:3px 8px;border-radius:99px;background:#22222c;color:var(--mu)}.pill.done{background:#12301f;color:var(--ok)}.pill.failed{background:#331616;color:var(--bad)}
 .st{font-size:12px;color:var(--mu);margin-top:4px;word-break:break-word}.err{color:var(--bad)}
 </style></head><body>
-<h1>📱 APK Studio</h1><div class="sub">Jo app bolo, wahi APK ban ke aayegi. <a href="/api/sentinel/dashboard">← Sentinel</a></div>
+<h1>💻 Ava Code</h1><div class="sub">Jo app bolo, Ava likhegi aur wahi APK ban ke aayegi.</div>
 <div id="warn" class="warn" style="display:none"></div>
 <div class="card"><b>Naya app</b>
 <label>App kaisa chahiye? (jitna detail utna accha)</label>

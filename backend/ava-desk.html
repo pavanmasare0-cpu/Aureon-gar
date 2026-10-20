@@ -290,6 +290,12 @@ body.noanim .bg i,body.noanim *{animation:none!important}
   .pop{right:8px;left:8px;width:auto}
   .feat{display:none}.bubble{max-width:88%}
 }
+
+.wf{width:100%;height:calc(100vh - 150px);min-height:420px;border:0;border-radius:14px;background:#070914}
+
+/* calm by default: nothing keeps moving unless Ava is working */
+.bg i{animation:none!important}.mini-orb,.mini-orb::after,.logo{animation:none!important}
+body.busy .mini-orb{animation:rot 3s linear infinite!important}
 </style>
 </head>
 <body>
@@ -363,8 +369,9 @@ body.noanim .bg i,body.noanim *{animation:none!important}
       <button data-v="live"><svg class="ic"><use href="#i-live"/></svg>Live Moment<span class="tag r">LIVE</span></button>
       <button data-v="fut"><svg class="ic"><use href="#i-stick"/></svg>FutureStick<span class="tag b">AI</span></button>
       <button data-v="vault"><svg class="ic"><use href="#i-vault"/></svg>Memory Vault</button>
-      <button data-v="projects"><svg class="ic"><use href="#i-folder"/></svg>Projects</button>
-      <button data-v="tools"><svg class="ic"><use href="#i-grid"/></svg>Tools</button>
+      <button data-v="lab"><svg class="ic"><use href="#i-pen"/></svg>Ava Lab</button>
+      <button data-v="update"><svg class="ic"><use href="#i-stick"/></svg>Ava Update</button>
+      <button data-v="code"><svg class="ic"><use href="#i-code"/></svg>Ava Code</button>
       <button data-v="settings"><svg class="ic"><use href="#i-gear"/></svg>Settings</button>
     </nav>
     <div class="panel acard">
@@ -462,7 +469,7 @@ body.noanim .bg i,body.noanim *{animation:none!important}
     <button class="ecard" data-go="vault"><span class="ei c-pink"><svg class="ic"><use href="#i-db"/></svg></span><span><b>Ava Memory</b><small>Your personal vault</small><em>Open <svg class="ic"><use href="#i-arrow"/></svg></em></span></button>
     <button class="ecard" data-go="cloud"><span class="ei c-blue"><svg class="ic"><use href="#i-shield"/></svg></span><span><b>Ava Cloud</b><small>Host • Deploy • Scale</small><em>Open <svg class="ic"><use href="#i-arrow"/></svg></em></span></button>
   </section>
-  <section class="panel eng glow">
+  <section class="panel eng glow" style="display:none" aria-hidden="true">
     <div class="et"><span class="pill beta" id="engPill">LIVE</span><b>Ava's Engine</b><small id="engSub">Faster. Smarter. More Human.</small><button class="btn" id="bTry">Try Now <svg class="ic"><use href="#i-arrow"/></svg></button></div>
     <canvas id="engCv" width="220" height="200"></canvas>
   </section>
@@ -827,6 +834,10 @@ function closeAll() {
 function maximize(id, cls) { closeAll(); var p = $('#' + id); p.classList.add('max'); if (cls) p.classList.add(cls); $('#scrim').classList.add('on'); if (id === 'pFut') renderGoals(true); }
 function linkCard(href, ico, cls, t, s) { return '<a class="lcard" href="' + href + '" ' + (href.charAt(0) === '/' ? '' : 'target="_blank" rel="noopener"') + ' style="color:inherit;text-decoration:none"><span class="ei ' + cls + '">' + ic(ico) + '</span><span><b>' + t + '</b><small>' + s + '</small></span></a>'; }
 function openOverlay(title, sub, html) { closeAll(); $('#ovTitle').textContent = title; $('#ovSub').textContent = sub || ''; $('#ovBody').innerHTML = html; $('#ov').classList.add('on'); $('#scrim').classList.add('on'); }
+var WORK = { lab: ['Ava Lab', 'Ava ke upgrades, Jail, Designer aur Variants', '/api/sentinel/ava-lab'],
+  update: ['Ava Update', 'Ava ne khud kya upgrade likha — Approve tum karte ho', '/api/sentinel/ava-lab#proposals'],
+  code: ['Ava Code', 'App likhwao aur APK banwao', '/api/apk/studio'] };
+function openWork(k) { var w = WORK[k]; openOverlay(w[0], w[1], '<iframe class="wf" src="' + w[2] + '" title="' + w[0] + '"></iframe>'); }
 function openView(v) {
   if (v === 'home') { closeAll(); return; }
   if (v === 'voice') { toggleVoice(); return; }
@@ -842,6 +853,7 @@ function openView(v) {
     linkCard('/api/sentinel/dashboard', 'shield', 'c-green', 'Sentinel Dashboard', 'Server health, proposals, events') +
     linkCard('/api/sentinel/ava-lab', 'pen', 'c-violet', 'Ava Designer', 'Ava khud UI design banati hai') +
     linkCard('/api/apk/studio', 'code', 'c-blue', 'APK Studio', 'App banao aur APK build karo') + '</div>');
+  else if (v === 'lab' || v === 'update' || v === 'code') openWork(v);
   else if (v === 'settings') openSettings();
   S.openView = v; $$('#nav button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
 }
@@ -978,10 +990,16 @@ function drawEng(t) {
   drawOrb(g, w * .5, h * .5, Math.min(w, h) * .2, t, P().pal, 'idle');
 }
 var frame = 0, T = 0, last = performance.now();
+window.addEventListener('message', function (e) {   // Ava Lab / Ava Code (iframes) tell the desk when Ava is busy creating something
+  if (e.origin !== location.origin || !e.data || e.data.ava !== 'busy') return;
+  S.busy = !!e.data.on; document.body.classList.toggle('busy', S.busy); if (S.busy) setOrb('thinking'); else if (S.orb === 'thinking') setOrb('idle');
+});
 function loop(now) {
   requestAnimationFrame(loop);
   var dt = Math.min(.1, (now - last) / 1000); last = now; frame++;
-  if (S.anim) T += dt; else if (frame % 20) return;
+  // the orb / globe move ONLY while Ava is actually working (clone / design / upgrade / chat reply); otherwise one calm still frame
+  var live = S.anim && (S.busy || (S.orb && S.orb !== 'idle'));
+  if (live) T += dt; else if (frame % 20) return;
   drawHero(T); drawGlobe(T); drawEng(T);
 }
 
@@ -993,6 +1011,12 @@ function go(k) {
 }
 $$('#nav button').forEach(function (b) { b.addEventListener('click', function () { openView(b.getAttribute('data-v')); }); });
 $$('#dock button').forEach(function (b) { b.addEventListener('click', function () { var a = b.getAttribute('data-a'); if (a === 'chat') openView('chat'); else if (a === 'voice') toggleVoice(); else if (a === 'more') openView('tools'); else go(a); }); });
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href^="/api/sentinel/ava-lab"], a[href^="/api/apk/studio"], [data-go="code"], [data-go="create"]'); if (!a) return;
+  var href = a.getAttribute('href') || '', g = a.getAttribute('data-go');
+  var k = g === 'code' || href.indexOf('/api/apk/studio') === 0 ? 'code' : (href.indexOf('#proposals') > -1 ? 'update' : 'lab');
+  e.preventDefault(); e.stopPropagation(); openView(k);
+}, true);
 $$('.ecard').forEach(function (b) { b.addEventListener('click', function () { go(b.getAttribute('data-go')); }); });
 $$('[data-close]').forEach(function (b) { b.addEventListener('click', closeAll); });
 $('#scrim').addEventListener('click', closeAll);
