@@ -804,7 +804,7 @@ router.use((req, res, next) => {
 try {
   const avaSelf = require('./ava-self')({ lib, auth, store, DATA_DIR, callLLM, logEvent });
   router.use('/ava', avaSelf.router);
-  router.get('/ava-lab', (req, res) => auth.dashboard(req, res, () => res.type('html').send(avaSelf.page)));
+  router.get('/ava-lab', (req, res) => auth.dashboard(req, res, () => res.redirect(302, '/api/sentinel/ava-desk'))); // Ava Lab now lives inside Ava Desktop
 } catch (e) { console.error('[sentinel] Ava Lab disabled:', e.message); }
 
 // ---------------- Ava Desktop: the full-screen desktop dashboard (backend/ava-desk.js + ava-desk.html) ----------------
@@ -1115,7 +1115,6 @@ ${THEME_TAGS}
     <div class="sub">Every fix is diagnosed and proposed — never applied — until you click Approve.</div>
     <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
     <a class="sec-link" href="/api/sentinel/ava-desk" style="margin-left:12px">🖥 Ava Desktop →</a>
-    <a class="sec-link" href="/api/sentinel/ava-lab" style="margin-left:12px">🧪 Ava Lab →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
       ⚠️ SENTINEL_OWNER_CODE set nahi hai Render pe — ye page abhi kisi ke liye bhi locked nahi hai. Render → Environment me add karo.
     </div>
