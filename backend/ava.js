@@ -362,6 +362,10 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
     }
   });
 
+  // health check endpoint
+  router.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
   load().then(() => { startLoop(); extra.start(); mind.start(); });
   return router;
 };
