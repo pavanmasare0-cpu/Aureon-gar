@@ -54,10 +54,6 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
       catch (e2) { throw new Error('Gemini: ' + String(e.message).slice(0, 160) + ' | Groq: ' + String(e2.message).slice(0, 160)); }
     }
   }
-  function parseJSON(str) {
-    try { return JSON.parse(str); }
-    catch { return null; }
-  }
   const router = express.Router();
 
   // ---------------- storage ----------------
@@ -71,7 +67,7 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
   function fsLoad() {
     try {
       if (!fs.existsSync(FILE_PATH)) return;
-      const d = parseJSON(fs.readFileSync(FILE_PATH, 'utf8'));
+      const d = JSON.parse(fs.readFileSync(FILE_PATH, 'utf8'));
       facts = d.facts || []; thoughts = d.thoughts || []; meta = Object.assign(meta, d.meta || {});
     } catch (e) { console.warn('[ava] could not read brain.json:', e.message); }
   }
@@ -274,6 +270,8 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
   // Read-only hook: it can only produce text; files are changed solely by the owner's Approve click in Sentinel.
   global.__avaSelf = {
     llm: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava reviewing your own source code. Output JSON only.', false),
+    // text-only hook for Ava Designer (HTML in a delimited format, NOT json). 'Style rules:' keeps server.js from appending chat-style rules.
+    llmText: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava, a world-class UI designer working in your private design studio. Style rules: follow the requested output format exactly; output only what the format asks — no chat, no explanation, no markdown fences.', false),
     signals: () => ({ mind: mind.brainSummary() }),
   };
 
@@ -364,6 +362,10 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
     }
   });
 
+  // health check endpoint
+  router.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
+  });
   load().then(() => { startLoop(); extra.start(); mind.start(); });
   return router;
 };
