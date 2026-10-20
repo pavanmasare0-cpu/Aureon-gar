@@ -35,7 +35,8 @@ const HISTORY_MAX = 40;
 // they want to use/test a variant themselves, outside this system.
 const JAIL_CAP = 12;         // oldest entries drop beyond this
 const JAIL_KEEP_CODE = 3;    // only the newest few keep their full code across a cold restart
-const JAIL_MAX_PER_HOUR = 8; // separate budget from the real /improve pipeline
+const JAIL_MAX_PER_HOUR = 4; // separate budget from the real /improve pipeline
+const gate = require('./ava-jail-gate'); // v17: quality gate + prompts live outside Ava's EDITABLE list on purpose
 
 module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, logEvent }) {
   const express = require('express');
@@ -240,27 +241,30 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   async function jailGenerate(brief) {
     const refFile = EDITABLE.find((f) => /ava-bot\.js$/.test(f));
     const ref = refFile && fs.existsSync(abs(refFile)) ? read(refFile).slice(0, 4000) : '';
-    const who = `You are Ava, an AI assistant that lives in the Aureon app and Sentinel. This is a PURE CREATIVE PROTOTYPE exercise (Ava's "Jail" / workshop): design a brand-new, self-contained, standalone JS module or tool prototype. This is NEVER applied to the real app automatically, NEVER executed server-side, and NEVER deployed — it only ever lands in a gallery for the owner to look at later and manually pick/extract code from. You may design anything that fits a single safe JS file: a restyled variant of your own floating widget, a small defensive cybersecurity utility (rate-limiter, input validator, log-pattern scanner, that kind of legitimate defensive tool), a small game, or any other standalone idea. Never anything resembling a real company's or bank's branded product, login flow, or payment handling — that's off-limits regardless of brief.`;
-    const b = brief ? `Owner's brief for this variant: ${brief}` : 'No specific brief — invent your own creative direction (pick whatever category feels most useful right now).';
-    const refNote = ref ? `For reference, here is a snippet of your current real widget (only if relevant to the brief — do not just copy it):\n<<<FILE\n${ref}\nFILE>>>` : '';
-    const r = await askJSON(`${who}\n${b}\n${refNote}\n\nReturn ONLY JSON: {"title":"short creative name for this variant","category":"one of: ui, security, utility, game, other","description":"1-2 sentences in Hinglish: what this prototype is and what's interesting about it","code":"the COMPLETE standalone JS file for this prototype"}`);
-    if (!r || !r.code) throw new Error('Ava ne valid variant nahi diya — dobara try karo');
-    const code = String(r.code);
-    const sf = checkSafety('www/ava-bot.js', '', code, { added: code.split('\n').length, removed: 0, addedText: code });
-    if (sf) throw new Error('Variant reject (safety check): ' + sf);
-    const sb = sandbox('www/ava-bot.js', code); // deliberately the syntax-only check path — Jail code is never require()'d/executed, only validated
-    if (!sb.ok) throw new Error('sandbox test fail: ' + sb.log);
+    // v17: up to 3 model calls (draft + 2 repair rounds). Raw text via Ava's own LLM; Sentinel's Groq (JSON-only) as fallback.
+    const ask = async (prompt) => {
+      const hook = global.__avaSelf;
+      if (hook && typeof hook.llm === 'function') return String(await hook.llm(prompt) || '');
+      const j = await callLLM(prompt + '\n\nReturn ONLY JSON: {"raw":"<your complete answer in the exact format above>"}');
+      return String((j && (j.raw || j.code)) || '');
+    };
+    const safety = (code) => checkSafety('www/ava-bot.js', '', code, { added: code.split('\n').length, removed: 0, addedText: code });
+    let out;
+    try { out = await gate.produceVariant({ ask, brief, ref, safety }); }
+    catch (e) { throw new Error(e.message); }
+    const { meta, code, gate: g, test, rounds } = out;
     const entry = {
       id: nid(), createdAt: new Date().toISOString(),
-      title: String(r.title || 'Untitled variant').slice(0, 90),
-      category: JAIL_CATEGORIES[r.category] ? r.category : 'other',
-      description: String(r.description || '').slice(0, 400),
+      title: String(meta.title || 'Untitled variant').slice(0, 90),
+      category: JAIL_CATEGORIES[meta.category] ? meta.category : 'other',
+      description: String((meta.description || '') + (meta.limits ? ' | Limits: ' + meta.limits : '')).slice(0, 500),
       brief: String(brief || '').slice(0, 200),
-      sandbox: sb, code,
+      sandbox: { ok: true, log: 'quality gate ok (' + g.metrics.lines + ' lines, ' + g.metrics.functions + ' fns) | ' + test.log + ' | rounds: ' + rounds },
+      code,
     };
     state.jail = [entry, ...(state.jail || [])].slice(0, JAIL_CAP);
     save();
-    if (logEvent) logEvent('proposal', { name: 'Ava' }, 'Ava Jail: naya variant "' + entry.title + '" (sirf gallery me, kahin apply nahi hua)');
+    if (logEvent) logEvent('proposal', { name: 'Ava' }, 'Ava Jail: naya variant "' + entry.title + '" (gate pass, sirf gallery me, kahin apply nahi hua)');
     const { code: _omit, ...pub } = entry;
     return pub;
   }

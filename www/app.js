@@ -762,6 +762,13 @@ async function sendMessage() {
   const fileName = state.pendingFileName;
   if (!text && !image && !fileText && !fileName) return;
 
+  // Ava Guard (v17): rate limit, injection / secret check. Blocked text can be re-sent unchanged to override.
+  if (text && window.AvaGuard) {
+    const gv = window.AvaGuard.instance.check(text, { key: 'chat' });
+    if (gv.redact) { input.value = gv.redacted; addMessage('error', gv.reason); return; }
+    if (!gv.allow) { addMessage('error', gv.reason); return; }
+  }
+
   // Tell the native side a real interaction just happened, so the
   // "been quiet for X hours" proactive check-in resets its clock —
   // typed chat should count the same as voice/Love Camera.

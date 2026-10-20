@@ -41,7 +41,7 @@ const ready = (async () => {
   await store.whenFirestore(20000);
   const c = await store.load('dash_auth', CFG_FILE);
   if (c.value && typeof c.value === 'object') cfg = Object.assign(cfg, c.value, { totp: Object.assign(cfg.totp, c.value.totp || {}) });
-  if (process.env.DASH_STEALTH !== '1') cfg.stealth = false;
+  if (process.env.DASH_STEALTH !== '1') cfg.stealth = false;   // stealth OFF by default: login page dikhega (404 nahi). Wapas on karna ho to Render env DASH_STEALTH=1
   const a = await store.load('dash_audit', AUDIT_FILE);
   if (Array.isArray(a.value)) audit = a.value.slice(-300);
 })().catch((e) => console.error('[dash-auth] hydrate failed:', e.message));

@@ -796,7 +796,7 @@ setTimeout(() => { runMonitorCycle().catch((e) => console.error('[sentinel] firs
 // (as the x-owner-code header, which the dashboard page's own JS sends
 // automatically once you've unlocked it).
 router.use((req, res, next) => {
-  if (req.path === '/dashboard' || req.path === '/ava-lab') return next(); // the pages themselves run the login flow (auth.dashboard)
+  if (req.path === '/dashboard' || req.path === '/ava-lab' || req.path === '/ava-desk') return next(); // the pages themselves run the login flow (auth.dashboard)
   return auth.apiGate(req, res, next);
 });
 
@@ -806,6 +806,12 @@ try {
   router.use('/ava', avaSelf.router);
   router.get('/ava-lab', (req, res) => auth.dashboard(req, res, () => res.type('html').send(avaSelf.page)));
 } catch (e) { console.error('[sentinel] Ava Lab disabled:', e.message); }
+
+// ---------------- Ava Desktop: the full-screen desktop dashboard (backend/ava-desk.js + ava-desk.html) ----------------
+try {
+  const avaDesk = require('./ava-desk')({ auth, getSummary, getEvents: () => events });
+  router.use(avaDesk.router);   // /ava-desk (page, behind the same login), /ava-desk/data|world|chat|forecast (behind apiGate)
+} catch (e) { console.error('[sentinel] Ava Desktop disabled:', e.message); }
 
 router.get('/servers', (req, res) => res.json(servers.map(publicServer)));
 
@@ -1108,6 +1114,7 @@ ${THEME_TAGS}
     <h1>🛡️ Aureon Sentinel</h1>
     <div class="sub">Every fix is diagnosed and proposed — never applied — until you click Approve.</div>
     <a id="sec-link" class="sec-link" href="#">🔐 Security Dashboard →</a>
+    <a class="sec-link" href="/api/sentinel/ava-desk" style="margin-left:12px">🖥 Ava Desktop →</a>
     <a class="sec-link" href="/api/sentinel/ava-lab" style="margin-left:12px">🧪 Ava Lab →</a>
     <a class="sec-link" href="/api/apk/studio" style="margin-left:12px">📱 APK Studio →</a>
     <div id="unprotected-banner" style="display:none;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#ff6b6b;font-size:12px;padding:10px 14px;border-radius:8px;margin-bottom:14px;">
