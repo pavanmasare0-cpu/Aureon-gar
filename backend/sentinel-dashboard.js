@@ -807,6 +807,18 @@ try {
   router.get('/ava-lab', (req, res) => auth.dashboard(req, res, () => res.redirect(302, '/api/sentinel/ava-desk'))); // Ava Lab now lives inside Ava Desktop
 } catch (e) { console.error('[sentinel] Ava Lab disabled:', e.message); }
 
+// ---------------- Ava Studio: multi-pass professional projects + "best UI" tournament (backend/ava-studio.js) ----------------
+try {
+  const avaStudio = require('./ava-studio')({ auth, DATA_DIR, callLLM, logEvent });
+  router.use('/ava-studio', avaStudio.router);
+} catch (e) { console.error('[sentinel] Ava Studio disabled:', e.message); }
+
+// ---------------- Boss Orders: owner priority order queue, never silently dropped (backend/boss-orders.js) ----------------
+try {
+  const boss = require('./boss-orders')({ auth, DATA_DIR, logEvent });
+  router.use('/boss', boss.router);
+} catch (e) { console.error('[sentinel] Boss Orders disabled:', e.message); }
+
 // ---------------- Ava Desktop: the full-screen desktop dashboard (backend/ava-desk.js + ava-desk.html) ----------------
 try {
   const avaDesk = require('./ava-desk')({ auth, getSummary, getEvents: () => events });

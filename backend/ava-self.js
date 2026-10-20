@@ -25,7 +25,7 @@ const BLOCKED_ADDED = /(child_process|\beval\s*\(|new\s+Function\s*\(|process\.e
 const KEY_RE = /^(GEMINI|GROQ)_API_KEY(S|_\d)?$/;
 const allowedKeys = () => { const o = {}; for (const k of Object.keys(process.env)) if (KEY_RE.test(k) && process.env[k]) o[k] = process.env[k]; return o; };
 const ALLOWED_HOSTS = /^https?:\/\/(generativelanguage\.googleapis\.com|api\.groq\.com|aureone\.onrender\.com|localhost|127\.0\.0\.1)/;
-const MAX_CHANGED_LINES = 160;
+const MAX_CHANGED_LINES = 320;
 const MAX_FILE_SHOWN = 70000;
 const HISTORY_MAX = 40;
 // ---- Ava's Jail: pure creative sandbox. Ava designs standalone UI/widget
@@ -35,7 +35,7 @@ const HISTORY_MAX = 40;
 // they want to use/test a variant themselves, outside this system.
 const JAIL_CAP = 12;         // oldest entries drop beyond this
 const JAIL_KEEP_CODE = 3;    // only the newest few keep their full code across a cold restart
-const JAIL_MAX_PER_HOUR = 4; // separate budget from the real /improve pipeline
+const JAIL_MAX_PER_HOUR = 8; // separate budget from the real /improve pipeline
 const gate = require('./ava-jail-gate'); // v17: quality gate + prompts live outside Ava's EDITABLE list on purpose
 
 module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, logEvent }) {
@@ -45,14 +45,14 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   const BK_DIR = path.join(DATA_DIR, 'ava-self-backups');
   try { fs.mkdirSync(BK_DIR, { recursive: true }); } catch (e) { /* read-only disk: backups stay in memory/history */ }
 
-  let state = { proposals: [], history: [], jail: [], version: 0, settings: { auto: false, hours: 6, autoApply: false }, lastAuto: 0 };
+  let state = { proposals: [], history: [], jail: [], version: 0, settings: { auto: false, hours: 6, autoApply: false, jailAuto: false, jailHours: 6 }, lastAuto: 0, lastJailAuto: 0 };
   let busy = false;
   const calls = [];
   const ready = (async () => {
     try {
       await store.whenFirestore(20000);
       const r = await store.load('ava_self', FILE);
-      if (r && r.value && Array.isArray(r.value.proposals)) state = Object.assign(state, r.value, { settings: Object.assign({ auto: false, hours: 6, autoApply: false }, r.value.settings || {}) });
+      if (r && r.value && Array.isArray(r.value.proposals)) state = Object.assign(state, r.value, { settings: Object.assign({ auto: false, hours: 6, autoApply: false, jailAuto: false, jailHours: 6 }, r.value.settings || {}) });
     } catch (e) { console.error('[ava-self] load failed:', e.message); }
   })();
   const save = () => ready.then(() => store.save('ava_self', slim(), FILE)).catch((e) => console.error('[ava-self] save failed:', e.message));
@@ -217,7 +217,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     const rel = String(pick.file); if (!files.includes(rel)) throw new Error('Ava ne galat file chuni: ' + rel);
     const src = read(rel);
 
-    const w = await askJSON(`${who}\nYou decided to: ${pick.idea}\n${g}\nHere is the COMPLETE current content of ${rel}:\n<<<FILE\n${src.slice(0, MAX_FILE_SHOWN)}\nFILE>>>\n\nWrite the upgrade as 1-5 exact edits. "find" must be copied EXACTLY (whitespace included) from the file and appear exactly ONCE; "replace" is the new code. Keep it small, keep the file's style, do not remove safety checks (ownerOnly, avaIsOwner, sameCode, limited(, redact(, consent), no eval/child_process/process.exit. Return ONLY JSON: {"title":"short title","what_changed":"plain Hinglish: kya badla, 1-3 sentences","why":"plain Hinglish: kyun zaroori tha","risk":"low|medium|high","test_hint":"how the owner can check it works","edits":[{"find":"...","replace":"..."}]}`);
+    const w = await askJSON(`${who}\nYou decided to: ${pick.idea}\n${g}\nHere is the COMPLETE current content of ${rel}:\n<<<FILE\n${src.slice(0, MAX_FILE_SHOWN)}\nFILE>>>\n\nWrite the upgrade as 1-5 exact edits. "find" must be copied EXACTLY (whitespace included) from the file and appear exactly ONCE; "replace" is the new code. Write it like a staff engineer: clear naming, input validation, defensive error handling, JSDoc on new functions, no dead code, no stubs/TODOs — production quality, but keep each edit focused and keep the file's style, do not remove safety checks (ownerOnly, avaIsOwner, sameCode, limited(, redact(, consent), no eval/child_process/process.exit. Return ONLY JSON: {"title":"short title","what_changed":"plain Hinglish: kya badla, 1-3 sentences","why":"plain Hinglish: kyun zaroori tha","risk":"low|medium|high","test_hint":"how the owner can check it works","edits":[{"find":"...","replace":"..."}]}`);
     if (!w || !Array.isArray(w.edits)) throw new Error('Ava ne valid edits nahi diye — dobara try karo');
     w.goal = goal || pick.idea;
     const r = buildProposal(rel, w, w.edits);
@@ -238,7 +238,14 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   // pipeline, but the result only ever lands in a capped gallery list.
   const jailCalls = [];
   const JAIL_CATEGORIES = { ui: '🎨', security: '🛡️', utility: '🔧', game: '🎮', other: '🧩' };
-  async function jailGenerate(brief) {
+  const jailQueue = []; // [{id, brief, queuedAt, attempts}] — a rate-limit never kills a job, it is only retried (from ava-jail-update-v3)
+  const JAIL_MAX_QUEUE_AGE_MS = 6 * 3600000; // safety valve: stop retrying one job after 6h
+  let jailRunning = false;
+  function looksLikeRateLimit(msg) {
+    const t = String(msg || '').toLowerCase();
+    return t.includes('quota') || t.includes('rate limit') || t.includes('429') || t.includes('resource_exhausted') || t.includes('too many requests') || t.includes('overloaded');
+  }
+  async function jailGenerateCore(brief) {
     const refFile = EDITABLE.find((f) => /ava-bot\.js$/.test(f));
     const ref = refFile && fs.existsSync(abs(refFile)) ? read(refFile).slice(0, 4000) : '';
     // v17: up to 3 model calls (draft + 2 repair rounds). Raw text via Ava's own LLM; Sentinel's Groq (JSON-only) as fallback.
@@ -283,7 +290,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
       github: { configured: ghReady(), repo: gh().repo || null, branch: gh().branch, base: gh().base, compare: gh().repo ? 'https://github.com/' + gh().repo + '/compare/' + gh().base + '...' + gh().branch + '?expand=1' : null },
       keys: Object.keys(allowedKeys()).map((k) => k.replace(/_\d$/, '_N')).filter((v, i, a) => a.indexOf(v) === i),
       version: Math.max(0, ...state.history.filter((h) => h.status === 'applied').map((h) => h.version || 0)), latest: state.version, settings: state.settings, lastAuto: state.lastAuto,
-      busy, llm: hook && hook.llm ? 'ava' : (process.env.GROQ_API_KEY ? 'groq' : 'none'), signals: signals(),
+      jailPending: jailQueue.length, busy, llm: hook && hook.llm ? 'ava' : (process.env.GROQ_API_KEY ? 'groq' : 'none'), signals: signals(),
       proposals: state.proposals.slice(-20).reverse().map(pubP), history: state.history.map(pubH),
     });
   });
@@ -362,6 +369,24 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     if (logEvent) logEvent('proposal', { name: 'Ava' }, 'Ava Designer: naya UI design "' + entry.title + '" (sirf gallery me, kahin apply nahi hua)');
     const { code: _c, ...pub } = entry; return pub;
   }
+  // Queue wrapper: quota/rate-limit errors keep the job queued and the 10-min tick retries it; other errors are logged and dropped.
+  async function processJailQueue() {
+    if (jailRunning || !jailQueue.length) return;
+    jailRunning = true;
+    try {
+      while (jailQueue.length) {
+        const job = jailQueue[0];
+        if (Date.now() - job.queuedAt > JAIL_MAX_QUEUE_AGE_MS) { jailQueue.shift(); if (logEvent) logEvent('error', { name: 'Ava' }, 'Jail job "' + (job.brief || '(Ava ki apni soch)') + '" 6 ghante retry ke baad bhi quota nahi khula — chhod diya.'); continue; }
+        try { await jailGenerateCore(job.brief); jailQueue.shift(); }
+        catch (e) {
+          if (looksLikeRateLimit(e.message)) { job.attempts = (job.attempts || 0) + 1; break; } // stays queued, tick retries
+          jailQueue.shift(); if (logEvent) logEvent('error', { name: 'Ava' }, 'Jail job fail: ' + e.message);
+        }
+      }
+    } finally { jailRunning = false; }
+  }
+  router.get('/jail/queue', async (req, res) => { res.json({ pending: jailQueue.length, jobs: jailQueue.map((j) => ({ id: j.id, brief: j.brief, attempts: j.attempts, queuedAt: j.queuedAt })) }); });
+
   router.post('/jail/design', async (req, res) => {
     if (!auth.stepUp(req, res)) return;
     auth.action(req, 'ava-lab designer');
@@ -383,8 +408,9 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     const hook = global.__avaSelf;
     if (!(hook && hook.llm) && !process.env.GROQ_API_KEY) return res.status(503).json({ error: 'Ava ka AI (Gemini) ya GROQ_API_KEY set nahi hai' });
     jailCalls.push(now);
-    try { res.json({ ok: true, entry: await jailGenerate(String((req.body && req.body.brief) || '').slice(0, 300)) }); }
-    catch (e) { res.status(500).json({ error: e.message }); }
+    jailQueue.push({ id: nid(), brief: String((req.body && req.body.brief) || '').slice(0, 300), queuedAt: now, attempts: 0 });
+    processJailQueue().catch(() => {}); // starts right away; if rate-limited it stays queued for the retry tick
+    res.json({ ok: true, queued: true });
   });
 
   router.get('/jail/list', async (req, res) => {
@@ -575,6 +601,8 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     if (typeof b.auto === 'boolean') state.settings.auto = b.auto;
     if (typeof b.autoApply === 'boolean') state.settings.autoApply = b.autoApply;
     if (b.hours != null) state.settings.hours = Math.min(48, Math.max(1, parseInt(b.hours, 10) || 6));
+    if (typeof b.jailAuto === 'boolean') state.settings.jailAuto = b.jailAuto;
+    if (b.jailHours != null) state.settings.jailHours = Math.min(48, Math.max(1, parseInt(b.jailHours, 10) || 6));
     save(); res.json({ ok: true, settings: state.settings });
   });
 
@@ -601,12 +629,17 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     try {
       await ready;
       const st = state.settings;
-      if (!st.auto || busy || Date.now() - (state.lastAuto || 0) < st.hours * 3600000) return;
-      if (state.proposals.filter((p) => p.status === 'pending').length >= 5) return;
-      const hook = global.__avaSelf; if (!(hook && hook.llm) && !process.env.GROQ_API_KEY) return;
-      busy = true; state.lastAuto = Date.now(); save();
-      try { await improve('', true); } finally { busy = false; }
+      if (st.auto && !busy && Date.now() - (state.lastAuto || 0) >= st.hours * 3600000 && state.proposals.filter((p) => p.status === 'pending').length < 5) {
+        const hook = global.__avaSelf;
+        if ((hook && hook.llm) || process.env.GROQ_API_KEY) { busy = true; state.lastAuto = Date.now(); save(); try { await improve('', true); } finally { busy = false; } }
+      }
     } catch (e) { console.error('[ava-self] auto upgrade failed:', e.message); }
+    // Ava's own periodic Jail creativity cycle (no brief: she picks her direction) + retry of quota-blocked jobs
+    try {
+      const st = state.settings;
+      if (st.jailAuto && Date.now() - (state.lastJailAuto || 0) >= st.jailHours * 3600000) { state.lastJailAuto = Date.now(); save(); jailQueue.push({ id: nid(), brief: '', queuedAt: Date.now(), attempts: 0 }); }
+      processJailQueue().catch((e) => console.error('[ava-self] jail queue tick failed:', e.message));
+    } catch (e) { console.error('[ava-self] jail auto-cycle failed:', e.message); }
   }, 10 * 60000);
   if (tick.unref) tick.unref();
 

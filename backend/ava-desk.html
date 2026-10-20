@@ -94,8 +94,8 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 .sat.focus .o{box-shadow:0 0 0 2px #fff,0 0 24px var(--c)}
 .empty-orbit{position:absolute;left:50%;bottom:112px;transform:translateX(-50%);z-index:2;font-size:12px;color:var(--mu);text-align:center;width:70%}
 .cmd{position:absolute;left:14px;right:14px;bottom:12px;z-index:3;padding:10px;border-radius:18px;background:rgba(14,16,62,.93);border:1.5px solid rgba(110,130,255,.5);box-shadow:0 0 26px rgba(80,100,255,.3)}
-.cmd .r{display:flex;gap:8px;align-items:center}
-.cmd input{flex:1;min-width:0;background:rgba(8,10,40,.85);border:1px solid var(--bd);border-radius:12px;padding:10px 13px;font-size:13px;outline:0}
+.cmd .r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cmd input{flex:1 1 100%;min-width:0;background:rgba(8,10,40,.85);border:1px solid var(--bd);border-radius:12px;padding:10px 13px;font-size:13px;outline:0}
 .cmd input:focus{border-color:rgba(120,160,255,.9)}
 .cmd .m{font-size:11.5px;margin:7px 4px 0;min-height:15px;color:var(--mu)}
 .ok{color:var(--ok)}.er{color:var(--bad)}
@@ -241,8 +241,10 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
           <div class="r">
             <input id="task" type="text" maxlength="300" placeholder="Ava ko kaam do (optional) — goal ya brief likho, khali chhodo to Ava khud chunegi" autocomplete="off">
             <button class="btn" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade likho</button>
-            <button class="btn g" id="bUi"><svg class="ic"><use href="#i-pen"/></svg>Best UI banao</button>
+            <button class="btn g" id="bUi"><svg class="ic"><use href="#i-pen"/></svg>Best UI chuno</button>
             <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
+            <button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
+            <button class="btn d" id="bStop" style="display:none">Roko</button>
           </div>
           <div class="m" id="msg"></div>
         </div>
@@ -275,6 +277,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
           <div class="card"><h4>Auto-upgrade <span class="b" id="verB"></span></h4>
             <div class="setrow"><label><input type="checkbox" id="auto"> Ava khud har</label><input type="number" id="hrs" min="1" max="48" value="6"><span class="meta">ghante me upgrade likhe (proposal banta hai, tum Approve karte ho)</span></div>
             <div class="setrow"><label><input type="checkbox" id="aapply"> Chhote <b>low-risk widget (ava-bot.js)</b> changes khud live ho jaayein</label></div>
+            <div class="setrow"><label><input type="checkbox" id="jauto"> Ava khud har</label><input type="number" id="jhrs" min="1" max="48" value="6"><span class="meta">ghante me bina brief ke naya prototype banaye (gallery me, kahin apply nahi)</span></div>
             <div class="meta" id="lastauto"></div></div>
           <div class="card"><h4>GitHub</h4><div class="meta" id="ghline"></div></div>
           <div class="card"><h4>Surakshit files</h4><div class="meta" id="prot"></div></div>
@@ -290,7 +293,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
     <section class="view panel" id="v-proto" style="grid-template-rows:auto minmax(0,1fr)">
       <div class="ph"><div><h3>Ava ki Duniya — Prototype Workshop</h3><small>Ava yahan khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Pasand aaye to code download karo.</small></div></div>
       <div class="vbody">
-        <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><button class="btn g" id="bUi2"><svg class="ic"><use href="#i-pen"/></svg>Best UI banao</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
+        <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><button class="btn g" id="bUi2"><svg class="ic"><use href="#i-pen"/></svg>Best UI chuno</button><button class="btn g" id="bProj2"><svg class="ic"><use href="#i-code"/></svg>Pura project</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
         <div class="meta" id="msg2" style="min-height:17px;margin-bottom:10px"></div>
         <div class="filters" id="filters"></div>
         <div class="pgrid" id="pgrid"></div>
@@ -333,9 +336,13 @@ var VARS = [
 ];
 var JCAT = { ui: ['🎨', '#8b7bff'], security: ['🛡️', '#ef6a6a'], utility: ['🔧', '#f5b740'], game: ['🎮', '#4fd1c5'], other: ['🧩', '#9aa0ab'] };
 
-var S = { vi: Math.max(0, Math.min(3, +lsGet('ava_variant_i', 0) || 0)), state: null, jail: [], ops: 0, serverBusy: false, focus: null, view: 'home', seen: {}, filter: 'all', lastOk: 0 };
+var ST = '/api/sentinel/ava-studio';
+var S = { studio: { running: false }, studioWas: false, vi: Math.max(0, Math.min(3, +lsGet('ava_variant_i', 0) || 0)), state: null, jail: [], ops: 0, serverBusy: false, focus: null, view: 'home', seen: {}, filter: 'all', lastOk: 0 };
 function P() { return VARS[S.vi]; }
-function working() { return S.ops > 0 || S.serverBusy; }
+function working() { return S.ops > 0 || S.serverBusy || !!(S.studio && S.studio.running); }
+function jOf(id) { return S.jail.filter(function (x) { return x.id === id; })[0]; }
+function codeUrl(j) { return (j.studio ? ST + '/' : AVA + '/jail/') + j.id + '/code'; }
+function delUrl(j) { return (j.studio ? ST + '/' : AVA + '/jail/') + j.id; }
 
 /* ------------------------------------------------------------ api */
 function af(url, opts) {
@@ -372,7 +379,8 @@ function renderWork() {
   document.body.classList.toggle('busy', w);
   var pill = $('#workPill'); pill.className = 'pill ' + (w ? 'work' : 'idle'); $('#workTx').textContent = w ? 'Ava kaam kar rahi hai…' : 'Ava ruki hui hai';
   var cp = $('#codePill'); cp.className = 'pill ' + (w ? 'work' : 'idle'); $('span', cp).textContent = w ? 'LIVE' : 'idle';
-  ['#bUp', '#bUi', '#bProto', '#bUi2', '#bProto2'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
+  ['#bUp', '#bUi', '#bProto', '#bUi2', '#bProto2', '#bProj', '#bProj2'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
+  var bs = $('#bStop'); if (bs) bs.style.display = S.studio && S.studio.running ? '' : 'none';
   orb = w ? 'thinking' : 'idle'; redraw();
 }
 function applyVariant() {
@@ -391,10 +399,23 @@ function renderVars() {
 function protoList() { return (S.jail || []).slice().sort(function (a, b) { return Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0); }); }
 function pending() { return S.state ? (S.state.proposals || []).filter(function (p) { return p.status === 'pending'; }) : []; }
 function loadAll() {
-  return Promise.all([jget(AVA + '/state'), jget(AVA + '/jail/list')]).then(function (a) {
-    S.state = a[0]; S.jail = Array.isArray(a[1]) ? a[1] : []; S.serverBusy = !!(a[0] && a[0].busy); S.lastOk = Date.now();
+  var soft = function (u) { return jget(u).catch(function (e) { if (e && e.session) throw e; return null; }); };
+  return Promise.all([jget(AVA + '/state'), jget(AVA + '/jail/list'), soft(ST + '/list'), soft(ST + '/status')]).then(function (a) {
+    var studioList = Array.isArray(a[2]) ? a[2] : [];
+    S.state = a[0]; S.jail = (Array.isArray(a[1]) ? a[1] : []).concat(studioList); S.studio = a[3] || { running: false };
+    S.serverBusy = !!(a[0] && (a[0].busy || a[0].jailPending > 0)); S.lastOk = Date.now();
+    studioDone();
     renderAll();
   }).catch(function (e) { if (e.session) toast(e.message, 7000); else console.error('loadAll', e && e.stack || e); });
+}
+function studioDone() { // running -> finished transition: tell the owner and focus the new result
+  var st = S.studio || {};
+  if (st.running) { setMsg('🏗 ' + (st.step || 'Ava kaam kar rahi hai') + (st.total ? ' · ' + st.done + '/' + st.total + ' files' : ''), ''); }
+  if (S.studioWas && !st.running) {
+    if (st.error) setMsg('❌ ' + st.error, 'er');
+    else if (st.entryId) { setMsg('✅ ' + (st.step || 'Ho gaya'), 'ok'); toast('Ava ne naya kaam gallery me rakha'); setFocus('j', st.entryId); }
+  }
+  S.studioWas = !!st.running;
 }
 function renderAll() { renderWork(); renderStats(); renderMinds(); renderSats(); renderCodeSel(); renderUps(); renderUpsView(); renderProtoView(); autoFocus(); }
 function renderStats() {
@@ -466,16 +487,21 @@ function renderCodeSel() {
   protoList().slice(0, 4).forEach(function (j) { items.push({ k: 'j', id: j.id, t: ((JCAT[j.category] || JCAT.other)[0]) + ' ' + j.title }); });
   $('#csel').innerHTML = items.map(function (it) { return '<button data-k="' + it.k + '" data-id="' + esc(it.id) + '" class="' + (S.focus && S.focus.id === it.id ? 'on' : '') + '" title="' + esc(it.t) + '">' + esc(it.t) + '</button>'; }).join('');
 }
+function showFile(j, fpath) {
+  var f = S.focus, u = j.studio ? ST + '/' + j.id + '/file' + (j.kind === 'project' ? '?path=' + encodeURIComponent(fpath || '') : '') : AVA + '/jail/' + j.id + '/code';
+  if (j.kind === 'project') S.pfile = { id: j.id, path: fpath };
+  af(u).then(function (r) { return r.text(); }).then(function (t) { if (S.focus && f && S.focus.id === f.id) typeCode(plainLines(t)); }).catch(function () { /* ignore */ });
+}
 function showFocus() {
   var f = S.focus; if (!f) return; var meta = $('#cmeta'), sub = $('#codeSub');
   if (f.kind === 'j') {
     var j = S.jail.filter(function (x) { return x.id === f.id; })[0]; if (!j) return;
     sub.textContent = 'Prototype: ' + j.title;
     meta.innerHTML = '<span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="b">' + esc(j.category || 'other') + '</span><span>' + when(j.createdAt) + '</span>' +
-      (j.hasCode ? '<a class="btn g s" href="' + AVA + '/jail/' + esc(j.id) + '/code" download>' + ic('down') + 'Code</a>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
+      (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.kind === 'project' && j.files ? j.files.map(function (f) { return '<button class="btn g s" data-pf="' + esc(f.path) + '">' + esc(f.path.split('/').pop()) + '</button>'; }).join('') : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
     if (!j.hasCode) { $('#codebox').innerHTML = '<div class="empty">(code gaya — ye prototype ka code ab store me nahi hai)</div>'; return; }
     $('#codebox').innerHTML = '<div class="empty">Ava ka code load ho raha hai…<span class="cursor"></span></div>';
-    af(AVA + '/jail/' + j.id + '/code').then(function (r) { return r.text(); }).then(function (t) { if (S.focus && S.focus.id === f.id) typeCode(plainLines(t)); }).catch(function () { /* ignore */ });
+    showFile(j, j.kind === 'project' ? (S.pfile && S.pfile.id === j.id ? S.pfile.path : ((j.files || []).filter(function (x) { return /\.js$/.test(x.path); })[0] || (j.files || [])[0] || {}).path) : '');
     return;
   }
   var list = f.kind === 'p' ? (S.state.proposals || []) : (S.state.history || []), p = list.filter(function (x) { return x.id === f.id; })[0]; if (!p) return;
@@ -530,6 +556,7 @@ function renderUpsView() {
     '<br>AI: <b>' + esc(s.llm) + '</b> · keys: <b>' + (s.keys && s.keys.length ? esc(s.keys.join(', ')) : '(Gemini/Groq key set nahi)') + '</b> · editable files: ' + (s.files || []).length;
   $('#verB').textContent = 'abhi: Ava v' + s.version;
   if (document.activeElement !== $('#hrs')) $('#hrs').value = s.settings.hours || 6;
+  $('#jauto').checked = !!s.settings.jailAuto; if (document.activeElement !== $('#jhrs')) $('#jhrs').value = s.settings.jailHours || 6;
   $('#auto').checked = !!s.settings.auto; $('#aapply').checked = !!s.settings.autoApply;
   $('#lastauto').textContent = s.lastAuto ? 'Pichli auto-try: ' + when(s.lastAuto) : '';
   var g = s.github;
@@ -551,7 +578,7 @@ function renderProtoView() {
     var c = JCAT[j.category] || JCAT.other, id = esc(j.id);
     return '<div class="pcard" style="--c:' + c[1] + '"><div class="av">' + c[0] + '</div><span class="cat">' + esc(j.category || 'other') + '</span><h5>' + esc(j.title) + '</h5><p>' + esc(j.description) + '</p>' +
       '<div class="setrow" style="margin:0"><span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="meta">' + when(j.createdAt) + '</span></div>' +
-      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + 'Live code</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="' + AVA + '/jail/' + id + '/code" download>' + ic('down') + 'Code</a>' : '') + '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button></div></div>';
+      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + 'Live code</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button></div></div>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">🌙 Abhi Ava ki duniya khaali hai — pehla prototype banao!</div>';
 }
 
@@ -571,16 +598,20 @@ function doUpgrade(src) {
     });
   }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var p = pending()[0]; if (p) setFocus('p', p.id); });
 }
-function doDesign(src) {
+function studioStart(kind, src, label) {
   var b = taskText(src); if (!guardOk(b)) return;
-  run('Ava design kar rahi hai — draft, phir khud critique (1–2 min)…', function () {
-    return jpost(AVA + '/jail/design', { brief: b }).then(function (r) { if (r.ok) setMsg('✅ Naya design gallery me: ' + ((r.j.entry && r.j.entry.title) || ''), 'ok'); else setMsg('❌ ' + (r.j.error || r.status), 'er'); return r; });
-  }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var j = protoList()[0]; if (j) setFocus('j', j.id); });
+  setMsg(label); setBubble(label);
+  jpost(ST + '/start', { kind: kind, brief: b }).then(function (r) {
+    if (!r.ok) { setMsg('❌ ' + (r.j.error || r.status), 'er'); return; }
+    S.studio = { running: true, step: 'start' }; S.studioWas = true; renderWork(); loadAll();
+  }).catch(function (e) { setMsg('Error: ' + e.message, 'er'); });
 }
+function doDesign(src) { studioStart('ui', src, 'Ava 3 UI design bana rahi hai, phir khud judge karke best chunegi… (3–6 min)'); }
+function doProject(src) { studioStart('project', src, 'Ava pura project plan karke file-by-file likh rahi hai… (kuch minute, progress yahin dikhega)'); }
 function doProto(src, brief) {
   var b = brief != null ? brief : taskText(src); if (!guardOk(b)) return;
   run('Ava naya prototype design kar rahi hai… (30–60 sec)', function () {
-    return jpost(AVA + '/jail/generate', { brief: b }).then(function (r) { if (r.ok) setMsg('✅ Naya prototype circle me aa gaya.', 'ok'); else setMsg('❌ ' + (r.j.error || r.status), 'er'); return r; });
+    return jpost(AVA + '/jail/generate', { brief: b }).then(function (r) { if (r.ok) setMsg(r.j.queued ? '🕓 Queue me hai — Ava likh rahi hai, ready hote hi circle me aayega.' : '✅ Naya prototype circle me aa gaya.', 'ok'); else setMsg('❌ ' + (r.j.error || r.status), 'er'); return r; });
   }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var j = protoList()[0]; if (j) setFocus('j', j.id); });
 }
 function decide(id, a) {
@@ -592,10 +623,11 @@ function hist(a, id) {
   jpost(AVA + '/history/' + id + '/' + a).then(function (r) { toast(r.ok ? (a === 'rollback' ? '↩ Rollback ho gaya (server restart par chalega)' : '✅ ho gaya') : '❌ ' + (r.j.error || r.status)); loadAll(); });
 }
 function saveSet() {
-  jpost(AVA + '/settings', { auto: $('#auto').checked, autoApply: $('#aapply').checked, hours: $('#hrs').value }).then(function (r) { toast(r.ok ? '✅ Settings save' : '❌ save nahi hua'); loadAll(); });
+  jpost(AVA + '/settings', { auto: $('#auto').checked, autoApply: $('#aapply').checked, hours: $('#hrs').value, jailAuto: $('#jauto').checked, jailHours: $('#jhrs').value }).then(function (r) { toast(r.ok ? '✅ Settings save' : '❌ save nahi hua'); loadAll(); });
 }
 function openPreview(id) {
-  af(AVA + '/jail/' + id + '/code').then(function (r) { return r.text(); }).then(function (html) {
+  var pj = jOf(id) || {};
+  af(pj.studio ? ST + '/' + id + '/file' : AVA + '/jail/' + id + '/code').then(function (r) { return r.text(); }).then(function (html) {
     var f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts'); f.srcdoc = html;
     $('#mTitle').textContent = '👁 Preview (sandbox — kuch bhi apply nahi hota)'; $('#mBody').innerHTML = ''; $('#mBody').appendChild(f); $('#modal').classList.add('on'); redraw();
   });
@@ -682,8 +714,9 @@ document.addEventListener('click', function (e) {
   if ((el = t.closest('[data-d]'))) { decide(el.getAttribute('data-id'), el.getAttribute('data-d')); return; }
   if ((el = t.closest('[data-h]'))) { hist(el.getAttribute('data-h'), el.getAttribute('data-id')); return; }
   if ((el = t.closest('[data-restore]'))) { var n = el.getAttribute('data-restore'); if (confirm('Ava v' + n + ' par wapas jaana hai? Usse naye saare upgrades undo honge.')) jpost(AVA + '/versions/' + n + '/restore').then(function (r) { toast(r.ok ? '⏪ Ava v' + n + ' par wapas (server restart par chalega)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
+  if ((el = t.closest('[data-pf]'))) { var pj2 = S.focus && jOf(S.focus.id); if (pj2) showFile(pj2, el.getAttribute('data-pf')); return; }
   if ((el = t.closest('[data-pv]'))) { openPreview(el.getAttribute('data-pv')); return; }
-  if ((el = t.closest('[data-del]'))) { if (confirm('Ye prototype gallery se hata dein?')) af(AVA + '/jail/' + el.getAttribute('data-del'), { method: 'DELETE' }).then(loadAll); return; }
+  if ((el = t.closest('[data-del]'))) { if (confirm('Ye prototype gallery se hata dein?')) af(delUrl(jOf(el.getAttribute('data-del')) || { id: el.getAttribute('data-del') }), { method: 'DELETE' }).then(loadAll); return; }
   if ((el = t.closest('[data-focus]'))) { setFocus(el.getAttribute('data-k'), el.getAttribute('data-focus')); openView('home'); return; }
   if ((el = t.closest('.sat'))) { var id = el.getAttribute('data-id'), j = S.jail.filter(function (x) { return x.id === id; })[0]; setFocus('j', id); if (j && j.kind === 'design' && j.hasCode) openPreview(id); return; }
   if ((el = t.closest('#csel button'))) { setFocus(el.getAttribute('data-k'), el.getAttribute('data-id')); return; }
@@ -701,8 +734,11 @@ $('#bUi').addEventListener('click', function () { doDesign('#task'); });
 $('#bProto').addEventListener('click', function () { doProto('#task'); });
 $('#bUi2').addEventListener('click', function () { doDesign('#task2'); });
 $('#bProto2').addEventListener('click', function () { doProto('#task2'); });
+$('#bProj').addEventListener('click', function () { doProject('#task'); });
+$('#bProj2').addEventListener('click', function () { doProject('#task2'); });
+$('#bStop').addEventListener('click', function () { jpost(ST + '/cancel').then(function () { toast('Roka ja raha hai…'); }); });
 $('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doUpgrade('#task'); });
-['#auto', '#aapply', '#hrs'].forEach(function (id) { $(id).addEventListener('change', saveSet); });
+['#auto', '#aapply', '#hrs', '#jauto', '#jhrs'].forEach(function (id) { $(id).addEventListener('change', saveSet); });
 $('#mClose').addEventListener('click', closeModal);
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 window.addEventListener('resize', redraw);

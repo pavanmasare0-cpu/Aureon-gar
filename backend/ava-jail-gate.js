@@ -13,7 +13,7 @@
 const { spawnSync } = require('child_process');
 const os = require('os');
 
-const MIN_CODE_LINES = 80;
+const MIN_CODE_LINES = 120;
 const MIN_TEST_CASES = 6;
 const MAX_REPAIRS = 2;
 
