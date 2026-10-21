@@ -97,11 +97,16 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 .cmd .r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cmd input{flex:1 1 100%;min-width:0;background:rgba(8,10,40,.85);border:1px solid var(--bd);border-radius:12px;padding:10px 13px;font-size:13px;outline:0}
 .cmd input:focus{border-color:rgba(120,160,255,.9)}
+.prog{margin:0 14px 8px;padding:10px 12px;border-radius:14px;background:rgba(12,16,60,.8);border:1px solid rgba(110,130,255,.45)}
+.pbar{height:7px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}.pbar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--a1),var(--a2),var(--a3));transition:width .6s}
+.ptx{font-size:12px;margin-top:7px;color:var(--tx)}.plog{font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--mu2);margin-top:5px;max-height:78px;overflow:hidden}.plog div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sz{background:rgba(8,10,40,.85);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:7px 8px;font-size:11.5px}
 .cmd .m{font-size:11.5px;margin:7px 4px 0;min-height:15px;color:var(--mu)}
 .ok{color:var(--ok)}.er{color:var(--bad)}
 
 /* ---------- variants ---------- */
-.vgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:0 14px 14px;flex:1;min-height:0}
+.vgrid{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 40px) / 5.3);scroll-snap-type:x proximity;gap:10px;padding:0 14px 14px;flex:1;min-height:0;overflow-x:auto}
+.vc.gen b{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vc{border-radius:15px;padding:9px 8px;text-align:center;background:rgba(12,15,50,.72);border:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:0;overflow:hidden}
 .vc.act{border-color:#b18cff;box-shadow:0 0 20px rgba(177,140,255,.5),inset 0 0 16px rgba(177,140,255,.1)}
 .vc .va{width:50px;height:50px;flex:none;border-radius:50%;background:radial-gradient(circle at 35% 28%,#fff,var(--c1) 24%,var(--c2) 75%);box-shadow:0 0 16px var(--c1);position:relative}
@@ -213,7 +218,6 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       <button data-v="home" class="on"><svg class="ic"><use href="#i-home"/></svg>Ava ki Duniya</button>
       <button data-v="ups"><svg class="ic"><use href="#i-bolt"/></svg>Upgrades<span class="tag" id="tgUps" style="display:none">0</span></button>
       <button data-v="proto"><svg class="ic"><use href="#i-flask"/></svg>Prototypes</button>
-      <button data-v="codev"><svg class="ic"><use href="#i-code"/></svg>Ava Code</button>
     </nav>
     <div class="panel acard">
       <div class="row"><div class="av"></div><div><b id="acName">Ava - Kiddo</b><small>Active Variant</small></div></div>
@@ -239,11 +243,12 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
         <div class="empty-orbit" id="emptyOrbit" style="display:none">Abhi koi prototype nahi — neeche <b>🧪 Prototype</b> dabao, wo is circle ke around aa jayega.</div>
         <div class="cmd">
           <div class="r">
-            <input id="task" type="text" maxlength="300" placeholder="Ava ko kaam do (optional) — goal ya brief likho, khali chhodo to Ava khud chunegi" autocomplete="off">
-            <button class="btn" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade likho</button>
-            <button class="btn g" id="bUi"><svg class="ic"><use href="#i-pen"/></svg>Best UI chuno</button>
+            <input id="task" type="text" maxlength="300" placeholder="Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi" autocomplete="off">
+            <button class="btn" id="bGo"><svg class="ic"><use href="#i-bolt"/></svg>Kaam do</button>
+            <button class="btn g" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade</button>
             <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
-            <button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
+            <select id="tgt" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
+            <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
             <button class="btn d" id="bStop" style="display:none">Roko</button>
           </div>
           <div class="m" id="msg"></div>
@@ -251,12 +256,13 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       </section>
 
       <section class="panel vars">
-        <div class="ph"><div><h3>Ava Variants</h3><small>Different moods. Same purpose. Clone dabao — Ava us mood ka naya prototype banayegi.</small></div></div>
+        <div class="ph"><div><h3>Ava Variants</h3><small>Different moods. Clone dabao — Ava us mood ka naya variant banayegi, wo yahin neeche aa jaayega.</small></div></div>
         <div class="vgrid" id="vgrid"></div>
       </section>
 
       <section class="panel code" id="pCode">
         <div class="ph"><div><h3>Ava ka Code — live</h3><small id="codeSub">Ava jo likhti hai, yahin dikhta hai</small></div><div class="grow"></div><span class="pill idle" id="codePill"><i></i><span>idle</span></span></div>
+        <div class="prog" id="prog" style="display:none"><div class="pbar"><i id="pbarI"></i></div><div class="ptx" id="ptx"></div><div class="plog" id="plog"></div></div>
         <div class="csel" id="csel"></div>
         <div class="cmeta" id="cmeta"></div>
         <div class="codebox" id="codebox"><div class="empty">Ava ne abhi koi code nahi likha.<br>⚡ <b>Upgrade likho</b> ya 🧪 <b>Prototype</b> dabao — uska code yahin live dikhega.</div></div>
@@ -278,6 +284,8 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
             <div class="setrow"><label><input type="checkbox" id="auto"> Ava khud har</label><input type="number" id="hrs" min="1" max="48" value="6"><span class="meta">ghante me upgrade likhe (proposal banta hai, tum Approve karte ho)</span></div>
             <div class="setrow"><label><input type="checkbox" id="aapply"> Chhote <b>low-risk widget (ava-bot.js)</b> changes khud live ho jaayein</label></div>
             <div class="setrow"><label><input type="checkbox" id="jauto"> Ava khud har</label><input type="number" id="jhrs" min="1" max="48" value="6"><span class="meta">ghante me bina brief ke naya prototype banaye (gallery me, kahin apply nahi)</span></div>
+            <div class="setrow"><label><input type="checkbox" id="uauto"> Ava khud har</label><input type="number" id="uhrs" min="1" max="168" value="12"><span class="meta">ghante me apni marzi ka best UI design banaye (3 design, khud judge, best rakhe — sirf gallery me)</span></div>
+            <div class="setrow"><label><input type="checkbox" id="pauto"> Ava khud har</label><input type="number" id="phrs" min="2" max="720" value="24"><span class="meta">ghante me naya project shuru kare (~30k lines, ek samay me ek hi job, sirf gallery me)</span></div>
             <div class="meta" id="lastauto"></div></div>
           <div class="card"><h4>GitHub</h4><div class="meta" id="ghline"></div></div>
           <div class="card"><h4>Surakshit files</h4><div class="meta" id="prot"></div></div>
@@ -293,18 +301,13 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
     <section class="view panel" id="v-proto" style="grid-template-rows:auto minmax(0,1fr)">
       <div class="ph"><div><h3>Ava ki Duniya — Prototype Workshop</h3><small>Ava yahan khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Pasand aaye to code download karo.</small></div></div>
       <div class="vbody">
-        <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><button class="btn g" id="bUi2"><svg class="ic"><use href="#i-pen"/></svg>Best UI chuno</button><button class="btn g" id="bProj2"><svg class="ic"><use href="#i-code"/></svg>Pura project</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
+        <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><select id="tgt2" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj2"><svg class="ic"><use href="#i-code"/></svg>Pura project</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
         <div class="meta" id="msg2" style="min-height:17px;margin-bottom:10px"></div>
         <div class="filters" id="filters"></div>
         <div class="pgrid" id="pgrid"></div>
       </div>
     </section>
 
-    <!-- ================= AVA CODE (APK Studio) ================= -->
-    <section class="view panel" id="v-codev" style="grid-template-rows:auto minmax(0,1fr)">
-      <div class="ph"><div><h3>Ava Code</h3><small>App likhwao aur APK banwao</small></div></div>
-      <div id="codeHost" style="display:flex;min-height:0"></div>
-    </section>
   </main>
 
   <footer class="foot"><span><b id="ftName">Ava-Kiddo</b> • Learning • Creating • Growing • Together</span><span>Big dreams × Better plans × You &amp; Ava ♡</span></footer>
@@ -334,14 +337,15 @@ var VARS = [
   { n: 'Ava-Shadow', t: 'Focused · Silent', pal: ['#8b5cff', '#6d28d9', '#f472b6'], brief: 'focused silent dark hacker-mode assistant widget', q: 'Silent mode. Command me.' },
   { n: 'Ava-Pro', t: 'Strategic · Future', pal: ['#3ee0a0', '#38d6ff', '#fde68a'], brief: 'strategic futuristic pro-mode assistant widget with insights', q: "Let's build the future, Pavan." }
 ];
-var JCAT = { ui: ['🎨', '#8b7bff'], security: ['🛡️', '#ef6a6a'], utility: ['🔧', '#f5b740'], game: ['🎮', '#4fd1c5'], other: ['🧩', '#9aa0ab'] };
+var JCAT = { ui: ['🎨', '#8b7bff'], security: ['🛡️', '#ef6a6a'], utility: ['🔧', '#f5b740'], game: ['🎮', '#4fd1c5'], other: ['🧩', '#9aa0ab'], apk: ['📱', '#34d399'] };
 
 var ST = '/api/sentinel/ava-studio';
 var S = { studio: { running: false }, studioWas: false, vi: Math.max(0, Math.min(3, +lsGet('ava_variant_i', 0) || 0)), state: null, jail: [], ops: 0, serverBusy: false, focus: null, view: 'home', seen: {}, filter: 'all', lastOk: 0 };
 function P() { return VARS[S.vi]; }
-function working() { return S.ops > 0 || S.serverBusy || !!(S.studio && S.studio.running); }
+function apkActive() { return (S.apkJobs || []).some(function (a) { return ['generating', 'committing', 'queued', 'building'].indexOf(a.status) >= 0; }); }
+function working() { return S.ops > 0 || S.serverBusy || !!(S.studio && S.studio.running) || apkActive(); }
 function jOf(id) { return S.jail.filter(function (x) { return x.id === id; })[0]; }
-function codeUrl(j) { return (j.studio ? ST + '/' : AVA + '/jail/') + j.id + '/code'; }
+function codeUrl(j) { if (j.apk) return '/api/apk/jobs/' + j.jobId + '/download'; return (j.studio ? ST + '/' : AVA + '/jail/') + j.id + '/code'; }
 function delUrl(j) { return (j.studio ? ST + '/' : AVA + '/jail/') + j.id; }
 
 /* ------------------------------------------------------------ api */
@@ -379,8 +383,8 @@ function renderWork() {
   document.body.classList.toggle('busy', w);
   var pill = $('#workPill'); pill.className = 'pill ' + (w ? 'work' : 'idle'); $('#workTx').textContent = w ? 'Ava kaam kar rahi hai…' : 'Ava ruki hui hai';
   var cp = $('#codePill'); cp.className = 'pill ' + (w ? 'work' : 'idle'); $('span', cp).textContent = w ? 'LIVE' : 'idle';
-  ['#bUp', '#bUi', '#bProto', '#bUi2', '#bProto2', '#bProj', '#bProj2'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
-  var bs = $('#bStop'); if (bs) bs.style.display = S.studio && S.studio.running ? '' : 'none';
+  ['#bGo', '#bUp', '#bProto', '#bProto2', '#bProj', '#bProj2', '#bApk'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
+  var bs = $('#bStop'); if (bs) bs.style.display = (S.studio && S.studio.running) || (S.state && S.state.jailPending > 0) ? '' : 'none';
   orb = w ? 'thinking' : 'idle'; redraw();
 }
 function applyVariant() {
@@ -389,10 +393,19 @@ function applyVariant() {
   $('#brandName').textContent = p.n; $('#ftName').textContent = p.n; $('#acName').textContent = p.n.replace('-', ' - '); $('#acQuote').textContent = p.q;
   document.title = 'Ava Desktop · ' + p.n; redraw(); renderVars();
 }
+function isVariant(j) { return /^Variant "/.test(j.brief || ''); }
+function moodOf(j) { var m = String(j.brief || '').match(/^Variant "([^"]+)"/); var k = m && VARS.filter(function (v) { return v.n === m[1]; })[0]; return k || VARS[0]; }
 function renderVars() {
-  $('#vgrid').innerHTML = VARS.map(function (v, i) {
+  var base = VARS.map(function (v, i) {
     return '<div class="vc' + (i === S.vi ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b>' + v.n + '</b><small>' + v.t + '</small><div class="bt"><button class="btn g s" data-a="pick" data-i="' + i + '">' + (i === S.vi ? 'Active ✓' : 'Select') + '</button><button class="btn s" data-a="clone" data-i="' + i + '">✨ Clone</button></div></div>';
   }).join('');
+  var gen = (S.jail || []).filter(isVariant).sort(function (a, b) { return Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0); }).map(function (j) {
+    var v = moodOf(j), c = JCAT[j.category] || JCAT.other;
+    return '<div class="vc gen' + (S.focus && S.focus.id === j.id ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b title="' + esc(j.title) + '">' + esc(j.title) + '</b><small>' + c[0] + ' ' + esc(v.n) + ' · naya variant</small><div class="bt"><button class="btn g s" data-k="j" data-focus="' + esc(j.id) + '">Code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">👁 Preview</button>' : '<a class="btn s" href="' + codeUrl(j) + '" download>⬇ Code</a>') + '</div></div>';
+  }).join('');
+  var vg = $('#vgrid'), prev = S.genN || 0, n = (S.jail || []).filter(isVariant).length;
+  vg.innerHTML = base + gen; S.genN = n;
+  if (n > prev && S.loaded) vg.scrollLeft = vg.scrollWidth;
 }
 
 /* ------------------------------------------------------------ data */
@@ -400,24 +413,44 @@ function protoList() { return (S.jail || []).slice().sort(function (a, b) { retu
 function pending() { return S.state ? (S.state.proposals || []).filter(function (p) { return p.status === 'pending'; }) : []; }
 function loadAll() {
   var soft = function (u) { return jget(u).catch(function (e) { if (e && e.session) throw e; return null; }); };
-  return Promise.all([jget(AVA + '/state'), jget(AVA + '/jail/list'), soft(ST + '/list'), soft(ST + '/status')]).then(function (a) {
+  return Promise.all([jget(AVA + '/state'), jget(AVA + '/jail/list'), soft(ST + '/list'), soft(ST + '/status'), soft('/api/apk/jobs')]).then(function (a) {
     var studioList = Array.isArray(a[2]) ? a[2] : [];
-    S.state = a[0]; S.jail = (Array.isArray(a[1]) ? a[1] : []).concat(studioList); S.studio = a[3] || { running: false };
+    S.apkJobs = Array.isArray(a[4]) ? a[4].filter(function (x) { return x.kind === 'generated'; }) : [];
+    var apkEntries = S.apkJobs.map(function (x) { return { id: 'apk_' + x.id, jobId: x.id, apk: true, kind: 'apk', category: 'apk', title: x.name || 'App', description: x.status === 'done' ? 'APK tayyar — download karo' : x.status === 'failed' ? 'Fail: ' + String(x.error || '').slice(0, 140) : (x.step || x.status), status: x.status, createdAt: x.createdAt, sandbox: { ok: x.status !== 'failed' }, hasCode: x.status === 'done', runUrl: x.runUrl }; });
+    S.state = a[0]; S.jail = (Array.isArray(a[1]) ? a[1] : []).concat(studioList).concat(apkEntries); S.studio = a[3] || { running: false };
     S.serverBusy = !!(a[0] && (a[0].busy || a[0].jailPending > 0)); S.lastOk = Date.now();
     studioDone();
+    var ss = (S.studio && S.studio.settings) || {}; $('#uauto').checked = !!ss.autoUi; $('#pauto').checked = !!ss.autoProject; if (document.activeElement !== $('#phrs')) $('#phrs').value = ss.projectHours || 24; if (document.activeElement !== $('#uhrs')) $('#uhrs').value = ss.uiHours || 12;
     renderAll();
   }).catch(function (e) { if (e.session) toast(e.message, 7000); else console.error('loadAll', e && e.stack || e); });
 }
-function studioDone() { // running -> finished transition: tell the owner and focus the new result
+function elapsed(t) { var m = Math.floor((Date.now() - t) / 60000); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' ghanta ' + (m % 60) + ' min'; }
+function renderProg() { // the visible "what is Ava doing right now" panel
+  var st = S.studio || {}, q = S.state && S.state.jailPending > 0, up = S.ops > 0, box = $('#prog');
+  var ap = (S.apkJobs || []).filter(function (a) { return ['generating', 'committing', 'queued', 'building'].indexOf(a.status) >= 0; })[0];
+  var on = st.running || q || up || ap; box.style.display = on ? '' : 'none'; if (!on) return;
+  var pct = ap && !st.running ? ({ generating: 25, committing: 45, queued: 55, building: 75 }[ap.status] || 30) : st.running ? (st.target > 0 ? Math.min(99, 100 * st.lines / st.target) : (st.total ? 100 * st.done / st.total : 8)) : 12;
+  $('#pbarI').style.width = Math.max(4, pct).toFixed(0) + '%';
+  var tx = st.running ? (st.kind === 'ui' ? '🎨 UI design' : '🏗 Project') + ': ' + (st.step || '') + (st.target > 0 ? ' · ' + st.lines + ' / ' + st.target + ' lines' : '') + ' · ' + st.calls + ' AI calls · ' + elapsed(st.startedAt) + (st.waitingUntil > Date.now() ? ' · ⏳ AI quota wait' : '')
+    : ap ? '📱 APK "' + ap.name + '": ' + (ap.step || ap.status) : q ? '🕓 Prototype ' + S.state.jailPending + ' queue me — Ava likh rahi hai ya AI quota ka wait (har 10 min retry). "Roko" se queue saaf hoti hai.' : '⚡ Ava upgrade likh rahi hai…';
+  $('#ptx').textContent = tx;
+  $('#plog').innerHTML = (st.log || []).slice(-5).map(function (l) { return '<div>' + esc(l.m) + '</div>'; }).join('');
+}
+function studioDone() { // running -> finished transition + live follow of the file Ava is writing
   var st = S.studio || {};
-  if (st.running) { setMsg('🏗 ' + (st.step || 'Ava kaam kar rahi hai') + (st.total ? ' · ' + st.done + '/' + st.total + ' files' : ''), ''); }
+  if (st.running) {
+    setMsg('🏗 ' + (st.step || 'Ava kaam kar rahi hai'), '');
+    if (st.entryId && S.follow !== st.entryId && jOf(st.entryId)) { S.follow = st.entryId; S.lastFollowPath = null; S.focus = { kind: 'j', id: st.entryId }; showFocus(); renderCodeSel(); }
+    else if (S.focus && S.focus.id === st.entryId && st.lastPath && st.lastPath !== S.lastFollowPath) { S.lastFollowPath = st.lastPath; var jj = jOf(st.entryId); if (jj) { if (jj.kind === 'project') S.pfile = { id: jj.id, path: st.lastPath }; showFocus(); } }
+  } else if (S.state && S.state.jailPending > 0) setMsg('🕓 Prototype queue me (' + S.state.jailPending + ') — Ava likh rahi hai / AI quota ka wait', '');
   if (S.studioWas && !st.running) {
+    S.follow = null;
     if (st.error) setMsg('❌ ' + st.error, 'er');
     else if (st.entryId) { setMsg('✅ ' + (st.step || 'Ho gaya'), 'ok'); toast('Ava ne naya kaam gallery me rakha'); setFocus('j', st.entryId); }
   }
   S.studioWas = !!st.running;
 }
-function renderAll() { renderWork(); renderStats(); renderMinds(); renderSats(); renderCodeSel(); renderUps(); renderUpsView(); renderProtoView(); autoFocus(); }
+function renderAll() { renderVars(); renderWork(); renderProg(); renderStats(); renderMinds(); renderSats(); renderCodeSel(); renderUps(); renderUpsView(); renderProtoView(); autoFocus(); }
 function renderStats() {
   var s = S.state, np = pending().length;
   $('#stPend').textContent = s ? np : '—'; $('#stVer').textContent = s ? 'v' + s.version : '—'; $('#stProto').textContent = S.jail.length;
@@ -433,7 +466,7 @@ function renderMinds() {
 
 /* ------------------------------------------------------------ prototypes around the orb */
 function renderSats() {
-  var list = protoList().slice(0, 8), box = $('#sats'), n = list.length;
+  var list = protoList().filter(function (j) { return !isVariant(j); }).slice(0, 8), box = $('#sats'), n = list.length;
   $('#emptyOrbit').style.display = n ? 'none' : '';
   box.innerHTML = list.map(function (j, i) {
     var c = JCAT[j.category] || JCAT.other, a = (-90 + 20 + i * (360 / Math.max(n, 6))) * Math.PI / 180;
@@ -487,6 +520,12 @@ function renderCodeSel() {
   protoList().slice(0, 4).forEach(function (j) { items.push({ k: 'j', id: j.id, t: ((JCAT[j.category] || JCAT.other)[0]) + ' ' + j.title }); });
   $('#csel').innerHTML = items.map(function (it) { return '<button data-k="' + it.k + '" data-id="' + esc(it.id) + '" class="' + (S.focus && S.focus.id === it.id ? 'on' : '') + '" title="' + esc(it.t) + '">' + esc(it.t) + '</button>'; }).join('');
 }
+function pfPicker(j) {
+  var all = (S.pfiles && S.pfiles[j.id]) || j.files || [], cur = S.pfile && S.pfile.id === j.id ? S.pfile.path : '';
+  if ((j.fileCount || all.length) <= 14) return all.map(function (f) { return '<button class="btn g s" data-pf="' + esc(f.path) + '">' + esc(f.path.split('/').pop()) + '</button>'; }).join('');
+  return '<select class="sz" data-pfsel="1" style="max-width:260px">' + all.map(function (f) { return '<option value="' + esc(f.path) + '"' + (f.path === cur ? ' selected' : '') + '>' + esc(f.path) + ' (' + f.lines + ')</option>'; }).join('') + '</select>';
+}
+function loadPfiles(j) { if (j.studio && j.kind === 'project' && j.fileCount > 14) jget(ST + '/' + j.id + '/files').then(function (r) { S.pfiles = S.pfiles || {}; S.pfiles[j.id] = r.files || []; if (S.focus && S.focus.id === j.id) { var m = $('#cmeta'); if (m && m.querySelector('select')) { var sel = m.querySelector('select'), cur = sel.value; sel.outerHTML = pfPicker(j).replace('<select', '<select'); } } }).catch(function () { /* ignore */ }); }
 function showFile(j, fpath) {
   var f = S.focus, u = j.studio ? ST + '/' + j.id + '/file' + (j.kind === 'project' ? '?path=' + encodeURIComponent(fpath || '') : '') : AVA + '/jail/' + j.id + '/code';
   if (j.kind === 'project') S.pfile = { id: j.id, path: fpath };
@@ -496,11 +535,13 @@ function showFocus() {
   var f = S.focus; if (!f) return; var meta = $('#cmeta'), sub = $('#codeSub');
   if (f.kind === 'j') {
     var j = S.jail.filter(function (x) { return x.id === f.id; })[0]; if (!j) return;
+    if (j.apk) { sub.textContent = 'APK: ' + j.title; meta.innerHTML = '<span class="b ' + (j.status === 'failed' ? 'high' : 'low') + '">' + esc(j.status) + '</span>' + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + 'APK download</a>' : '') + '<a class="btn g s" href="/api/apk/jobs/' + esc(j.jobId) + '/source" download>' + ic('code') + 'Source</a>' + (j.runUrl ? '<a class="btn g s" target="_blank" rel="noopener" href="' + esc(j.runUrl) + '">Build logs</a>' : ''); $('#codebox').innerHTML = '<div class="empty">' + esc(j.description) + '</div>'; return; }
     sub.textContent = 'Prototype: ' + j.title;
     meta.innerHTML = '<span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="b">' + esc(j.category || 'other') + '</span><span>' + when(j.createdAt) + '</span>' +
-      (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.kind === 'project' && j.files ? j.files.map(function (f) { return '<button class="btn g s" data-pf="' + esc(f.path) + '">' + esc(f.path.split('/').pop()) + '</button>'; }).join('') : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
+      (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.kind === 'project' ? pfPicker(j) : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
     if (!j.hasCode) { $('#codebox').innerHTML = '<div class="empty">(code gaya — ye prototype ka code ab store me nahi hai)</div>'; return; }
     $('#codebox').innerHTML = '<div class="empty">Ava ka code load ho raha hai…<span class="cursor"></span></div>';
+    loadPfiles(j);
     showFile(j, j.kind === 'project' ? (S.pfile && S.pfile.id === j.id ? S.pfile.path : ((j.files || []).filter(function (x) { return /\.js$/.test(x.path); })[0] || (j.files || [])[0] || {}).path) : '');
     return;
   }
@@ -578,7 +619,7 @@ function renderProtoView() {
     var c = JCAT[j.category] || JCAT.other, id = esc(j.id);
     return '<div class="pcard" style="--c:' + c[1] + '"><div class="av">' + c[0] + '</div><span class="cat">' + esc(j.category || 'other') + '</span><h5>' + esc(j.title) + '</h5><p>' + esc(j.description) + '</p>' +
       '<div class="setrow" style="margin:0"><span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="meta">' + when(j.createdAt) + '</span></div>' +
-      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + 'Live code</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button></div></div>';
+      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + (j.apk ? 'Status' : 'Live code') + '</button>' + (j.apk && j.hasCode ? '<button class="btn s" data-apkrev="' + esc(j.jobId) + '">✏ Badlao</button>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.apk ? '' : '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button>') + '</div></div>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">🌙 Abhi Ava ki duniya khaali hai — pehla prototype banao!</div>';
 }
 
@@ -598,16 +639,50 @@ function doUpgrade(src) {
     });
   }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var p = pending()[0]; if (p) setFocus('p', p.id); });
 }
-function studioStart(kind, src, label) {
+function studioStart(kind, src, label, tgt, forced) {
   var b = taskText(src); if (!guardOk(b)) return;
   setMsg(label); setBubble(label);
-  jpost(ST + '/start', { kind: kind, brief: b }).then(function (r) {
+  jpost(ST + '/start', { kind: kind, brief: b, targetLines: forced || +(($(tgt) || {}).value) || 8000 }).then(function (r) {
     if (!r.ok) { setMsg('❌ ' + (r.j.error || r.status), 'er'); return; }
     S.studio = { running: true, step: 'start' }; S.studioWas = true; renderWork(); loadAll();
   }).catch(function (e) { setMsg('Error: ' + e.message, 'er'); });
 }
-function doDesign(src) { studioStart('ui', src, 'Ava 3 UI design bana rahi hai, phir khud judge karke best chunegi… (3–6 min)'); }
-function doProject(src) { studioStart('project', src, 'Ava pura project plan karke file-by-file likh rahi hai… (kuch minute, progress yahin dikhega)'); }
+function doProject(src, forced) { studioStart('project', src, 'Ava pura project plan karke file-by-file likh rahi hai… progress Code panel me live dikhega, background me chalta rahega.', src === '#task2' ? '#tgt2' : '#tgt', forced); }
+function doApk(src) {
+  var b = taskText(src); if (!guardOk(b)) return;
+  if (b.length < 8) { setMsg('APK ke baare me thoda likho: kaisa app, kya features (kam se kam 8 akshar).', 'er'); return; }
+  setMsg('📱 Ava app likh rahi hai, phir APK build hogi (5–10 min) — progress yahin dikhega.'); setBubble('APK ka kaam shuru!');
+  jpost('/api/apk/generate', { prompt: b }).then(function (r) {
+    if (!r.ok) { setMsg('❌ ' + (r.j.error || r.status), 'er'); return; }
+    toast('APK build shuru'); loadAll();
+  }).catch(function (e) { setMsg('Error: ' + e.message, 'er'); });
+}
+/* Ava reads what you typed and picks the right job: APK / project / UI design / upgrade / prototype. */
+function sizeIn(t) {
+  var m = String(t).toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(million|mil|m\b|lakh|lac|k\b|thousand|hazaar|lines?)/);
+  if (!m) return 0; var n = parseFloat(m[1].replace(',', '.')), u = m[2];
+  var v = /million|mil|^m$/.test(u) ? n * 1e6 : /lakh|lac/.test(u) ? n * 1e5 : /^k$|thousand|hazaar/.test(u) ? n * 1e3 : n;
+  return Math.max(2000, Math.min(1000000, Math.round(v)));
+}
+function intentOf(t) {
+  var x = String(t || '').toLowerCase();
+  if (!x.trim()) return 'upgrade';
+  if (/\b(apk|android app|mobile app|app banao|app bana|app build|ek app|application)\b/.test(x)) return 'apk';
+  if (/\b(upgrade|improve|apna code|khud ko|ava ko behtar|bug fix|fix kar)\b/.test(x)) return 'upgrade';
+  if (/\b(project|system|backend|api|library|framework|engine|cli|toolkit|platform|service|scheduler|compiler|server|bot|database|lines)\b/.test(x) || sizeIn(x)) return 'project';
+  if (/\b(ui|design|screen|interface|landing|dashboard|theme)\b/.test(x)) return 'ui';
+  return 'prototype';
+}
+var INTENT_TX = { apk: '📱 Samjha: APK banana hai', project: '🏗 Samjha: pura project banana hai', ui: '🎨 Samjha: UI design banana hai', upgrade: '⚡ Samjha: apna upgrade likhna hai', prototype: '🧪 Samjha: prototype banana hai' };
+function doAuto(src) {
+  var t = taskText(src), k = intentOf(t); if (!guardOk(t)) return;
+  setMsg(INTENT_TX[k]);
+  if (k === 'apk') doApk(src);
+  else if (k === 'project') { var sz = sizeIn(t); doProject(src, sz || undefined); }
+  else if (k === 'ui') studioStart('ui', src, 'Ava 3 UI design bana rahi hai, khud judge karke best chunegi…');
+  else if (k === 'upgrade') doUpgrade(src);
+  else doProto(src);
+}
 function doProto(src, brief) {
   var b = brief != null ? brief : taskText(src); if (!guardOk(b)) return;
   run('Ava naya prototype design kar rahi hai… (30–60 sec)', function () {
@@ -622,6 +697,7 @@ function hist(a, id) {
   if (a === 'rollback' && !confirm('Is upgrade ko wapas undo karein?')) return;
   jpost(AVA + '/history/' + id + '/' + a).then(function (r) { toast(r.ok ? (a === 'rollback' ? '↩ Rollback ho gaya (server restart par chalega)' : '✅ ho gaya') : '❌ ' + (r.j.error || r.status)); loadAll(); });
 }
+function saveUi() { jpost(ST + '/settings', { autoUi: $('#uauto').checked, uiHours: $('#uhrs').value, autoProject: $('#pauto').checked, projectHours: $('#phrs').value }).then(function (r) { toast(r.ok ? '✅ UI auto setting save' : '❌ save nahi hua'); loadAll(); }); }
 function saveSet() {
   jpost(AVA + '/settings', { auto: $('#auto').checked, autoApply: $('#aapply').checked, hours: $('#hrs').value, jailAuto: $('#jauto').checked, jailHours: $('#jhrs').value }).then(function (r) { toast(r.ok ? '✅ Settings save' : '❌ save nahi hua'); loadAll(); });
 }
@@ -640,7 +716,6 @@ function openView(v) {
   $$('.view').forEach(function (el) { el.classList.remove('on'); });
   $(v === 'home' ? '#home' : '#v-' + v).classList.add('on');
   $$('#nav button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
-  if (v === 'codev' && !$('#codeHost iframe')) $('#codeHost').innerHTML = '<iframe class="wf" src="/api/apk/studio" title="Ava Code"></iframe>';
   redraw();
 }
 
@@ -714,6 +789,8 @@ document.addEventListener('click', function (e) {
   if ((el = t.closest('[data-d]'))) { decide(el.getAttribute('data-id'), el.getAttribute('data-d')); return; }
   if ((el = t.closest('[data-h]'))) { hist(el.getAttribute('data-h'), el.getAttribute('data-id')); return; }
   if ((el = t.closest('[data-restore]'))) { var n = el.getAttribute('data-restore'); if (confirm('Ava v' + n + ' par wapas jaana hai? Usse naye saare upgrades undo honge.')) jpost(AVA + '/versions/' + n + '/restore').then(function (r) { toast(r.ok ? '⏪ Ava v' + n + ' par wapas (server restart par chalega)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
+  if ((el = t.closest('[data-pfsel]'))) return;
+  if ((el = t.closest('[data-apkrev]'))) { var ins = prompt('APK app me kya badalna hai?'); if (ins && guardOk(ins)) jpost('/api/apk/jobs/' + el.getAttribute('data-apkrev') + '/revise', { instruction: ins }).then(function (r) { toast(r.ok ? 'Badlav shuru' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
   if ((el = t.closest('[data-pf]'))) { var pj2 = S.focus && jOf(S.focus.id); if (pj2) showFile(pj2, el.getAttribute('data-pf')); return; }
   if ((el = t.closest('[data-pv]'))) { openPreview(el.getAttribute('data-pv')); return; }
   if ((el = t.closest('[data-del]'))) { if (confirm('Ye prototype gallery se hata dein?')) af(delUrl(jOf(el.getAttribute('data-del')) || { id: el.getAttribute('data-del') }), { method: 'DELETE' }).then(loadAll); return; }
@@ -730,17 +807,19 @@ document.addEventListener('click', function (e) {
   if (t.closest('#bMerge')) { if (confirm('Ava ki branch main me merge hogi aur Render naya code deploy karega. Diff dekh liya? Merge karein?')) jpost(AVA + '/github/merge').then(function (r) { toast(r.ok ? (r.j.merged ? '✅ Merge ho gaya — Render deploy shuru karega' : 'ℹ ' + (r.j.note || 'ho gaya')) : '❌ ' + (r.j.error || r.status)); }); return; }
 });
 $('#bUp').addEventListener('click', function () { doUpgrade('#task'); });
-$('#bUi').addEventListener('click', function () { doDesign('#task'); });
 $('#bProto').addEventListener('click', function () { doProto('#task'); });
-$('#bUi2').addEventListener('click', function () { doDesign('#task2'); });
 $('#bProto2').addEventListener('click', function () { doProto('#task2'); });
 $('#bProj').addEventListener('click', function () { doProject('#task'); });
 $('#bProj2').addEventListener('click', function () { doProject('#task2'); });
-$('#bStop').addEventListener('click', function () { jpost(ST + '/cancel').then(function () { toast('Roka ja raha hai…'); }); });
-$('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doUpgrade('#task'); });
+$('#bStop').addEventListener('click', function () { jpost(ST + '/cancel').then(function () { return jpost(AVA + '/jail/queue/clear'); }).then(function () { toast('Roka ja raha hai…'); loadAll(); }); });
+$('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doAuto('#task'); });
+$('#bGo').addEventListener('click', function () { doAuto('#task'); });
+$('#bApk').addEventListener('click', function () { doApk('#task'); });
 ['#auto', '#aapply', '#hrs', '#jauto', '#jhrs'].forEach(function (id) { $(id).addEventListener('change', saveSet); });
+['#uauto', '#uhrs', '#pauto', '#phrs'].forEach(function (id) { $(id).addEventListener('change', saveUi); });
 $('#mClose').addEventListener('click', closeModal);
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('change', function (e) { var el = e.target; if (el && el.getAttribute && el.getAttribute('data-pfsel')) { var pj = S.focus && jOf(S.focus.id); if (pj) showFile(pj, el.value); } });
 window.addEventListener('resize', redraw);
 if (window.ResizeObserver) new ResizeObserver(redraw).observe($('#heroCv'));
 document.addEventListener('visibilitychange', function () { if (!document.hidden) loadAll(); });

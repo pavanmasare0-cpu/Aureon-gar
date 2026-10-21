@@ -195,19 +195,35 @@ function factory(opts) {
   }
 
   // ---------------- AI generation
-  async function generate(args, tries) {
+  // Gemini first; when it is out of quota / key invalid / overloaded -> Groq (plain text) so a build never dies on one provider.
+  const RATE = /quota|rate.?limit|429|resource_exhausted|too many requests|overloaded|unavailable|503|timeout|api key not valid|all \d+ keys failed/i;
+  async function askAI(user) {
+    let gemErr = null;
+    try { const out = await callGemini([{ role: 'user', content: user }], SYSTEM, false); if (typeof out === 'string' && out.trim()) return out; gemErr = new Error('Gemini ne khaali jawab diya'); }
+    catch (e) { gemErr = e; }
+    try { return await require('./llm-text').groqText(user, { system: SYSTEM, maxTokens: 24000 }); }
+    catch (e) { throw new Error('Gemini: ' + String(gemErr && gemErr.message || '').slice(0, 110) + ' | Groq: ' + String(e.message).slice(0, 110)); }
+  }
+  const REVIEW = 'You are now a senior mobile engineer + product designer doing a final review of the app below. Silently find the 8 weakest points (broken or dead interactions, missing validation, edge cases, empty/loading/error states, back-button handling, spacing/contrast/hierarchy, perceived polish, performance) and FIX them all. Return the COMPLETE improved app in the exact same output format (===META=== ... ===FILE index.html=== ... ===END===). Keep everything that works, keep it offline-capable and compact, and make sure it ends with </html>.\n\nCURRENT APP:\n';
+  async function generate(args, tries, onStep) {
     const user = buildUserPrompt(args);
     let lastErr = 'AI se app nahi bana';
-    for (let i = 0; i < (tries || 2); i++) {
+    let draft = null;
+    for (let i = 0; i < (tries || 2) && !draft; i++) {
       const extra = i ? '\n\nIMPORTANT: your previous answer was invalid (' + lastErr + '). Return the complete file in the exact format and make sure it ends with </html>. Make it more compact if needed.' : '';
-      const out = await callGemini([{ role: 'user', content: user + extra }], SYSTEM, false);
-      const text = typeof out === 'string' ? out : '';
+      const text = await askAI(user + extra);
       const parsed = parseGenerated(text);
       const bad = validateFiles(parsed.files);
-      if (!bad) return parsed;
-      lastErr = bad;
+      if (!bad) draft = parsed; else lastErr = bad;
     }
-    throw new Error('AI ka jawab sahi format me nahi aaya (' + lastErr + '). Dobara try karo.');
+    if (!draft) throw new Error('AI ka jawab sahi format me nahi aaya (' + lastErr + '). Dobara try karo.');
+    if (args.existing) return draft;                       // revisions are already a focused edit
+    try {                                                  // quality pass (new apps only); keep the draft if the review is not valid / not better
+      if (onStep) onStep('Ava apna kaam review karke polish kar rahi hai…');
+      const rv = parseGenerated(await askAI(REVIEW + Object.entries(draft.files).map(([n, c]) => '===FILE ' + n + '===\n' + c).join('\n').slice(0, 90000)));
+      if (!validateFiles(rv.files) && rv.files['index.html'].length >= draft.files['index.html'].length * 0.85) return { meta: Object.assign({}, draft.meta, rv.meta), files: rv.files };
+    } catch (e) { /* keep the draft */ }
+    return draft;
   }
 
   // ---------------- job pipeline
@@ -236,7 +252,14 @@ function factory(opts) {
   async function runGenerated(j, args, isRevision) {
     try {
       touch(j, { status: 'generating', step: 'AI app likh raha hai…' });
-      const g = await generate(args, 2);
+      let g = null;
+      for (let attempt = 0; !g; attempt++) {          // patient: if every AI is out of quota, wait and retry (background) instead of failing
+        try { g = await generate(args, 2, (step) => touch(j, { step })); }
+        catch (e) {
+          if (RATE.test(String(e.message)) && attempt < 6) { const wait = Math.min(60000 * 2 ** attempt, 900000); touch(j, { step: '⏳ AI quota/limit — ' + Math.round(wait / 60000) + ' min baad dobara (' + (attempt + 1) + '/6)' }); await new Promise((r) => setTimeout(r, wait)); touch(j, { step: 'AI app likh raha hai…' }); }
+          else throw e;
+        }
+      }
       const name = String((args.name || g.meta.name || j.name || 'My App')).slice(0, 40);
       const color = isHex(g.meta.color) ? g.meta.color : (j.color || '#0E7C66');
       touch(j, { name, color, status: 'committing', step: 'Code GitHub me save ho raha hai…' });
