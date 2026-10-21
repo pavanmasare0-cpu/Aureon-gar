@@ -385,6 +385,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
       }
     } finally { jailRunning = false; }
   }
+  router.post('/jail/queue/clear', async (req, res) => { if (!auth.stepUp(req, res)) return; auth.action(req, 'ava-lab jail queue clear'); const n = jailQueue.length; jailQueue.length = 0; res.json({ ok: true, cleared: n }); });
   router.get('/jail/queue', async (req, res) => { res.json({ pending: jailQueue.length, jobs: jailQueue.map((j) => ({ id: j.id, brief: j.brief, attempts: j.attempts, queuedAt: j.queuedAt })) }); });
 
   router.post('/jail/design', async (req, res) => {
