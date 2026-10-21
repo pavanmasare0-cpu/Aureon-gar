@@ -10,6 +10,7 @@
 // connection is pinned to the address that was checked.
 const dns = require('dns').promises;
 const net = require('net');
+const ti = require('./threatintel');
 const http = require('http');
 const https = require('https');
 const tls = require('tls');
@@ -23,12 +24,13 @@ const BRANDS = [
   ['icici', ['icicibank.com']], ['icicibank', ['icicibank.com']], ['axisbank', ['axisbank.com']], ['kotak', ['kotak.com']], ['pnb', ['pnbindia.in']],
   ['google', ['google.com', 'google.co.in', 'gmail.com']], ['gmail', ['gmail.com', 'google.com']], ['amazon', ['amazon.in', 'amazon.com']], ['flipkart', ['flipkart.com']],
   ['whatsapp', ['whatsapp.com', 'wa.me']], ['instagram', ['instagram.com']], ['facebook', ['facebook.com', 'fb.com']], ['netflix', ['netflix.com']],
-  ['microsoft', ['microsoft.com', 'live.com', 'office.com']], ['apple', ['apple.com', 'icloud.com']], ['paypal', ['paypal.com']], ['irctc', ['irctc.co.in']],
+  ['microsoft', ['microsoft.com', 'live.com', 'office.com', 'office365.com', 'microsoftonline.com', 'outlook.com', 'windows.com']], ['apple', ['apple.com', 'icloud.com']], ['paypal', ['paypal.com']], ['irctc', ['irctc.co.in']],
   ['incometax', ['incometax.gov.in', 'incometaxindia.gov.in']], ['uidai', ['uidai.gov.in']], ['aadhaar', ['uidai.gov.in']], ['jio', ['jio.com']], ['airtel', ['airtel.in']],
   ['github', ['github.com']], ['telegram', ['telegram.org', 't.me']], ['binance', ['binance.com']], ['coinbase', ['coinbase.com']], ['meesho', ['meesho.com']], ['myntra', ['myntra.com']],
 ];
 const OFFICIAL = new Set(BRANDS.flatMap(([, d]) => d));
 const SHORTENERS = new Set(['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'is.gd', 'cutt.ly', 'rb.gy', 'shorturl.at', 'ow.ly', 'bit.do', 'tiny.cc', 'rebrand.ly', 'tinyurl.is', 'v.gd', 'shorte.st', 'adf.ly']);
+const MID_TLD = new Set(['club', 'info', 'pw', 'cc', 'online', 'site', 'live', 'shop', 'store', 'tech', 'fun', 'space', 'website']);   // abused a lot, but also used by honest sites -> small weight
 const RISKY_TLD = new Set(['zip', 'mov', 'tk', 'ml', 'ga', 'cf', 'gq', 'xyz', 'top', 'click', 'link', 'work', 'support', 'rest', 'country', 'buzz', 'cam', 'icu', 'monster', 'cyou', 'sbs', 'bond', 'vip', 'loan', 'win', 'bid', 'men', 'date', 'party']);
 const KEYWORDS = ['login', 'signin', 'verify', 'verification', 'secure', 'update', 'account', 'kyc', 'otp', 'refund', 'claim', 'prize', 'lottery', 'reward', 'freegift', 'free', 'recharge', 'gift', 'bonus', 'helpdesk', 'suspend', 'unlock', 'wallet', 'bank', 'cashback', 'winner', 'offer', 'pan', 'aadhaar', 'electricity', 'bill'];
 const BAD_EXT = ['apk', 'exe', 'scr', 'bat', 'cmd', 'msi', 'jar', 'vbs', 'ps1', 'hta', 'lnk', 'dmg', 'pkg', 'iso', 'dll', 'xapk', 'apks'];
@@ -134,6 +136,7 @@ function staticChecks(u, add, info) {
   const host = u.hostname.toLowerCase(), reg = registrable(host), labels = host.split('.');
   const tld = labels[labels.length - 1], pathq = (u.pathname + u.search).toLowerCase();
   info.domain = reg;
+  const tiDom = ti.matchDomain(host); if (tiDom) add(80, 'HIGH', `Ye domain "${tiDom.domain}" known-malware list (${tiDom.list}) mein hai${tiDom.note ? ' — ' + tiDom.note : ''}`);
   if (u.protocol === 'javascript:' || u.protocol === 'data:' || u.protocol === 'file:') add(80, 'HIGH', `"${u.protocol}" link — ye website nahi, seedha code/file hai`);
   if (u.protocol === 'http:') add(12, 'MEDIUM', 'HTTPS nahi hai (http) — data raste mein padha ja sakta hai');
   if (net.isIP(host)) add(25, 'HIGH', 'Website ka naam nahi, seedha IP address hai — scam links mein aam hai');
@@ -141,6 +144,7 @@ function staticChecks(u, add, info) {
   if (host.includes('xn--')) add(25, 'HIGH', 'Punycode (xn--) domain — dikhne mein asli jaisa nakli naam (homograph) ho sakta hai');
   if (/[^\x00-\x7f]/.test(u.hostname)) add(20, 'HIGH', 'Domain mein non-English akshar hain');
   if (RISKY_TLD.has(tld)) add(12, 'MEDIUM', `".${tld}" extension aksar scam / free domains mein dikhta hai`);
+  else if (MID_TLD.has(tld)) add(8, 'LOW', `".${tld}" extension scam sites mein bhi kaafi dikhta hai`);
   if (SHORTENERS.has(reg)) add(10, 'MEDIUM', 'Short link hai — asli destination chhupa hota hai (neeche expand kiya gaya hai)');
   if (labels.length > 4) add(10, 'MEDIUM', 'Bahut saare subdomains — asli domain chhupane ki chaal');
   if ((host.match(/-/g) || []).length >= 3) add(8, 'MEDIUM', 'Domain mein bahut "-" hain');
@@ -148,7 +152,7 @@ function staticChecks(u, add, info) {
   if (u.port && !['80', '443'].includes(u.port)) add(8, 'MEDIUM', `Alag port (${u.port}) use ho raha hai`);
   if (u.href.length > 120) add(6, 'LOW', 'Bahut lamba URL');
   const kw = KEYWORDS.filter((k) => host.includes(k) || pathq.includes(k));
-  if (kw.length) add(Math.min(24, kw.length * 8), kw.length >= 2 ? 'MEDIUM' : 'LOW', `Shabd jo scam links mein aam hain: ${kw.slice(0, 5).join(', ')}`);
+  if (kw.length) add(Math.min(30, kw.length * 8 + (kw.length >= 3 ? 6 : 0)), kw.length >= 2 ? 'MEDIUM' : 'LOW', `Shabd jo scam links mein aam hain: ${kw.slice(0, 5).join(', ')}`);
   const ext = (u.pathname.split('.').pop() || '').toLowerCase();
   if (BAD_EXT.includes(ext)) add(40, 'HIGH', `Link seedha ".${ext}" file download karwata hai`);
   if (/\.(pdf|jpg|jpeg|png|doc|docx|xls|xlsx|mp4)\.(apk|exe|scr|bat|js|vbs|msi|jar)$/i.test(u.pathname)) add(30, 'HIGH', 'Double extension (jaise .pdf.apk) — file ka asli roop chhupane ki chaal');
@@ -156,7 +160,8 @@ function staticChecks(u, add, info) {
   const tokens = host.split(/[.\-]/);
   for (const [brand, official] of BRANDS) {
     if (official.includes(reg)) { info.officialBrand = brand; break; }
-    const exact = tokens.includes(brand);
+    const hostFlat = host.replace(/[.\-]/g, '');
+    const exact = tokens.includes(brand) || (brand.length >= 6 && hostFlat.includes(brand));   // also catches "income-tax" -> incometax
     const norm = (t) => t.replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/0/g, 'o').replace(/1/g, 'l');   // look-alike letters: rn->m, 0->o ...
     const typo = brand.length >= 5 && tokens.some((t) => t.length >= 5 && t !== brand && (norm(t) === brand || lev(t, brand) === 1));
     if (exact || typo) { add(exact ? 35 : 30, 'HIGH', `"${brand}" jaisa naam hai par ye uski asli site nahi (${reg}) — nakli ho sakti hai`); break; }

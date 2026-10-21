@@ -12,6 +12,12 @@
 //  5. LOCKOUTS    — 5 wrong tries => IP banned 30 min; 25 wrong tries from ANYONE in 10 min
 //                   => no new logins for 15 min (stops distributed guessing).
 //  6. IP ALLOW-LIST (optional), AUDIT LOG, new-device alert e-mail, strict security headers.
+//  7. ROLES (RBAC)  — owner = admin. You can add operators with their own access codes:
+//                   viewer (read only) / analyst (read + triage + scans + block IP) / admin.
+//  8. TAMPER-EVIDENT AUDIT — every audit entry is hash-chained to the previous one; a deleted or
+//                   edited entry breaks the chain and the dashboard shows it.
+//  9. RISK-BASED RE-AUTH — if a session suddenly appears from a different network, every
+//                   state-changing action needs a fresh 2FA code again.
 // Recovery if you lose your phone: set DASH_TOTP_DISABLE=1 on Render, log in, set up 2FA again.
 const crypto = require('crypto');
 const fs = require('fs');
@@ -19,17 +25,20 @@ const path = require('path');
 const express = require('express');
 const store = require('./persist');
 const box = require('./secret-box');
-const { THEME_TAGS } = require('./ui-theme');
+const { THEME_TAGS } = require('./theme-tags');   // optional theme layer (wraps ui-theme.js when present)
 
-const DATA_DIR = path.join(__dirname, 'security-data');
+const DATA_DIR = require('./data-dir').dataDir();
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* read-only disk is fine */ }
 const CFG_FILE = path.join(DATA_DIR, 'dash-auth.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'dash-audit.json');
+const OPS_FILE = path.join(DATA_DIR, 'dash-ops.json');
 const COOKIE = 'aureon_sid';
 const MAX_SESSION_MS = 8 * 3600 * 1000;
 
 let cfg = { totp: { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }, stealth: false, stepUp: false, allowIps: [], idleMin: 30, knownUa: [] };
 let audit = [];
+let ops = [];                // operators: { id, name, role, salt, hash, createdAt, lastLogin, disabled }
+const ROLE_RANK = { viewer: 1, analyst: 2, admin: 3 };
 let hooks = { blockIp() { return false; }, record() {}, alert() {} };
 const sessions = new Map();     // sid -> { iat, last, uaHash, ip }
 const pendings = new Map();     // token -> { ip, t, tries }
@@ -41,11 +50,14 @@ const ready = (async () => {
   await store.whenFirestore(20000);
   const c = await store.load('dash_auth', CFG_FILE);
   if (c.value && typeof c.value === 'object') cfg = Object.assign(cfg, c.value, { totp: Object.assign(cfg.totp, c.value.totp || {}) });
-  if (process.env.DASH_STEALTH !== '1') cfg.stealth = false;   // stealth OFF by default: login page dikhega (404 nahi). Wapas on karna ho to Render env DASH_STEALTH=1
+  cfg.stealth = false;   // stealth removed: login page hamesha dikhega (404 nahi)
   const a = await store.load('dash_audit', AUDIT_FILE);
   if (Array.isArray(a.value)) audit = a.value.slice(-300);
+  const o = await store.load('dash_ops', OPS_FILE);
+  if (Array.isArray(o.value)) ops = o.value;
 })().catch((e) => console.error('[dash-auth] hydrate failed:', e.message));
 
+function saveOps() { ready.then(() => store.save('dash_ops', ops, OPS_FILE)).catch(() => {}); }
 function saveCfg() { ready.then(() => store.save('dash_auth', cfg, CFG_FILE)).catch(() => {}); }
 let auditTimer = null;
 function saveAudit() { if (auditTimer) return; auditTimer = setTimeout(() => { auditTimer = null; ready.then(() => store.save('dash_audit', audit, AUDIT_FILE)).catch(() => {}); }, 2000); }
@@ -64,15 +76,42 @@ function cookies(req) {
   return out;
 }
 const isSecure = (req) => req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+const chainHash = (prev, e) => crypto.createHash('sha256').update(prev + '|' + [e.t, e.ip, e.ua, e.event, e.detail, e.who || ''].join('|')).digest('hex').slice(0, 32);
 function log(req, event, detail) {
-  audit.push({ t: new Date().toISOString(), ip: ipOf(req), ua: String(req.headers['user-agent'] || '').slice(0, 90), event, detail: String(detail || '').slice(0, 160) });
+  const e = { t: new Date().toISOString(), ip: ipOf(req), ua: String(req.headers['user-agent'] || '').slice(0, 90), event, detail: String(detail || '').slice(0, 160), who: (req.auth && req.auth.name) || '' };
+  e.prev = audit.length ? audit[audit.length - 1].h : 'genesis';
+  e.h = chainHash(e.prev, e);
+  audit.push(e);
   if (audit.length > 300) audit.shift();
   saveAudit();
+}
+// walks the retained entries; any edited / removed / re-ordered entry breaks the chain
+function verifyAudit() {
+  for (let i = 0; i < audit.length; i++) {
+    const e = audit[i];
+    if (!e.h) continue;                                   // entries from before the chain existed
+    if (i > 0 && audit[i - 1].h && e.prev !== audit[i - 1].h) return { ok: false, brokenAt: i, at: e.t, why: 'link broken (entry removed or re-ordered)' };
+    if (chainHash(e.prev, e) !== e.h) return { ok: false, brokenAt: i, at: e.t, why: 'entry content was modified' };
+  }
+  return { ok: true, entries: audit.length };
 }
 const normCode = (v) => String(v == null ? '' : v).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();   // phone keyboards / Render env often add spaces, newlines or quotes
 function codeOk(code) {
   const configured = normCode(process.env.SENTINEL_OWNER_CODE);
   return !!configured && typeof code === 'string' && crypto.timingSafeEqual(sha(normCode(code)), sha(configured));
+}
+
+function opHash(code, salt) { return crypto.scryptSync(String(code), salt, 32).toString('hex'); }
+// -> { role, name, opId } | null
+function identify(code) {
+  if (typeof code !== 'string' || !code) return null;
+  if (codeOk(code)) return { role: 'admin', name: 'owner', opId: null };
+  for (const o of ops) {
+    if (o.disabled) continue;
+    const a = Buffer.from(opHash(code, o.salt), 'hex'), b = Buffer.from(o.hash, 'hex');
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return { role: o.role, name: o.name, opId: o.id };
+  }
+  return null;
 }
 
 // ------------------------------------------------------------ TOTP (RFC 6238, SHA-1, 6 digits, 30 s)
@@ -120,13 +159,17 @@ function registerFailure(req, what) {
 }
 
 // ------------------------------------------------------------ sessions
-function createSession(req, res) {
+function createSession(req, res, who) {
+  who = who || { role: 'admin', name: 'owner', opId: null };
   const sid = crypto.randomBytes(32).toString('base64url');
   const now = Date.now(), ua = uaHash(req);
-  sessions.set(sid, { iat: now, last: now, uaHash: ua, ip: ipOf(req) });
+  sessions.set(sid, { iat: now, last: now, uaHash: ua, ip: ipOf(req), role: who.role, name: who.name, opId: who.opId, riskIp: false });
+  req.auth = { name: who.name };
   if (sessions.size > 200) { for (const [k, v] of sessions) if (now - v.last > cfg.idleMin * 60000) sessions.delete(k); }
   res.append('Set-Cookie', `${COOKIE}=${sid}; Path=/api; HttpOnly; SameSite=Lax; Max-Age=${MAX_SESSION_MS / 1000}${isSecure(req) ? '; Secure' : ''}`);
-  log(req, 'login_ok', totpOn() ? 'code + 2FA' : 'code');
+  log(req, 'login_ok', `${who.name} (${who.role})` + (totpOn() && who.role === 'admin' ? ' · code + 2FA' : ''));
+  if (who.opId) { const o = ops.find((x) => x.id === who.opId); if (o) { o.lastLogin = new Date().toISOString(); saveOps(); } }
+  if (cfg.knownUa.length && !cfg.knownUa.includes(ua)) hooks.record({ app: 'dashboard', ip: ipOf(req), method: 'LOGIN', path: '/dashboard', rule: 'DASH_NEW_DEVICE', severity: 'MEDIUM', action: 'ALERT', detail: `login from a new browser/device by ${who.name}` });
   if (cfg.knownUa.length && !cfg.knownUa.includes(ua)) hooks.alert('Aureon Security: naye device se dashboard login', `IP ${ipOf(req)}\n${String(req.headers['user-agent'] || '').slice(0, 120)}\n${new Date().toISOString()}\n\nAgar ye tum nahi ho: dashboard → Dashboard access → "Saare sessions band karo", aur SENTINEL_OWNER_CODE badal do.`);
   if (!cfg.knownUa.includes(ua)) { cfg.knownUa = cfg.knownUa.concat(ua).slice(-20); saveCfg(); }
   return sid;
@@ -135,7 +178,13 @@ function sessionOf(req) {
   const sid = cookies(req)[COOKIE]; if (!sid) return { present: false };
   const s = sessions.get(sid), now = Date.now();
   if (!s || now - s.last > cfg.idleMin * 60000 || now - s.iat > MAX_SESSION_MS || s.uaHash !== uaHash(req)) { sessions.delete(sid); return { present: true, valid: false }; }
-  s.last = now; return { present: true, valid: true, sid };
+  s.last = now;
+  const net = (ip) => (ip.includes(':') ? ip.split(':').slice(0, 4).join(':') : ip.split('.').slice(0, 3).join('.'));
+  if (!s.riskIp && net(ipOf(req)) !== net(s.ip) && !(isPrivate(ipOf(req)) && isPrivate(s.ip))) {   // session suddenly used from another network
+    s.riskIp = true; log(req, 'session_ip_changed', `${s.ip} -> ${ipOf(req)}`);
+    hooks.record({ app: 'dashboard', ip: ipOf(req), method: req.method, path: req.originalUrl || '', rule: 'DASH_SESSION_IP_CHANGED', severity: 'MEDIUM', action: 'ALERT', detail: `session of ${s.name} moved from ${s.ip} to ${ipOf(req)} — fresh 2FA now required for changes` });
+  }
+  return { present: true, valid: true, sid, role: s.role, name: s.name };
 }
 
 // ------------------------------------------------------------ authenticate
@@ -148,12 +197,12 @@ function authenticate(req) {
   if (!process.env.SENTINEL_OWNER_CODE) return { ok: false, reason: 'no-owner-code' };
   if (!ipAllowed(req)) return { ok: false, reason: 'ip' };
   const s = sessionOf(req);
-  if (s.valid) return { ok: true, via: 'session', sid: s.sid };
+  if (s.valid) return { ok: true, via: 'session', sid: s.sid, role: s.role, name: s.name };
   const hdr = req.header('x-owner-code');
   if (hdr) {   // legacy / scripts
     if (!codeOk(hdr)) { registerFailure(req, 'owner code (header)'); return { ok: false, reason: 'bad-code' }; }
-    if (!totpOn()) return { ok: true, via: 'header' };
-    if (totpCheck(req.header('x-totp'))) return { ok: true, via: 'header+totp' };
+    if (!totpOn()) return { ok: true, via: 'header', role: 'admin', name: 'owner' };
+    if (totpCheck(req.header('x-totp'))) return { ok: true, via: 'header+totp', role: 'admin', name: 'owner' };
     registerFailure(req, '2FA code (header)'); return { ok: false, reason: 'need-totp' };
   }
   return { ok: false, reason: s.present ? 'expired' : 'none' };
@@ -218,8 +267,9 @@ function dashboard(req, res, render) {
   const code = req.query && req.query.code;
   if (typeof code === 'string' && code) {
     if (Date.now() < globalLockUntil) { log(req, 'locked', 'global lockout'); return notFound(req, res); }
-    if (!codeOk(code)) { registerFailure(req, 'owner code'); return cfg.stealth ? notFound(req, res) : res.type('html').send(loginPage(next)); }
-    if (!totpOn()) { createSession(req, res); return res.redirect(302, next); }
+    const who = identify(code);
+    if (!who) { registerFailure(req, 'access code'); return cfg.stealth ? notFound(req, res) : res.type('html').send(loginPage(next)); }
+    if (who.role !== 'admin' || !totpOn()) { createSession(req, res, who); return res.redirect(302, next); }
     return res.type('html').send(totpPage(newPending(req), next));
   }
   if (typeof req.query.p === 'string' && pendings.has(req.query.p)) return res.type('html').send(totpPage(req.query.p, next));
@@ -243,18 +293,36 @@ function apiGate(req, res, next) {
 
 // extra "are you really you?" for dangerous actions (approve fix, block IP, change settings)
 const STEP_UP_GRACE_MS = 5 * 60 * 1000;   // after one good code, further sensitive actions in the same session pass for 5 min (a code can only be used once)
-function stepUp(req, res) {
-  if (!totpOn() || !cfg.stepUp) return true;
+// force=true: used for changes that WEAKEN protection (turn off step-up/stealth, IP list, 2FA setup) — always ask when 2FA is on
+function stepUp(req, res, force) {
+  if (!totpOn()) return true;
   const sess = req.auth && req.auth.sid ? sessions.get(req.auth.sid) : null;
-  if (sess && sess.stepUpUntil && sess.stepUpUntil > Date.now()) return true;
+  const risky = !!(sess && sess.riskIp);                // session moved to another network -> always ask again
+  if (!cfg.stepUp && !risky && !force) return true;
+  if (!risky && sess && sess.stepUpUntil && sess.stepUpUntil > Date.now()) return true;
   if (totpCheck(req.header('x-totp'))) {
-    if (sess) sess.stepUpUntil = Date.now() + STEP_UP_GRACE_MS;
+    if (sess && !risky) sess.stepUpUntil = Date.now() + STEP_UP_GRACE_MS;
     log(req, 'step_up_ok', req.method + ' ' + (req.originalUrl || '').split('?')[0]); return true;
   }
   res.status(403).json({ error: '2FA code chahiye', needTotp: true });
   return false;
 }
-function action(req, what) { log(req, 'action', what); }
+function action(req, what) {
+  log(req, 'action', what);
+  hooks.record({ app: 'dashboard', ip: ipOf(req), method: req.method, path: (req.originalUrl || '').split('?')[0], rule: 'DASH_SENSITIVE_ACTION', severity: 'LOW', action: 'ALERT', detail: `${(req.auth && req.auth.name) || 'owner'}: ${what}`.slice(0, 200) });
+}
+
+// ------------------------------------------------------------ roles
+// requireRole('analyst') -> middleware; must run AFTER apiGate (it needs req.auth.role)
+function requireRole(min) {
+  return function roleGuard(req, res, next) {
+    const have = (req.auth && req.auth.role) || 'viewer';
+    if ((ROLE_RANK[have] || 0) >= ROLE_RANK[min]) return next();
+    log(req, 'role_denied', `${have} tried ${req.method} ${(req.originalUrl || '').split('?')[0]} (needs ${min})`);
+    hooks.record({ app: 'dashboard', ip: ipOf(req), method: req.method, path: (req.originalUrl || '').split('?')[0], rule: 'DASH_PRIVILEGE_DENIED', severity: 'MEDIUM', action: 'FLAGGED', detail: `${have} tried an action that needs ${min}` });
+    return res.status(403).json({ error: `Is kaam ke liye "${min}" role chahiye (tumhara role: ${have})`, role: have, needRole: min });
+  };
+}
 
 // ------------------------------------------------------------ auth endpoints (mounted at /api/security/auth)
 const router = express.Router();
@@ -263,8 +331,9 @@ router.post('/login', (req, res) => {
   if (!process.env.SENTINEL_OWNER_CODE) return res.status(503).json({ error: 'owner code not configured' });
   if (Date.now() < globalLockUntil) return res.status(429).json({ error: 'abhi login band hai, kuch der baad try karo' });
   if (!ipAllowed(req)) return notFound(req, res);
-  if (!codeOk(req.body && req.body.code)) { registerFailure(req, 'owner code'); return res.status(401).json({ error: 'Galat code' }); }
-  if (!totpOn()) { createSession(req, res); return res.json({ ok: true }); }
+  const who = identify(req.body && req.body.code);
+  if (!who) { registerFailure(req, 'access code'); return res.status(401).json({ error: 'Galat code' }); }
+  if (who.role !== 'admin' || !totpOn()) { createSession(req, res, who); return res.json({ ok: true, role: who.role }); }
   res.json({ ok: false, needTotp: true, pending: newPending(req) });
 });
 router.post('/verify', (req, res) => {
@@ -282,17 +351,46 @@ router.post('/logout', (req, res) => {
 router.use(apiGate);
 router.get('/status', (req, res) => res.json({
   totpEnabled: totpOn(), totpConfigured: !!cfg.totp.enabled, stealth: cfg.stealth, stepUp: cfg.stepUp, allowIps: cfg.allowIps, idleMin: cfg.idleMin,
+  role: req.auth.role, name: req.auth.name, operators: ops.length, auditChain: verifyAudit(),
   sessions: sessions.size, yourIp: ipOf(req), globalLock: Date.now() < globalLockUntil, via: req.auth.via, recoveryMode: process.env.DASH_TOTP_DISABLE === '1',
 }));
-router.get('/audit', (req, res) => res.json(audit.slice(-100).reverse()));
-router.post('/totp/start', (req, res) => {
+router.get('/audit', requireRole('analyst'), (req, res) => res.json(audit.slice(-100).reverse().map(({ prev, ...e }) => e)));
+router.get('/audit/verify', requireRole('analyst'), (req, res) => res.json(verifyAudit()));
+const NAME_OK = /^[\w .@-]{2,40}$/;
+router.get('/operators', requireRole('admin'), (req, res) => res.json(ops.map((o) => ({ id: o.id, name: o.name, role: o.role, createdAt: o.createdAt, lastLogin: o.lastLogin, disabled: !!o.disabled }))));
+router.post('/operators', requireRole('admin'), (req, res) => {
   if (!stepUp(req, res)) return;
+  const b = req.body || {};
+  if (!NAME_OK.test(String(b.name || ''))) return res.status(400).json({ error: 'Naam 2-40 akshar (letters, number, space, . _ - @)' });
+  if (!['viewer', 'analyst'].includes(b.role)) return res.status(400).json({ error: 'role: viewer ya analyst (admin sirf owner hai)' });
+  if (ops.length >= 10) return res.status(400).json({ error: 'Max 10 operators' });
+  const code = 'op_' + crypto.randomBytes(15).toString('base64url');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const o = { id: crypto.randomBytes(5).toString('hex'), name: String(b.name), role: b.role, salt, hash: opHash(code, salt), createdAt: new Date().toISOString(), lastLogin: null, disabled: false };
+  ops.push(o); saveOps(); action(req, `operator created: ${o.name} (${o.role})`);
+  res.json({ id: o.id, name: o.name, role: o.role, code });          // shown ONCE; only a scrypt hash is stored
+});
+router.post('/operators/:id/:what', requireRole('admin'), (req, res) => {
+  if (!stepUp(req, res)) return;
+  const o = ops.find((x) => x.id === req.params.id); if (!o) return res.status(404).json({ error: 'not found' });
+  if (req.params.what === 'disable') o.disabled = true; else if (req.params.what === 'enable') o.disabled = false; else return res.status(400).json({ error: 'disable | enable' });
+  for (const [k, v] of sessions) if (v.opId === o.id) sessions.delete(k);
+  saveOps(); action(req, `operator ${req.params.what}: ${o.name}`); res.json({ ok: true });
+});
+router.delete('/operators/:id', requireRole('admin'), (req, res) => {
+  if (!stepUp(req, res)) return;
+  const o = ops.find((x) => x.id === req.params.id); if (!o) return res.status(404).json({ error: 'not found' });
+  ops = ops.filter((x) => x.id !== o.id); for (const [k, v] of sessions) if (v.opId === o.id) sessions.delete(k);
+  saveOps(); action(req, `operator removed: ${o.name}`); res.json({ ok: true });
+});
+router.post('/totp/start', requireRole('admin'), (req, res) => {
+  if (!stepUp(req, res, true)) return;
   if (!box.available()) return res.status(400).json({ error: 'SENTINEL_OWNER_CODE / SENTINEL_ENC_KEY set hona chahiye' });
   const secret = b32enc(crypto.randomBytes(20));
   cfg.totp.pendingSecretEnc = box.encrypt(secret); saveCfg();
   res.json({ secret, otpauth: `otpauth://totp/Aureon%20Security:owner?secret=${secret}&issuer=Aureon%20Security&digits=6&period=30` });
 });
-router.post('/totp/confirm', (req, res) => {
+router.post('/totp/confirm', requireRole('admin'), (req, res) => {
   const pend = cfg.totp.pendingSecretEnc && box.decrypt(cfg.totp.pendingSecretEnc);
   if (!pend) return res.status(400).json({ error: 'pehle Setup 2FA dabao' });
   const c = totpMatch(pend, req.body && req.body.token);
@@ -300,15 +398,15 @@ router.post('/totp/confirm', (req, res) => {
   cfg.totp = { secretEnc: cfg.totp.pendingSecretEnc, pendingSecretEnc: null, enabled: true, lastCounter: c, enrolledAt: new Date().toISOString() }; saveCfg();
   log(req, 'totp_enabled', ''); res.json({ ok: true });
 });
-router.post('/totp/disable', (req, res) => {
+router.post('/totp/disable', requireRole('admin'), (req, res) => {
   if (!totpCheck(req.body && req.body.token)) { registerFailure(req, '2FA disable'); return res.status(400).json({ error: 'Galat 2FA code' }); }
   cfg.totp = { secretEnc: null, pendingSecretEnc: null, enabled: false, lastCounter: 0, enrolledAt: null }; cfg.stepUp = false; saveCfg();
   log(req, 'totp_disabled', ''); res.json({ ok: true });
 });
-router.post('/settings', (req, res) => {
-  if (!stepUp(req, res)) return;
+router.post('/settings', requireRole('admin'), (req, res) => {
+  if (!stepUp(req, res, true)) return;
   const b = req.body || {};
-  if (typeof b.stealth === 'boolean') cfg.stealth = b.stealth;
+  /* stealth removed */
   if (typeof b.stepUp === 'boolean') { if (b.stepUp && !totpOn()) return res.status(400).json({ error: 'Step-up ke liye pehle 2FA on karo' }); cfg.stepUp = b.stepUp; }
   if (b.idleMin !== undefined) cfg.idleMin = Math.min(Math.max(parseInt(b.idleMin, 10) || 30, 5), 240);
   if (Array.isArray(b.allowIps)) {
@@ -318,9 +416,13 @@ router.post('/settings', (req, res) => {
   }
   saveCfg(); log(req, 'settings_changed', JSON.stringify(Object.keys(b))); res.json({ ok: true });
 });
-router.post('/sessions/revoke', (req, res) => {
+router.post('/sessions/revoke', requireRole('admin'), (req, res) => {
   const keep = req.auth && req.auth.sid; for (const k of [...sessions.keys()]) if (k !== keep) sessions.delete(k);
   log(req, 'sessions_revoked', ''); res.json({ ok: true });
 });
 
-module.exports = { init, router, dashboard, apiGate, stepUp, action, shieldHeaders, authenticate, notFound, ready, _t: { totpMatch, hotp, b32enc, b32dec, cfg: () => cfg, sessions, codeOk } };
+const exportOps = () => ops;
+function importOps(v) { if (Array.isArray(v)) { ops = v.slice(0, 10); saveOps(); } }
+const exportCfg = () => ({ stealth: cfg.stealth, stepUp: cfg.stepUp, allowIps: cfg.allowIps, idleMin: cfg.idleMin });   // never the 2FA secret
+function importCfg(v) { if (!v || typeof v !== 'object') return;  if (typeof v.stepUp === 'boolean' && totpOn()) cfg.stepUp = v.stepUp; if (Number.isFinite(v.idleMin)) cfg.idleMin = Math.min(Math.max(v.idleMin, 5), 240); if (Array.isArray(v.allowIps)) cfg.allowIps = v.allowIps.slice(0, 20); saveCfg(); }
+module.exports = { exportOps, importOps, exportCfg, importCfg, init, router, dashboard, apiGate, stepUp, action, requireRole, verifyAudit, shieldHeaders, authenticate, notFound, ready, _t: { totpMatch, hotp, b32enc, b32dec, cfg: () => cfg, sessions, codeOk, ops: () => ops, audit: () => audit } };

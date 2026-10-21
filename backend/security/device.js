@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const store = require('../persist');
 
-const DATA_DIR = path.join(__dirname, '..', 'security-data');
+const DATA_DIR = require('../data-dir').dataDir();
 const DEV_FILE = path.join(DATA_DIR, 'devices.json');
 const REP_FILE = path.join(DATA_DIR, 'device-reports.json');
 let devices = [];          // { id, name, keyHash, createdAt, lastSeen }
@@ -122,4 +122,6 @@ function ingest(dev, raw, hooks) {
   return a;
 }
 
-module.exports = { createDevice, verifyKey, removeDevice, list, history, latest, ingest, analyze, ready };
+const exportState = () => devices;
+function importState(v) { if (Array.isArray(v)) { devices = v.slice(0, 20); saveDev(); } }
+module.exports = { exportState, importState, createDevice, verifyKey, removeDevice, list, history, latest, ingest, analyze, ready };

@@ -320,6 +320,7 @@ function factory(opts) {
     auth.dashboard(req, res, () => res.type('html').send(STUDIO_HTML));
   });
   router.use(auth.apiGate);
+  router.use((req, res, next) => (req.method === 'GET' || req.method === 'HEAD') ? next() : (auth.requireRole ? auth.requireRole('admin')(req, res, next) : next()));   // v9 operators: only admin may change things
 
   const pub = (j) => ({ id: j.id, kind: j.kind, name: j.name, slug: j.slug, status: j.status, step: j.step || '', error: j.error || '', runUrl: j.runUrl || '', createdAt: j.createdAt, updatedAt: j.updatedAt, color: j.color || '' });
   router.get('/status', (req, res) => res.json({ configured: configured(), repo: repo() ? repo().replace(/^[^/]+\//, '…/') : '', tokenSet: !!token(), branch: appsBranch() }));

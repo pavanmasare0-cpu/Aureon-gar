@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const zlib = require('zlib');
 const path = require('path');
+const ti = require('./threatintel');
 
 const MAX_BYTES = 15 * 1024 * 1024;
 const EXEC_EXT = new Set(['exe', 'scr', 'bat', 'cmd', 'com', 'msi', 'jar', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'ps1', 'lnk', 'apk', 'xapk', 'hta', 'cpl', 'reg', 'dll', 'sh', 'iso', 'img', 'pif', 'dmg', 'pkg']);
@@ -60,6 +61,7 @@ function analyzeFile(buf, filename) {
   if (buf.length > MAX_BYTES) return { error: `File ${Math.round(MAX_BYTES / 1048576)} MB se badi hai` };
   if (!buf.length) return { error: 'File khali hai' };
 
+  const known = ti.matchHash(info.sha256); if (known) add(100, 'HIGH', `Is file ka hash tumhari known-bad (IOC) list mein hai${known.note ? ': ' + known.note : ''}`);
   const lower = name.toLowerCase();
   const ext = lower.includes('.') ? lower.split('.').pop() : '';
   const parts = lower.split('.');
@@ -81,7 +83,7 @@ function analyzeFile(buf, filename) {
   // ---- name tricks ----
   if (/[\u202e\u202d\u2066-\u2069]/.test(name)) add(60, 'HIGH', 'File ke naam mein chhupa direction-control character hai — extension ulta dikhane ki chaal (jaise "photo‮gpj.exe")');
   if (parts.length >= 3 && DOC_EXT.has(parts[parts.length - 2]) && EXEC_EXT.has(ext)) add(50, 'HIGH', `Double extension: ".${parts[parts.length - 2]}.${ext}" — dikhne mein document, asal mein chalne wali file`);
-  if (EXEC_EXT.has(ext)) add(ext === 'apk' || ext === 'xapk' ? 20 : 25, 'MEDIUM', `".${ext}" chalane wali file hoti hai, document nahi`);
+  if (EXEC_EXT.has(ext)) add(ext === 'apk' || ext === 'xapk' ? 8 : 25, ext === 'apk' || ext === 'xapk' ? 'LOW' : 'MEDIUM', `".${ext}" chalane wali file hoti hai, document nahi`);
   const isExecContent = ['windows-exe', 'elf', 'dex'].includes(type);
   if (isExecContent && DOC_EXT.has(ext)) add(70, 'HIGH', `File ka naam ".${ext}" hai par andar se ye chalne wali program (${type}) hai — pakka chhal`);
   else if (isExecContent) add(30, 'MEDIUM', `Andar se ye chalne wali program (${type}) hai`);
@@ -111,7 +113,7 @@ function analyzeFile(buf, filename) {
     } else {
       const exeInside = names.filter((n) => EXEC_EXT.has((n.split('.').pop() || '').toLowerCase()));
       if (exeInside.length) add(35, 'HIGH', `Zip ke andar chalne wali files: ${exeInside.slice(0, 4).join(', ')}`);
-      if (entries.some((e) => e.encrypted)) add(15, 'MEDIUM', 'Password-protected zip — antivirus se bachne ke liye scammers yahi karte hain');
+      if (entries.some((e) => e.encrypted)) add(25, 'MEDIUM', 'Password-protected zip — antivirus se bachne ke liye scammers yahi karte hain');
       if (entries.some((e) => e.usize > 0 && e.csize > 0 && e.usize / e.csize > 200)) add(15, 'MEDIUM', 'Bahut zyada compress (zip-bomb jaisa)');
     }
   }

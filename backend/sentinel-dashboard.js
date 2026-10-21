@@ -797,7 +797,12 @@ setTimeout(() => { runMonitorCycle().catch((e) => console.error('[sentinel] firs
 // automatically once you've unlocked it).
 router.use((req, res, next) => {
   if (req.path === '/dashboard' || req.path === '/ava-lab' || req.path === '/ava-desk') return next(); // the pages themselves run the login flow (auth.dashboard)
-  return auth.apiGate(req, res, next);
+  return auth.apiGate(req, res, (err) => {
+    if (err) return next(err);
+    // v9 operators: viewer/analyst may only read here; anything that changes state (Sentinel, Ava, Studio, Boss, desk chat) needs admin
+    if (req.method === 'GET' || req.method === 'HEAD' || !auth.requireRole) return next();
+    return auth.requireRole('admin')(req, res, next);
+  });
 });
 
 // ---------------- Ava Lab: Ava writes her own upgrades, you approve (see backend/ava-self.js, AVA-LAB.md) ----------------
@@ -1412,6 +1417,7 @@ setInterval(load, 10000);
 </body>
 </html>`;
 
+router._backup = { export: () => servers.map(({ lastError, ...x }) => x), import: (v) => { if (Array.isArray(v)) { servers = v.slice(0, 50); persistServers(); } } };   // v9 signed backup/recovery
 router.getSummary = getSummary; // used by Ava (owner-only status line)
 router._test = { runMonitorCycle, getSummary, events: () => events, generateAIFixProposal, generateProactiveFindings, checkServer, servers: () => servers, proposals: () => proposals, changeLog: () => changeLog };
 router.deployWatching = () => postDeploy.length;

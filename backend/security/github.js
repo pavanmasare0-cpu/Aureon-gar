@@ -250,4 +250,6 @@ function add({ repo, token, trusted }) {
 }
 function remove(id) { const n = repos.length; repos = repos.filter((r) => r.id !== id); if (repos.length !== n) persist(); return repos.length !== n; }
 
-module.exports = { init, webhook, list, add, remove, runAll, _t: { classify, fromApiEvent, fromWebhook, pollEvents, checkPosture, setFetch: (f) => { fetchFn = f; }, repos: () => repos, newRec, ready: () => ready } };
+const exportState = () => repos;
+function importState(v) { if (Array.isArray(v)) { repos = v.slice(0, 20); persist(); } }
+module.exports = { init, webhook, list, add, remove, runAll, exportState, importState, _t: { classify, fromApiEvent, fromWebhook, pollEvents, checkPosture, setFetch: (f) => { fetchFn = f; }, repos: () => repos, newRec, ready: () => ready } };

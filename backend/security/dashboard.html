@@ -68,7 +68,7 @@
   <div class="nav"><a id="sentinel-link" href="#">🛡️ Sentinel Dashboard →</a></div>
   <div class="chips" id="chips"></div>
   <div class="tabs" id="tabs">
-    <button class="on" data-t="overview">📊 Overview</button><button data-t="checker">🔎 Link / File check</button><button data-t="phone">📱 My Phone</button><button data-t="defense">🛡️ Defense</button><button data-t="access">🔑 Dashboard access</button>
+    <button class="on" data-t="overview">📊 Overview</button><button data-t="checker">🔎 Link / File check</button><button data-t="phone">📱 My Phone</button><button data-t="defense">🛡️ Defense</button><button data-t="access">🔑 Dashboard access</button><button data-t="soc">🧭 SOC</button><button data-t="firewall">🔥 Firewall</button><button data-t="intel">🧬 Threat intel</button><button data-t="endpoints">💻 Windows PC</button><button data-t="recovery">♻️ Backup</button><button data-t="health">✅ Self-test</button>
   </div>
   <div class="tab on" id="tab-overview">
 
@@ -138,6 +138,60 @@
     <div class="sub">Sentinel aur Security dono dashboards ki suraksha yahin se control hoti hai.</div>
     <div class="card" id="acc-status"></div>
     <h2 style="margin-top:22px">Access log</h2><div id="acc-audit"></div>
+  </div>
+
+  <div class="tab" id="tab-soc">
+    <h2>Security Operations Center</h2>
+    <div class="sub">Events apne aap jud kar <b>cases</b> banate hain (kyun alert bana, saaf likha rehta hai). Ek akeli galat login = incident nahi; saboot milkar score banta hai.</div>
+    <div class="chips" id="soc-chips"></div>
+    <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap"><button class="ghost" onclick="loadSoc('active')">Active</button><button class="ghost" onclick="loadSoc('resolved')">Resolved</button><button class="ghost" onclick="loadSoc('')">Sab</button></div>
+    <div id="soc-cases"></div><div id="soc-detail"></div>
+    <h2 style="margin-top:22px">Detections ki precision (tumhare faisle se)</h2><div id="soc-fp"></div>
+  </div>
+
+  <div class="tab" id="tab-firewall">
+    <h2>Firewall policy</h2>
+    <div class="sub">Is backend tak aane wali traffic ke ordered rules — pehla match jeetta hai. Ye <b>application firewall</b> hai; Windows PC ke real firewall ke liye "Windows PC" tab. Dashboards kabhi lock nahi hote aur apna IP bhi block nahi kar sakte.</div>
+    <div id="fw-rules"></div>
+    <div class="card"><b>Naya rule</b>
+      <div class="grid2"><div><label>Naam</label><input id="fw-name" placeholder="Admin sirf mere IP se"></div><div><label>Action</label><select id="fw-action"><option>deny</option><option>allow</option><option>throttle</option></select></div>
+      <div><label>Source</label><select id="fw-kind"><option value="any">sab</option><option value="ip">ek IP</option><option value="cidr">CIDR range</option></select></div><div><label>IP / CIDR</label><input id="fw-val" placeholder="203.0.113.5 ya 203.0.113.0/24"></div>
+      <div><label>Path prefix</label><input id="fw-path" value="/" placeholder="/api/admin"></div><div><label>Throttle (req/10s)</label><input id="fw-thr" type="number" value="10"></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="addFw()">Rule jodo</button><button class="ghost" onclick="presetAdmin()">Preset: path sirf mere IP se</button></div></div>
+    <h2 style="margin-top:20px">Version history (rollback)</h2><div id="fw-hist"></div>
+  </div>
+
+  <div class="tab" id="tab-intel">
+    <h2>Threat intelligence</h2>
+    <div class="sub">Public blocklists (hijacked networks, botnet C2, malware domains) + tumhari apni IOC list. Match hone par request block, link scan DANGEROUS, aur SOC mein case.</div>
+    <div id="ti-feeds"></div><div style="margin:8px 0"><button class="ghost" onclick="refreshTi()">Feeds abhi refresh karo</button></div>
+    <div class="card"><b>Apna IOC jodo</b><div class="grid2"><div><label>Type</label><select id="ioc-type"><option value="ip">IP / CIDR</option><option value="domain">Domain</option><option value="hash">File SHA-256</option></select></div><div><label>Value</label><input id="ioc-val"></div></div><input id="ioc-note" placeholder="note (kyun?)" style="margin-bottom:8px"><button onclick="addIoc()">Jodo</button></div>
+    <div id="ti-iocs"></div>
+  </div>
+
+  <div class="tab" id="tab-endpoints">
+    <h2>Windows PC (Endpoint agent)</h2>
+    <div class="sub">PC par chhota agent chalta hai: Defender, firewall, khule ports, startup, scheduled tasks, unsigned programs padhta hai. Response action (IP block, firewall ON, process band) sirf <b>tumhare approve</b> karne par chalta hai, aur unka rollback hota hai. Agent: <code>windows-agent/aureon-agent.ps1</code></div>
+    <div style="margin-bottom:10px"><button onclick="addAgent()">+ Naya PC jodo</button></div><div id="ep-key"></div><div id="ep-agents"></div>
+    <h2 style="margin-top:20px">Actions (propose → approve → agent chalata hai)</h2>
+    <div class="card"><div class="grid2"><div><label>PC</label><select id="ep-agent"></select></div><div><label>Action</label><select id="ep-type"><option value="block_ip">IP block (Windows Firewall)</option><option value="unblock_ip">IP unblock</option><option value="enable_firewall">Firewall ON</option><option value="defender_update">Defender update</option><option value="defender_quick_scan">Defender quick scan</option><option value="terminate_process">Process band</option></select></div></div><input id="ep-p1" placeholder="IP / profile (Domain|Private|Public) / pid" style="margin-bottom:6px"><input id="ep-p2" placeholder="process naam (sirf terminate ke liye, jaise upd.exe)" style="margin-bottom:8px"><button onclick="proposeAction()">Propose</button></div>
+    <div id="ep-actions"></div>
+  </div>
+
+  <div class="tab" id="tab-recovery">
+    <h2>Backup &amp; recovery</h2>
+    <div class="sub">Signed backup (settings, firewall, IOC, operators, phones/PC keys ke hashes, GitHub repos). Tokens encrypted rehte hain, 2FA secret shamil nahi. Target: roz ek backup (RPO 24h), restore 15 min (RTO). <b>Backup tabhi kaam ka hai jab restore test kiya ho</b> — "Verify" us drill ka hissa hai.</div>
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="exportBackup()">⬇ Backup download</button><button class="ghost" onclick="document.getElementById('bk-verify').click()">🔍 Backup verify (drill)</button><button class="ghost" onclick="document.getElementById('bk-restore').click()">♻️ Restore</button></div>
+      <input type="file" id="bk-verify" accept=".json" style="display:none" onchange="verifyBackup(this)"><input type="file" id="bk-restore" accept=".json" style="display:none" onchange="restoreBackup(this)"><div id="bk-out" class="meta" style="margin-top:10px"></div></div>
+    <h2 style="margin-top:20px">Config version history</h2><div id="rc-hist"></div>
+  </div>
+
+  <div class="tab" id="tab-health">
+    <h2>Self-test &amp; compliance checklist</h2><div class="sub">Live config ki jaanch (kuch badalta nahi). Score = kitni zaroori suraksha cheezein on hain.</div>
+    <div style="margin-bottom:10px"><button onclick="runSelftest()">Self-test chalao</button></div><div id="st-out"></div>
+    <h2 style="margin-top:22px">Detection quality (false alarm / chhoote hue)</h2><div class="sub">Link / message / file scanners ko labelled samples par naapa jaata hai. Ye chhota synthetic set hai — indicator hai, certificate nahi.</div>
+    <div style="margin-bottom:10px"><button class="ghost" onclick="runEval()">Quality measure karo</button></div><div id="ev-out"></div>
+    <h2 style="margin-top:22px">Dependency vulnerabilities (OSV)</h2><div style="margin-bottom:10px"><button class="ghost" onclick="runDeps()">npm packages scan karo</button></div><div id="dp-out"></div>
   </div>
 
 <script>
@@ -373,6 +427,145 @@ async function disable2fa() {
 }
 async function revokeOthers() { await authFetch(API + '/auth/sessions/revoke', { method: 'POST' }); loadAccess(); }
 async function logout() { await authFetch(API + '/auth/logout', { method: 'POST' }); document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#999">Logout ho gaye.</div>'; }
+
+
+// ============================================================ v9 additions
+const $ = (id) => document.getElementById(id);
+async function jget(p) { const r = await authFetch(API + p); return r.json(); }
+async function jsend(m, p, b) { const r = await authFetch(API + p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }
+const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { if (e.message !== 'session expired') alert(e.message); } };
+function sevBadge(s) { return '<span class="badge ' + (s === 'CRITICAL' ? 'HIGH' : esc(s)) + '">' + esc(s) + '</span>'; }
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => {
+  const t = b.dataset.t;
+  if (t === 'soc') loadSoc('active'); if (t === 'firewall') loadFw(); if (t === 'intel') loadTi(); if (t === 'endpoints') loadEp(); if (t === 'recovery') loadRecovery(); if (t === 'health') runSelftest();
+}));
+
+// ---- SOC ----
+async function loadSoc(status) {
+  const [st, cs] = await Promise.all([jget('/soc/stats'), jget('/soc/cases' + (status ? '?status=' + status : ''))]);
+  $('soc-chips').innerHTML = '<div class="chip"><b>' + st.active + '</b> active</div>' + ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(s => '<div class="chip"><b>' + st.bySeverity[s] + '</b> ' + s + '</div>').join('') + '<div class="chip">MTTR <b>' + (st.mttrMinutes == null ? '—' : st.mttrMinutes + ' min') + '</b></div>';
+  $('soc-cases').innerHTML = cs.length ? cs.map(c => '<div class="card"><div class="row"><div><div class="name">' + sevBadge(c.severity) + ' ' + esc(c.title) + '</div><div class="meta">' + esc(c.id) + ' · ' + esc(c.entity) + ' · score ' + c.score + ' · ' + c.events + ' events · ' + esc(c.status) + (c.assignee ? ' · ' + esc(c.assignee) : '') + ' · ' + ago(c.updated) + '</div></div><button class="ghost" data-id="' + esc(c.id) + '" onclick="showCase(this.dataset.id)">Kholo</button></div></div>').join('') : '<div class="empty">Koi case nahi — sab shaant ✅</div>';
+  $('soc-fp').innerHTML = st.rules.length ? '<ul class="rs">' + st.rules.map(r => '<li><b style="min-width:190px">' + esc(r.rule) + '</b><span>sahi ' + r.tp + ' · galat alarm ' + r.fp + ' · benign ' + r.benign + (r.precision != null ? ' · precision <b>' + r.precision + '%</b>' : '') + '</span></li>').join('') + '</ul>' : '<div class="empty">Abhi koi case resolve nahi hua. Case band karte waqt "true / false positive" chunoge to yahan dikhega.</div>';
+}
+const showCase = guard(async (id) => {
+  const c = await jget('/soc/cases/' + id);
+  const ev = c.events.slice().reverse().map(e => '<tr><td>' + new Date(e.t).toLocaleTimeString() + '</td><td>' + esc(e.ip) + '</td><td>' + esc(e.rule) + '</td><td>' + esc(e.severity) + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.detail) + (e.ioc ? ' <b>[' + esc(e.ioc) + ']</b>' : '') + '</td></tr>').join('');
+  const ip = (c.entity.match(/^ip:(.+)$/) || [])[1];
+  $('soc-detail').innerHTML = '<div class="card" style="border-color:var(--gold)"><div class="row"><b>' + esc(c.id) + ' — ' + esc(c.title) + '</b>' + sevBadge(c.severity) + '</div>' +
+    '<h2 style="margin-top:12px">Kyun incident bana</h2><ul class="rs">' + c.why.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>' +
+    '<h2 style="margin-top:12px">Timeline</h2><div style="overflow-x:auto"><table style="font-size:12px;border-collapse:collapse;width:100%"><tr style="color:var(--muted)"><td>time</td><td>ip</td><td>rule</td><td>sev</td><td>action</td><td>detail</td></tr>' + ev + '</table></div>' +
+    '<h2 style="margin-top:12px">Notes</h2>' + (c.notes.map(n => '<div class="meta">' + new Date(n.t).toLocaleString() + ' — <b>' + esc(n.by) + '</b>: ' + esc(n.text) + '</div>').join('') || '<div class="meta">—</div>') +
+    '<textarea id="cs-note" placeholder="analyst note…" style="min-height:60px;margin-top:8px"></textarea>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="ghost" onclick="caseDo(\'' + c.id + '\',{note:$(\'cs-note\').value})">Note save</button><button class="ghost" onclick="caseDo(\'' + c.id + '\',{status:\'investigating\'})">Investigating</button><button onclick="caseDo(\'' + c.id + '\',{status:\'resolved\',resolution:\'true_positive\'})">✔ Sahi alert (resolve)</button><button class="ghost" onclick="caseDo(\'' + c.id + '\',{status:\'resolved\',resolution:\'false_positive\'})">✖ Galat alarm</button><button class="ghost" onclick="caseDo(\'' + c.id + '\',{status:\'resolved\',resolution:\'benign\'})">Benign</button>' + (ip ? '<button class="ghost" onclick="blockCaseIp(\'' + esc(ip) + '\')">⛔ IP block</button>' : '') + '</div>' +
+    '<div style="margin-top:10px" class="meta">Evidence export: <a style="color:var(--gold)" href="' + API + '/soc/cases/' + c.id + '/export?format=html" target="_blank">HTML report</a> · <a style="color:var(--gold)" href="' + API + '/soc/cases/' + c.id + '/export?format=json">JSON</a> · <a style="color:var(--gold)" href="' + API + '/soc/cases/' + c.id + '/export?format=csv">CSV</a> (SHA-256 integrity hash ke saath)</div></div>';
+  $('soc-detail').scrollIntoView({ behavior: 'smooth' });
+});
+const caseDo = guard(async (id, patch) => { await jsend('PATCH', '/soc/cases/' + id, patch); await showCase(id); loadSoc('active'); });
+const blockCaseIp = guard(async (ip) => { if (!confirm(ip + ' ko 24 ghante ke liye block karein?')) return; await jsend('POST', '/block', { ip, minutes: 1440 }); alert('Block ho gaya'); load(); });
+
+// ---- Firewall ----
+async function loadFw() {
+  const d = await jget('/firewall');
+  $('fw-rules').innerHTML = d.rules.length ? d.rules.map((r, i) => '<div class="card"><div class="row"><div><div class="name"><span class="badge ' + (r.action === 'allow' ? 'LOW' : 'HIGH') + '">' + esc(r.action) + '</span> ' + esc(r.name) + (r.enabled ? '' : ' <span class="meta">(off)</span>') + '</div><div class="meta">' + (r.src.kind === 'any' ? 'sab' : esc(r.src.value)) + ' → ' + esc(r.path) + (r.methods.length ? ' [' + esc(r.methods.join(',')) + ']' : '') + (r.action === 'throttle' ? ' · max ' + r.throttleMax + '/10s' : '') + ' · hits ' + (r.hits || 0) + ' · ' + esc(r.createdBy) + '</div></div><div style="display:flex;gap:4px"><button class="ghost" data-id="' + esc(r.id) + '" onclick="fwMove(this.dataset.id,\'up\')">↑</button><button class="ghost" data-id="' + esc(r.id) + '" onclick="fwMove(this.dataset.id,\'down\')">↓</button><button class="ghost" data-id="' + esc(r.id) + '" onclick="fwDel(this.dataset.id)">✕</button></div></div></div>').join('') : '<div class="empty">Koi rule nahi. (Bina rule ke sab traffic normal chalta hai.)</div>';
+  $('fw-hist').innerHTML = d.history.length ? '<ul class="rs">' + d.history.map(h => '<li><span>' + new Date(h.t).toLocaleString() + ' · ' + esc(h.by) + ' · ' + esc(h.note) + '</span><button class="ghost" data-id="' + esc(h.id) + '" onclick="rollbackTo(\'firewall\',this.dataset.id)">Wapas yahan</button></li>').join('') + '</ul>' : '<div class="empty">—</div>';
+}
+const addFw = guard(async () => {
+  const kind = $('fw-kind').value, action = $('fw-action').value;
+  const body = { name: $('fw-name').value, action, src: kind === 'any' ? { kind } : { kind, value: $('fw-val').value.trim() }, path: $('fw-path').value || '/' };
+  if (action === 'throttle') body.throttleMax = parseInt($('fw-thr').value, 10) || 10;
+  await jsend('POST', '/firewall', body); $('fw-name').value = ''; loadFw();
+});
+const presetAdmin = guard(async () => {
+  const path = prompt('Kaunsa path sirf tumhare IP ke liye khula rakhna hai? (jaise /api/admin)', '/api/admin'); if (!path) return;
+  const me = (await jget('/auth/status')).yourIp;
+  await jsend('POST', '/firewall', { name: 'allow owner → ' + path, action: 'allow', src: { kind: 'ip', value: me }, path });
+  await jsend('POST', '/firewall', { name: 'deny everyone else → ' + path, action: 'deny', src: { kind: 'any' }, path }); loadFw();
+});
+const fwMove = guard(async (id, dir) => { await jsend('POST', '/firewall/' + id + '/move', { dir }); loadFw(); });
+const fwDel = guard(async (id) => { if (!confirm('Rule hata dein?')) return; await authFetch(API + '/firewall/' + id, { method: 'DELETE' }); loadFw(); });
+const rollbackTo = guard(async (ns, id) => { if (!confirm('Is version par wapas jayein?')) return; await jsend('POST', '/recovery/rollback', { ns, id }); alert('Rollback ho gaya'); if (ns === 'firewall') loadFw(); loadRecovery(); });
+
+// ---- Threat intel ----
+async function loadTi() {
+  const d = await jget('/ti');
+  $('ti-feeds').innerHTML = (d.feedsDisabledByEnv ? '<div class="warnbox">SECURITY_THREAT_FEEDS=off — downloads band hain.</div>' : '') + d.feeds.map(f => '<div class="card"><label class="opt" style="border:none;padding:0"><input type="checkbox" ' + (f.on ? 'checked' : '') + ' onchange="tiFeed(\'' + f.id + '\',this.checked)"><span>' + esc(f.name) + '<small>' + (f.on ? (f.count + ' entries · ' + (f.at ? 'updated ' + ago(f.at) : 'abhi download nahi hua')) : 'off') + (f.error ? ' · <span style="color:var(--danger)">' + esc(f.error) + '</span>' : '') + '</small></span></label></div>').join('');
+  const all = [...d.iocs.ips.map(x => ['ip', x]), ...d.iocs.domains.map(x => ['domain', x]), ...d.iocs.hashes.map(x => ['hash', x])];
+  $('ti-iocs').innerHTML = all.length ? all.map(([t, x]) => '<div class="card row"><div><div class="name">' + esc(t) + ' · ' + esc(x.value.slice(0, 40)) + '</div><div class="meta">' + esc(x.note) + ' · ' + esc(x.by) + ' · ' + ago(x.at) + '</div></div><button class="ghost" data-t="' + t + '" data-v="' + esc(x.value) + '" onclick="rmIoc(this.dataset.t,this.dataset.v)">✕</button></div>').join('') : '<div class="empty">Apni IOC list khali hai.</div>';
+}
+const tiFeed = guard(async (id, on) => { await jsend('POST', '/ti/feed', { id, on }); loadTi(); });
+const refreshTi = guard(async () => { await jsend('POST', '/ti/refresh'); loadTi(); });
+const addIoc = guard(async () => { await jsend('POST', '/ti/ioc', { type: $('ioc-type').value, value: $('ioc-val').value, note: $('ioc-note').value }); $('ioc-val').value = ''; $('ioc-note').value = ''; loadTi(); });
+const rmIoc = guard(async (type, value) => { const r = await authFetch(API + '/ti/ioc', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, value }) }); if (!r.ok) throw new Error('hata nahi paya'); loadTi(); });
+
+// ---- Windows endpoints ----
+async function loadEp() {
+  const [ag, ac] = await Promise.all([jget('/endpoint/agents'), jget('/endpoint/actions')]);
+  $('ep-agents').innerHTML = ag.length ? ag.map(a => '<div class="card"><div class="row"><div><div class="name">' + (a.online ? '🟢' : '⚪') + ' ' + esc(a.name) + '</div><div class="meta">' + (a.last ? esc(a.last.host.name || '') + ' · ' + esc(a.last.host.os || '') + ' · ' + a.last.findings + ' issue(s) · ' + ago(a.last.t) : 'abhi tak report nahi aayi') + '</div></div><div>' + (a.last ? '<span class="verdict v-' + esc(a.last.level) + '">' + a.last.score + '</span> ' : '') + '<button class="ghost" data-id="' + esc(a.id) + '" onclick="showAgent(this.dataset.id)">Dekho</button> <button class="ghost" data-id="' + esc(a.id) + '" onclick="delAgent(this.dataset.id)">✕</button></div></div><div id="ag-' + esc(a.id) + '"></div></div>').join('') : '<div class="empty">Koi PC nahi jura.</div>';
+  $('ep-agent').innerHTML = ag.map(a => '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>').join('');
+  $('ep-actions').innerHTML = ac.length ? ac.slice(0, 25).map(a => '<div class="card"><div class="row"><div><div class="name">' + esc(a.type) + ' <span class="meta">' + esc(JSON.stringify(a.params)) + '</span></div><div class="meta"><b>' + esc(a.status) + '</b> · by ' + esc(a.proposedBy) + (a.approvedBy ? ' · approved ' + esc(a.approvedBy) : '') + (a.result ? ' · ' + esc(a.result) : '') + ' · ' + ago(a.createdAt) + '</div></div><div style="display:flex;gap:4px;flex-wrap:wrap">' +
+    (a.status === 'proposed' ? '<button data-id="' + esc(a.id) + '" onclick="epDo(this.dataset.id,\'approve\')">Approve</button><button class="ghost" data-id="' + esc(a.id) + '" onclick="epDo(this.dataset.id,\'reject\')">Reject</button>' : '') + (a.status === 'done' && a.type === 'block_ip' ? '<button class="ghost" data-id="' + esc(a.id) + '" onclick="epDo(this.dataset.id,\'rollback\')">↩ Rollback</button>' : '') + '</div></div></div>').join('') : '<div class="empty">Koi action nahi.</div>';
+}
+const showAgent = guard(async (id) => {
+  const box = $('ag-' + id); const r = await authFetch(API + '/endpoint/agents/' + id); if (!r.ok) { box.innerHTML = '<div class="meta">Abhi report nahi.</div>'; return; } const l = await r.json();
+  box.innerHTML = '<div class="bar"><i style="width:' + l.score + '%;background:' + (l.score >= 80 ? 'var(--ok)' : l.score >= 50 ? 'var(--warn)' : 'var(--danger)') + '"></i></div><ul class="rs">' + (l.findings.length ? l.findings.map(f => '<li><span class="badge ' + esc(f.sev) + '">' + esc(f.sev) + '</span><span>' + esc(f.text) + '<br><small style="color:var(--muted)">→ ' + esc(f.fix) + '</small></span></li>').join('') : '<li>Koi issue nahi ✅</li>') + '</ul>';
+});
+const addAgent = guard(async () => {
+  const name = prompt('PC ka naam:', 'My Windows PC'); if (!name) return;
+  const k = await jsend('POST', '/endpoint/agents', { name });
+  $('ep-key').innerHTML = '<div class="card"><b>Agent key — sirf ABHI dikh rahi hai</b><div class="keybox">' + esc(k.key) + '</div><div class="meta">PC par PowerShell <b>Administrator</b> se:</div><div class="keybox">.\\aureon-agent.ps1 -Install -Server ' + esc(location.origin) + ' -Key ' + esc(k.key) + '</div><div class="meta">Script pehle khud padh lo (plain text hai). Ye sirf report bhej sakta hai aur tumhare approve kiye actions chalata hai.</div></div>'; loadEp();
+});
+const delAgent = guard(async (id) => { if (!confirm('Is PC ko hata dein?')) return; await authFetch(API + '/endpoint/agents/' + id, { method: 'DELETE' }); loadEp(); });
+const proposeAction = guard(async () => {
+  const type = $('ep-type').value, p1 = $('ep-p1').value.trim(), p2 = $('ep-p2').value.trim(); let params = {};
+  if (type === 'block_ip' || type === 'unblock_ip') params = { ip: p1 }; else if (type === 'enable_firewall') params = { profile: p1 }; else if (type === 'terminate_process') params = { pid: p1, name: p2 };
+  await jsend('POST', '/endpoint/actions', { agentId: $('ep-agent').value, type, params }); loadEp();
+});
+const epDo = guard(async (id, verb) => { await jsend('POST', '/endpoint/actions/' + id + '/' + verb); loadEp(); });
+
+// ---- backup / recovery ----
+async function loadRecovery() {
+  const parts = await Promise.all(['firewall', 'defense', 'iocs'].map(ns => jget('/recovery/history/' + ns).then(l => [ns, l])));
+  $('rc-hist').innerHTML = parts.map(([ns, l]) => '<h2 style="margin-top:12px">' + ns + '</h2>' + (l.length ? '<ul class="rs">' + l.slice(0, 6).map(h => '<li><span>' + new Date(h.t).toLocaleString() + ' · ' + esc(h.by) + ' · ' + esc(h.note) + '</span><button class="ghost" data-ns="' + ns + '" data-id="' + esc(h.id) + '" onclick="rollbackTo(this.dataset.ns,this.dataset.id)">Wapas</button></li>').join('') + '</ul>' : '<div class="meta">koi change nahi</div>')).join('');
+}
+const exportBackup = guard(async () => {
+  const r = await authFetch(API + '/recovery/export'); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'export fail');
+  const blob = await r.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aureon-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click(); $('bk-out').textContent = 'Backup download ho gaya ✓ — ise safe jagah rakho (usme access ke hashes aur encrypted tokens hain).';
+});
+async function readJson(inp) { const f = inp.files[0]; inp.value = ''; if (!f) return null; try { return JSON.parse(await f.text()); } catch (e) { throw new Error('File JSON nahi hai'); } }
+const verifyBackup = guard(async (inp) => { const b = await readJson(inp); if (!b) return; const v = await jsend('POST', '/recovery/verify', b); $('bk-out').innerHTML = v.ok ? '✅ Backup valid hai (' + esc(v.createdAt) + ', ' + esc(v.createdBy) + '). Sections: ' + esc(Object.entries(v.counts).map(([k, n]) => k + ':' + n).join(', ')) : '❌ ' + esc(v.problems.join('; ')); });
+const restoreBackup = guard(async (inp) => { const b = await readJson(inp); if (!b) return; if (!confirm('Restore se maujooda settings / rules / IOC / operators badal jayenge. Pakka?')) return; const r = await jsend('POST', '/recovery/import', b); $('bk-out').textContent = 'Restore: ' + r.restored.join(', ') + '. ' + r.note; });
+
+// ---- self-test / quality / deps ----
+const runSelftest = guard(async () => {
+  const d = await jget('/health/selftest'), areas = {}; d.checks.forEach(c => (areas[c.area] = areas[c.area] || []).push(c));
+  $('st-out').innerHTML = '<div class="card"><div class="row"><b>Score ' + d.score + '/100</b><span class="meta">' + d.passed + ' / ' + d.total + ' checks pass</span></div><div class="bar"><i style="width:' + d.score + '%;background:' + (d.score >= 80 ? 'var(--ok)' : d.score >= 55 ? 'var(--warn)' : 'var(--danger)') + '"></i></div></div>' + Object.entries(areas).map(([a, cs]) => '<h2 style="margin-top:12px">' + esc(a) + '</h2><ul class="rs">' + cs.map(c => '<li>' + (c.ok ? '✅' : '❌') + '<span>' + esc(c.name) + '<br><small style="color:var(--muted)">' + esc(c.detail) + (c.ok ? '' : ' · ' + esc(c.sev)) + '</small></span></li>').join('') + '</ul>').join('');
+});
+const runEval = guard(async () => {
+  $('ev-out').innerHTML = '<div class="empty">Naap rahe hain…</div>'; const d = await jget('/health/eval?fresh=1');
+  const row = (n, m) => '<tr><td>' + n + '</td><td>' + m.total + '</td><td><b>' + m.precision + '%</b></td><td><b>' + m.recall + '%</b></td><td>' + m.fpr + '%</td></tr>';
+  const miss = (o) => ['links', 'messages', 'files'].flatMap(k => o[k].misses.map(x => esc(k + ': ' + x.kind + ' — ' + x.item)));
+  $('ev-out').innerHTML = '<div class="card"><table style="font-size:13px;border-collapse:collapse;width:100%"><tr style="color:var(--muted)"><td>set</td><td>n</td><td>precision</td><td>recall</td><td>false-alarm rate</td></tr>' + row('links (tuning)', d.links) + row('messages (tuning)', d.messages) + row('files (tuning)', d.files) + row('links (held-out)', d.holdout.links) + row('messages (held-out)', d.holdout.messages) + row('files (held-out)', d.holdout.files) + '</table><div class="meta" style="margin-top:8px">Held-out ka <b>pehli baar</b> ka honest result: ' + esc(d.holdout.firstRun) + '</div><div class="meta">' + esc(d.note) + '</div>' + (miss(d).concat(miss(d.holdout)).length ? '<div class="warnbox">' + miss(d).concat(miss(d.holdout)).join('<br>') + '</div>' : '') + '</div>';
+});
+const runDeps = guard(async () => {
+  $('dp-out').innerHTML = '<div class="empty">OSV se pooch rahe hain…</div>'; const d = await jget('/health/deps?fresh=1');
+  $('dp-out').innerHTML = d.error ? '<div class="warnbox">' + esc(d.error) + '</div>' : '<div class="card"><b>' + d.packages + ' packages · ' + d.vulnerable + ' vulnerable</b>' + (d.vulns.length ? '<ul class="rs">' + d.vulns.map(v => '<li><span class="badge HIGH">' + v.count + '</span><span><b>' + esc(v.name) + '@' + esc(v.version) + '</b><br><small style="color:var(--muted)">' + esc(v.details.map(x => x.id + ' — ' + x.summary).join(' | ')) + '</small></span></li>').join('') + '</ul><div class="meta">' + esc(d.note) + '</div>' : '<div class="meta">Koi known vulnerability nahi mili ✅ (' + esc(d.source) + ')</div>') + '</div>';
+});
+
+// ---- operators (roles) inside Dashboard access ----
+const _loadAccess = loadAccess;
+loadAccess = async function () {
+  await _loadAccess();
+  try {
+    const st = await jget('/auth/status'); let ops = [];
+    if (st.role === 'admin') ops = await jget('/auth/operators');
+    const chain = st.auditChain || { ok: true };
+    $('acc-status').insertAdjacentHTML('beforeend', '<div class="meta" style="margin-top:12px">Tum: <b>' + esc(st.name) + ' (' + esc(st.role) + ')</b> · Audit chain: ' + (chain.ok ? '✅ intact' : '❌ <b>TAMPERED</b> at entry ' + chain.brokenAt + ' (' + esc(chain.why) + ')') + '</div>' +
+      (st.role === 'admin' ? '<h2 style="margin-top:16px">Operators (roles)</h2><div class="meta">viewer = sirf dekhe · analyst = dekhe + cases / scans / IP block · admin = sirf owner</div>' + (ops.length ? ops.map(o => '<div class="card row"><div><div class="name">' + esc(o.name) + ' <span class="badge LOW">' + esc(o.role) + '</span>' + (o.disabled ? ' <span class="meta">(disabled)</span>' : '') + '</div><div class="meta">last login ' + (o.lastLogin ? ago(o.lastLogin) : 'kabhi nahi') + '</div></div><div style="display:flex;gap:4px"><button class="ghost" data-id="' + esc(o.id) + '" data-w="' + (o.disabled ? 'enable' : 'disable') + '" onclick="opToggle(this.dataset.id,this.dataset.w)">' + (o.disabled ? 'Enable' : 'Disable') + '</button><button class="ghost" data-id="' + esc(o.id) + '" onclick="opDel(this.dataset.id)">✕</button></div></div>').join('') : '<div class="empty">Koi operator nahi.</div>') + '<div class="card"><div class="grid2"><div><label>Naam</label><input id="op-name" placeholder="Riya"></div><div><label>Role</label><select id="op-role"><option>analyst</option><option>viewer</option></select></div></div><button onclick="opAdd()">Operator banao</button><div id="op-code"></div></div>' : ''));
+  } catch (e) { /* not admin / not available */ }
+};
+const opAdd = guard(async () => { const o = await jsend('POST', '/auth/operators', { name: $('op-name').value, role: $('op-role').value }); $('op-code').innerHTML = '<div class="keybox">' + esc(o.code) + '</div><div class="meta">Ye access code sirf ABHI dikh raha hai. Operator dashboard link par <code>?code=…</code> se login karega. Code kisi aur ko mat do.</div>'; });
+const opToggle = guard(async (id, w) => { await jsend('POST', '/auth/operators/' + id + '/' + w); loadAccess(); });
+const opDel = guard(async (id) => { if (!confirm('Operator hata dein?')) return; const r = await authFetch(API + '/auth/operators/' + id, { method: 'DELETE' }); if (r.ok) loadAccess(); });
 
 load(); loadGithub(); setInterval(load, 15000); setInterval(loadGithub, 60000);
 </script>
