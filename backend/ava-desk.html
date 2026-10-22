@@ -101,6 +101,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 .pbar{height:7px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}.pbar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--a1),var(--a2),var(--a3));transition:width .6s}
 .ptx{font-size:12px;margin-top:7px;color:var(--tx)}.plog{font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--mu2);margin-top:5px;max-height:78px;overflow:hidden}.plog div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sz{background:rgba(8,10,40,.85);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:7px 8px;font-size:11.5px}
+.cmd .atts{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 7px}.cmd .atts:empty{display:none}.cmd .att{display:inline-flex;align-items:center;gap:6px;padding:3px 6px 3px 9px;border-radius:99px;background:rgba(40,50,120,.7);border:1px solid var(--bd);font-size:11px}.cmd .att button{border:0;background:transparent;color:#fff;cursor:pointer;font-size:13px;line-height:1;padding:0 3px}.cmd.drag{border-color:#7df;box-shadow:0 0 30px rgba(100,220,255,.5)}
 .cmd .m{font-size:11.5px;margin:7px 4px 0;min-height:15px;color:var(--mu)}
 .ok{color:var(--ok)}.er{color:var(--bad)}
 
@@ -174,6 +175,49 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 #toast{position:fixed;z-index:80;left:50%;bottom:44px;transform:translate(-50%,20px);opacity:0;padding:11px 18px;border-radius:14px;background:rgba(20,22,80,.97);border:1px solid rgba(140,150,255,.6);box-shadow:0 0 28px rgba(90,110,255,.5);font-size:13px;pointer-events:none;transition:all .3s;max-width:80vw}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 
+/* ---------- Project page (side panel + chat + uploads + demo) ---------- */
+#v-project{gap:14px;grid-template-columns:minmax(0,1.25fr) minmax(300px,1fr);grid-template-rows:minmax(0,1fr)}
+.pj-main{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.pj-side{min-height:0;min-width:0;overflow:auto}
+.pj-form{flex:none}.pj-chat{flex:1;min-height:260px}
+.pj .pbody{padding-top:4px}
+.pj textarea,.pj select,.pj input{font-size:16px;background:rgba(8,10,40,.85);color:var(--tx);border:1px solid var(--bd);border-radius:12px;padding:10px 12px;outline:0;width:100%}
+.pj textarea{resize:vertical;min-height:96px;max-height:260px;line-height:1.5}
+.pj .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.pj .row select{width:auto;flex:1;min-width:130px}
+.pj .btn{min-height:44px}.pj a.btn{text-decoration:none}.pj .btn.s{min-height:44px}
+.pj :focus-visible{outline:2px solid var(--a2);outline-offset:2px}
+.pj .cnt{color:var(--mu2);font-size:12px;margin-left:auto}
+.pj h4{margin:14px 0 6px;font-size:12px;letter-spacing:1.2px;color:var(--mu);font-weight:700;text-transform:uppercase}
+.pj .atts{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 0}.pj .atts:empty{display:none}
+.pj .att{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 8px;border-radius:12px;background:rgba(40,46,120,.6);border:1px solid var(--bd);font-size:12px;max-width:100%}
+.pj .att img{width:72px;height:72px;object-fit:cover;border-radius:8px}
+.pj .att span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+.pj .att button{min-width:32px;min-height:32px}
+.pjbar{height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+.pjbar i{display:block;height:100%;background:linear-gradient(90deg,var(--a1),var(--a2));transition:width .4s}
+.pjf{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.pjf li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.45;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.05)}
+.pjf li:before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:var(--ok)}
+.pjn{font-size:13px;color:#ffd9a0;line-height:1.5;margin:4px 0}
+.pj .pill.ok{background:rgba(34,227,160,.15);color:var(--ok);border:1px solid rgba(34,227,160,.45)}
+.pj .pill.bad{background:rgba(255,107,139,.14);color:var(--bad);border:1px solid rgba(255,107,139,.45)}
+.pjref{max-width:100%;max-height:160px;object-fit:contain;border-radius:12px;border:1px solid var(--bd);background:#000}
+.pjchips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
+.pjmsgs{flex:1;min-height:120px;overflow:auto;padding:4px 2px}
+.pjm{max-width:88%;padding:9px 13px;border-radius:14px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.5}
+.pjm.you{margin-left:auto;background:var(--a1);color:#fff;border-bottom-right-radius:4px}
+.pjm.ava{background:rgba(40,46,120,.6);border:1px solid var(--bd);border-bottom-left-radius:4px}
+.pjm.err{background:rgba(255,107,139,.14);border:1px solid rgba(255,107,139,.45)}
+.pjrow{display:flex;flex-direction:row;justify-content:flex-start;align-items:center;gap:8px;width:100%;text-align:left;padding:10px 12px;border-radius:14px;min-height:44px;font-size:12.5px}
+.pjrow b{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pjrow small{color:var(--mu)}
+.lap{margin:0 auto;transform-origin:top left}
+.lscr{background:#000;border:10px solid #1b2530;border-bottom-width:14px;border-radius:16px 16px 4px 4px;overflow:hidden}
+.lscr iframe{border:0;background:#fff;display:block}
+.lbase{height:14px;margin:0 -3%;background:linear-gradient(#2a3442,#141a22);border-radius:0 0 18px 18px}
+@media (prefers-reduced-motion:reduce){.pj *,.pjbar i{animation:none!important;transition:none!important}}
+@media (max-width:1179px),(max-height:699px){#v-project.on{display:flex;flex-direction:column}.pj-side{order:-1;overflow:visible}.pj-chat{min-height:360px}.pjmsgs{max-height:420px}}
+
 @media (max-width:1179px),(max-height:699px){
   body{overflow:auto}
   #app{height:auto;min-height:100vh;display:flex;flex-direction:column;padding:0 12px 16px}
@@ -218,11 +262,13 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       <button data-v="home" class="on"><svg class="ic"><use href="#i-home"/></svg>Ava ki Duniya</button>
       <button data-v="ups"><svg class="ic"><use href="#i-bolt"/></svg>Upgrades<span class="tag" id="tgUps" style="display:none">0</span></button>
       <button data-v="proto"><svg class="ic"><use href="#i-flask"/></svg>Prototypes</button>
+      <button data-v="project"><svg class="ic"><use href="#i-pen"/></svg>Project</button>
     </nav>
     <div class="panel acard">
       <div class="row"><div class="av"></div><div><b id="acName">Ava - Kiddo</b><small>Active Variant</small></div></div>
       <q id="acQuote">Hey Pavan! Main yahin hoon.</q>
     </div>
+    <button class="panel pjrow" id="pjRow" title="Ava jo project bana rahi hai — naam, features, chat"><svg class="ic"><use href="#i-code"/></svg><span style="min-width:0"><b id="pjRowT">Ava ka project</b><small id="pjRowS">Koi project nahi</small></span></button>
     <div class="panel stats">
       <h4>Ava ki halat</h4>
       <div class="r"><i style="background:#ff6b8b"></i>Pending upgrades<b id="stPend">—</b></div>
@@ -241,14 +287,16 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
         <div class="minds" id="minds"></div>
         <div class="sats" id="sats"></div>
         <div class="empty-orbit" id="emptyOrbit" style="display:none">Abhi koi prototype nahi — neeche <b>🧪 Prototype</b> dabao, wo is circle ke around aa jayega.</div>
-        <div class="cmd">
+        <div class="cmd" id="cmdbox">
+          <div class="atts" id="atts"></div>
           <div class="r">
-            <input id="task" type="text" maxlength="300" placeholder="Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi" autocomplete="off">
+            <input id="task" type="text" maxlength="600" placeholder="Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi" autocomplete="off">
             <button class="btn" id="bGo"><svg class="ic"><use href="#i-bolt"/></svg>Kaam do</button>
             <button class="btn g" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade</button>
             <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
             <select id="tgt" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
             <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
+            <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
             <button class="btn d" id="bStop" style="display:none">Roko</button>
           </div>
           <div class="m" id="msg"></div>
@@ -308,6 +356,32 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       </div>
     </section>
 
+    <!-- ================= PROJECT PAGE ================= -->
+    <section class="view pj" id="v-project">
+      <div class="pj-main">
+        <div class="panel pj-form">
+          <div class="ph"><div><h3>Naya project / app</h3><small>Project aur app ek hi cheez hai — poori detail likho, Ava pura code bana degi.</small></div></div>
+          <div class="pbody">
+            <label for="pjKind" class="meta">Kya banana hai?</label>
+            <div class="row" style="margin-top:4px"><select id="pjKind" aria-label="Type"><option value="project">App / Project (zip me code)</option><option value="apk">Android APK</option><option value="ui">UI design (ek screen)</option></select><select id="pjTgt" aria-label="Size"><option value="8000">~8k lines</option><option value="20000">~20k lines</option><option value="50000">~50k lines</option></select></div>
+            <textarea id="pjBrief" maxlength="6000" style="margin-top:8px" placeholder="Poora project likho: naam, kya karega, features, kaun use karega, kaisa dikhna chahiye…"></textarea>
+            <div class="atts" id="pjAtts"></div>
+            <div class="row"><button class="btn g" id="pjPhoto" type="button">📷 Photo</button><button class="btn g" id="pjZip" type="button">🗜 Zip</button><input type="file" id="pjFile" accept="image/*,.zip,application/zip" multiple hidden><span class="cnt" id="pjCnt">0 / 6000</span><button class="btn" id="pjGo" type="button">⚡ Banao</button></div>
+            <div class="meta" id="pjMsg" role="status" style="min-height:18px;margin-top:6px"></div>
+          </div>
+        </div>
+        <div class="panel pj-chat">
+          <div class="ph"><div><h3>Ava se chat</h3><small>Pucho "kya bana rahi ho?" ya "ye bug kya hai?" — Ava sirf project dekh ke batati hai, kuch change nahi karti.</small></div></div>
+          <div class="pbody" style="display:flex;flex-direction:column;min-height:0">
+            <div class="pjchips"><button class="btn g s" data-pjq="Kya bana rahi ho abhi?">Kya bana rahi ho?</button><button class="btn g s" data-pjq="Is project me koi bug ya problem hai kya?">Koi bug hai?</button><button class="btn g s" data-pjq="Kitna kaam ho gaya aur kitna baaki hai?">Kitna ho gaya?</button></div>
+            <div class="pjmsgs" id="pjMsgs" aria-live="polite"></div>
+            <div class="row" style="flex-wrap:nowrap;align-items:flex-end"><textarea id="pjIn" rows="1" maxlength="800" style="min-height:44px;max-height:120px" placeholder="Ava se kuch pucho…"></textarea><button class="btn" id="pjSend" type="button">Bhejo</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="panel pj-side" id="pjSide" aria-label="Project ki details"></aside>
+    </section>
+
   </main>
 
   <footer class="foot"><span><b id="ftName">Ava-Kiddo</b> • Learning • Creating • Growing • Together</span><span>Big dreams × Better plans × You &amp; Ava ♡</span></footer>
@@ -327,6 +401,31 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function
 function ic(n) { return '<svg class="ic"><use href="#i-' + n + '"/></svg>'; }
 function when(t) { try { return new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
 function toast(m, ms) { var t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('on'); }, ms || 3200); }
+/* Download = page khud fetch karta hai (same login cookie) aur blob se save karta hai.
+   Chrome ka download-manager URL ko alag se maangta tha -> "Failed - Needs authorisation" aur code(6).json jaisi error file. */
+function saveBlob(blob, name) {
+  var u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = name; a.rel = 'noopener'; document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(u); a.remove(); }, 4000);
+}
+function dlName(r, url) {
+  var cd = r.headers.get('Content-Disposition') || '', m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
+  var t = (r.headers.get('Content-Type') || '').toLowerCase();
+  return 'ava-' + String(url).split('/').filter(Boolean).slice(-2, -1)[0] + (t.indexOf('zip') >= 0 ? '.zip' : t.indexOf('html') >= 0 ? '.html' : t.indexOf('javascript') >= 0 ? '.js' : '.txt');
+}
+function downloadViaFetch(url, el) {
+  if (el && el._busy) return; if (el) el._busy = true; toast('Download shuru…');
+  af(url).then(function (r) {
+    if (!r.ok) return r.text().then(function (t) { var msg = t; try { msg = JSON.parse(t).error || t; } catch (e) { /* plain text */ } throw new Error(r.status === 403 ? '2FA/permission chahiye (' + (msg || r.status) + ')' : (msg || ('Error ' + r.status))); });
+    return r.blob().then(function (b) { saveBlob(b, dlName(r, url)); toast('Download ho gaya ✓'); });
+  }).catch(function (e) { toast('Download fail: ' + (e && e.message ? e.message : e), 5000); })
+    .then(function () { if (el) el._busy = false; });
+}
+document.addEventListener('click', function (e) {
+  var a = e.target && e.target.closest ? e.target.closest('[data-dl]') : null; if (!a) return;
+  e.preventDefault(); downloadViaFetch(a.getAttribute('data-dl'), a);
+});
 function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
 
@@ -367,6 +466,25 @@ function af(url, opts) {
 }
 function jget(url) { return af(url).then(function (r) { return r.json(); }); }
 function jpost(url, body) { var o = { method: 'POST' }; if (body !== undefined) o.body = JSON.stringify(body); return af(url, o).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); }); }
+/* attachments: zip / photo / small code files -> base64, sent with the Studio start request */
+var ATT_MAX = 18 * 1024 * 1024;
+S.att = [];
+function attBytes() { return S.att.reduce(function (n, a) { return n + a.size; }, 0); }
+function renderAtt() {
+  var box = $('#atts'); if (!box) return;
+  box.innerHTML = S.att.map(function (a, i) { return '<span class="att">' + (a.img ? '🖼' : /\.zip$/i.test(a.name) ? '🗜' : '📄') + ' ' + esc(a.name) + ' · ' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao">×</button></span>'; }).join('');
+}
+function addFiles(list) {
+  var files = Array.prototype.slice.call(list || []);
+  files.forEach(function (f) {
+    if (S.att.length >= 8) { setMsg('Ek baar me 8 files tak.', 'er'); return; }
+    if (attBytes() + f.size > ATT_MAX) { setMsg('Total ' + (ATT_MAX >> 20) + 'MB se zyada nahi — chhoti zip/photo do.', 'er'); return; }
+    var rd = new FileReader();
+    rd.onload = function () { var d = String(rd.result || ''); S.att.push({ name: f.name || 'photo.png', size: f.size, b64: d.slice(d.indexOf(',') + 1), img: /^image\//.test(f.type) }); renderAtt(); setMsg('📎 ' + S.att.length + ' file ready — ab likho Ava ko kya banana hai (ya seedha "Kaam do" dabao).', 'ok'); };
+    rd.onerror = function () { setMsg('File padh nahi paaye: ' + f.name, 'er'); };
+    rd.readAsDataURL(f);
+  });
+}
 function guardOk(text) {
   if (!text || !window.AvaGuard) return true;
   var g = window.AvaGuard.instance.check(text, { key: 'desk' });
@@ -383,7 +501,7 @@ function renderWork() {
   document.body.classList.toggle('busy', w);
   var pill = $('#workPill'); pill.className = 'pill ' + (w ? 'work' : 'idle'); $('#workTx').textContent = w ? 'Ava kaam kar rahi hai…' : 'Ava ruki hui hai';
   var cp = $('#codePill'); cp.className = 'pill ' + (w ? 'work' : 'idle'); $('span', cp).textContent = w ? 'LIVE' : 'idle';
-  ['#bGo', '#bUp', '#bProto', '#bProto2', '#bProj', '#bProj2', '#bApk'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
+  ['#bGo', '#bUp', '#bProto', '#bProto2', '#bProj', '#bProj2', '#bApk', '#bAtt'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
   var bs = $('#bStop'); if (bs) bs.style.display = (S.studio && S.studio.running) || (S.state && S.state.jailPending > 0) ? '' : 'none';
   orb = w ? 'thinking' : 'idle'; redraw();
 }
@@ -401,7 +519,7 @@ function renderVars() {
   }).join('');
   var gen = (S.jail || []).filter(isVariant).sort(function (a, b) { return Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0); }).map(function (j) {
     var v = moodOf(j), c = JCAT[j.category] || JCAT.other;
-    return '<div class="vc gen' + (S.focus && S.focus.id === j.id ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b title="' + esc(j.title) + '">' + esc(j.title) + '</b><small>' + c[0] + ' ' + esc(v.n) + ' · naya variant</small><div class="bt"><button class="btn g s" data-k="j" data-focus="' + esc(j.id) + '">Code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">👁 Preview</button>' : '<a class="btn s" href="' + codeUrl(j) + '" download>⬇ Code</a>') + '</div></div>';
+    return '<div class="vc gen' + (S.focus && S.focus.id === j.id ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b title="' + esc(j.title) + '">' + esc(j.title) + '</b><small>' + c[0] + ' ' + esc(v.n) + ' · naya variant</small><div class="bt"><button class="btn g s" data-k="j" data-focus="' + esc(j.id) + '">Code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">👁 Preview</button>' : '<a class="btn s" href="#" data-dl="' + codeUrl(j) + '">⬇ Code</a>') + '</div></div>';
   }).join('');
   var vg = $('#vgrid'), prev = S.genN || 0, n = (S.jail || []).filter(isVariant).length;
   vg.innerHTML = base + gen; S.genN = n;
@@ -450,7 +568,7 @@ function studioDone() { // running -> finished transition + live follow of the f
   }
   S.studioWas = !!st.running;
 }
-function renderAll() { renderVars(); renderWork(); renderProg(); renderStats(); renderMinds(); renderSats(); renderCodeSel(); renderUps(); renderUpsView(); renderProtoView(); autoFocus(); }
+function renderAll() { renderProject(); renderVars(); renderWork(); renderProg(); renderStats(); renderMinds(); renderSats(); renderCodeSel(); renderUps(); renderUpsView(); renderProtoView(); autoFocus(); }
 function renderStats() {
   var s = S.state, np = pending().length;
   $('#stPend').textContent = s ? np : '—'; $('#stVer').textContent = s ? 'v' + s.version : '—'; $('#stProto').textContent = S.jail.length;
@@ -535,10 +653,10 @@ function showFocus() {
   var f = S.focus; if (!f) return; var meta = $('#cmeta'), sub = $('#codeSub');
   if (f.kind === 'j') {
     var j = S.jail.filter(function (x) { return x.id === f.id; })[0]; if (!j) return;
-    if (j.apk) { sub.textContent = 'APK: ' + j.title; meta.innerHTML = '<span class="b ' + (j.status === 'failed' ? 'high' : 'low') + '">' + esc(j.status) + '</span>' + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + 'APK download</a>' : '') + '<a class="btn g s" href="/api/apk/jobs/' + esc(j.jobId) + '/source" download>' + ic('code') + 'Source</a>' + (j.runUrl ? '<a class="btn g s" target="_blank" rel="noopener" href="' + esc(j.runUrl) + '">Build logs</a>' : ''); $('#codebox').innerHTML = '<div class="empty">' + esc(j.description) + '</div>'; return; }
+    if (j.apk) { sub.textContent = 'APK: ' + j.title; meta.innerHTML = '<span class="b ' + (j.status === 'failed' ? 'high' : 'low') + '">' + esc(j.status) + '</span>' + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + 'APK download</a>' : '') + '<a class="btn g s" href="#" data-dl="/api/apk/jobs/' + esc(j.jobId) + '/source">' + ic('code') + 'Source</a>' + (j.runUrl ? '<a class="btn g s" target="_blank" rel="noopener" href="' + esc(j.runUrl) + '">Build logs</a>' : ''); $('#codebox').innerHTML = '<div class="empty">' + esc(j.description) + '</div>'; return; }
     sub.textContent = 'Prototype: ' + j.title;
     meta.innerHTML = '<span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="b">' + esc(j.category || 'other') + '</span><span>' + when(j.createdAt) + '</span>' +
-      (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.kind === 'project' ? pfPicker(j) : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
+      (j.verify ? '<span class="b ' + (j.verify.testsFail || j.verify.syntaxBad ? 'high' : 'low') + '" title="Ava ka final check">✔ ' + j.verify.syntaxOk + ' files ok · tests ' + j.verify.testsPass + '/' + (j.verify.testsPass + j.verify.testsFail) + (j.verify.features && j.verify.features.total ? ' · features ' + j.verify.features.done + '/' + j.verify.features.total : '') + '</span>' : '') + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.studio && j.hasCode ? '<button class="btn g s" data-clone="' + esc(j.id) + '">Clone</button>' : '') + (j.studio ? '<button class="btn g s" data-pj="' + j.id + '">' + ic('pen') + 'Project page</button>' : '') + (j.kind === 'project' ? pfPicker(j) : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
     if (!j.hasCode) { $('#codebox').innerHTML = '<div class="empty">(code gaya — ye prototype ka code ab store me nahi hai)</div>'; return; }
     $('#codebox').innerHTML = '<div class="empty">Ava ka code load ho raha hai…<span class="cursor"></span></div>';
     loadPfiles(j);
@@ -619,7 +737,7 @@ function renderProtoView() {
     var c = JCAT[j.category] || JCAT.other, id = esc(j.id);
     return '<div class="pcard" style="--c:' + c[1] + '"><div class="av">' + c[0] + '</div><span class="cat">' + esc(j.category || 'other') + '</span><h5>' + esc(j.title) + '</h5><p>' + esc(j.description) + '</p>' +
       '<div class="setrow" style="margin:0"><span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="meta">' + when(j.createdAt) + '</span></div>' +
-      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + (j.apk ? 'Status' : 'Live code') + '</button>' + (j.apk && j.hasCode ? '<button class="btn s" data-apkrev="' + esc(j.jobId) + '">✏ Badlao</button>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="' + codeUrl(j) + '" download>' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.apk ? '' : '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button>') + '</div></div>';
+      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + (j.apk ? 'Status' : 'Live code') + '</button>' + (j.apk && j.hasCode ? '<button class="btn s" data-apkrev="' + esc(j.jobId) + '">✏ Badlao</button>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.apk ? '' : '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button>') + '</div></div>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">🌙 Abhi Ava ki duniya khaali hai — pehla prototype banao!</div>';
 }
 
@@ -642,8 +760,10 @@ function doUpgrade(src) {
 function studioStart(kind, src, label, tgt, forced) {
   var b = taskText(src); if (!guardOk(b)) return;
   setMsg(label); setBubble(label);
-  jpost(ST + '/start', { kind: kind, brief: b, targetLines: forced || +(($(tgt) || {}).value) || 8000 }).then(function (r) {
+  var att = (S.att || []).map(function (a) { return { name: a.name, b64: a.b64 }; });
+  jpost(ST + '/start', { kind: kind, brief: b, targetLines: forced || +(($(tgt) || {}).value) || 8000, attachments: att.length ? att : undefined }).then(function (r) {
     if (!r.ok) { setMsg('❌ ' + (r.j.error || r.status), 'er'); return; }
+    S.att = []; renderAtt();
     S.studio = { running: true, step: 'start' }; S.studioWas = true; renderWork(); loadAll();
   }).catch(function (e) { setMsg('Error: ' + e.message, 'er'); });
 }
@@ -666,7 +786,7 @@ function sizeIn(t) {
 }
 function intentOf(t) {
   var x = String(t || '').toLowerCase();
-  if (!x.trim()) return 'upgrade';
+  if (!x.trim()) return S.att && S.att.length ? 'project' : 'upgrade';
   if (/\b(apk|android app|mobile app|app banao|app bana|app build|ek app|application)\b/.test(x)) return 'apk';
   if (/\b(upgrade|improve|apna code|khud ko|ava ko behtar|bug fix|fix kar)\b/.test(x)) return 'upgrade';
   if (/\b(project|system|backend|api|library|framework|engine|cli|toolkit|platform|service|scheduler|compiler|server|bot|database|lines)\b/.test(x) || sizeIn(x)) return 'project';
@@ -676,6 +796,10 @@ function intentOf(t) {
 var INTENT_TX = { apk: '📱 Samjha: APK banana hai', project: '🏗 Samjha: pura project banana hai', ui: '🎨 Samjha: UI design banana hai', upgrade: '⚡ Samjha: apna upgrade likhna hai', prototype: '🧪 Samjha: prototype banana hai' };
 function doAuto(src) {
   var t = taskText(src), k = intentOf(t); if (!guardOk(t)) return;
+  if (S.att && S.att.length && src === '#task') {   // zip / photo attached: build from it (never plain upgrade/prototype)
+    var onlyImg = S.att.every(function (a) { return a.img; });
+    k = (k === 'ui' || (onlyImg && k !== 'project' && !/\b(project|system|backend|api|app)\b/i.test(t))) ? 'ui' : 'project';
+  }
   setMsg(INTENT_TX[k]);
   if (k === 'apk') doApk(src);
   else if (k === 'project') { var sz = sizeIn(t); doProject(src, sz || undefined); }
@@ -716,6 +840,7 @@ function openView(v) {
   $$('.view').forEach(function (el) { el.classList.remove('on'); });
   $(v === 'home' ? '#home' : '#v-' + v).classList.add('on');
   $$('#nav button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
+  if (v === 'project') renderProject();
   redraw();
 }
 
@@ -793,6 +918,7 @@ document.addEventListener('click', function (e) {
   if ((el = t.closest('[data-apkrev]'))) { var ins = prompt('APK app me kya badalna hai?'); if (ins && guardOk(ins)) jpost('/api/apk/jobs/' + el.getAttribute('data-apkrev') + '/revise', { instruction: ins }).then(function (r) { toast(r.ok ? 'Badlav shuru' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
   if ((el = t.closest('[data-pf]'))) { var pj2 = S.focus && jOf(S.focus.id); if (pj2) showFile(pj2, el.getAttribute('data-pf')); return; }
   if ((el = t.closest('[data-pv]'))) { openPreview(el.getAttribute('data-pv')); return; }
+  if ((el = t.closest('[data-clone]'))) { jpost(ST + '/' + el.getAttribute('data-clone') + '/clone').then(function (r) { toast(r.ok ? '✅ Clone ban gaya (list me upar)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
   if ((el = t.closest('[data-del]'))) { if (confirm('Ye prototype gallery se hata dein?')) af(delUrl(jOf(el.getAttribute('data-del')) || { id: el.getAttribute('data-del') }), { method: 'DELETE' }).then(loadAll); return; }
   if ((el = t.closest('[data-focus]'))) { setFocus(el.getAttribute('data-k'), el.getAttribute('data-focus')); openView('home'); return; }
   if ((el = t.closest('.sat'))) { var id = el.getAttribute('data-id'), j = S.jail.filter(function (x) { return x.id === id; })[0]; setFocus('j', id); if (j && j.kind === 'design' && j.hasCode) openPreview(id); return; }
@@ -814,6 +940,15 @@ $('#bProj2').addEventListener('click', function () { doProject('#task2'); });
 $('#bStop').addEventListener('click', function () { jpost(ST + '/cancel').then(function () { return jpost(AVA + '/jail/queue/clear'); }).then(function () { toast('Roka ja raha hai…'); loadAll(); }); });
 $('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doAuto('#task'); });
 $('#bGo').addEventListener('click', function () { doAuto('#task'); });
+$('#bAtt').addEventListener('click', function () { $('#fAtt').click(); });
+$('#fAtt').addEventListener('change', function (e) { addFiles(e.target.files); e.target.value = ''; });
+$('#atts').addEventListener('click', function (e) { var b = e.target.closest('[data-rm]'); if (b) { S.att.splice(+b.getAttribute('data-rm'), 1); renderAtt(); } });
+(function () { var cb = $('#cmdbox'); if (!cb) return;
+  ['dragenter', 'dragover'].forEach(function (n) { cb.addEventListener(n, function (e) { e.preventDefault(); cb.classList.add('drag'); }); });
+  ['dragleave', 'drop'].forEach(function (n) { cb.addEventListener(n, function (e) { e.preventDefault(); cb.classList.remove('drag'); }); });
+  cb.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+  $('#task').addEventListener('paste', function (e) { var fs = e.clipboardData && e.clipboardData.files; if (fs && fs.length) { e.preventDefault(); addFiles(fs); } });
+})();
 $('#bApk').addEventListener('click', function () { doApk('#task'); });
 ['#auto', '#aapply', '#hrs', '#jauto', '#jhrs'].forEach(function (id) { $(id).addEventListener('change', saveSet); });
 ['#uauto', '#uhrs', '#pauto', '#phrs'].forEach(function (id) { $(id).addEventListener('change', saveUi); });
@@ -828,6 +963,132 @@ document.addEventListener('visibilitychange', function () { if (!document.hidden
 applyVariant(); renderWork(); renderStats(); renderUps(); renderProtoView();
 setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho, neeche likho.');
 loadAll();
+
+/* ------------------------------------------------------------ Project page */
+S.pj = { id: null, chat: [], busy: false, sig: '' };
+function pjList() { return (S.jail || []).filter(function (j) { return j.studio; }); }
+function pjCur() {
+  var l = pjList(); if (S.pj.id) { var f = l.filter(function (j) { return j.id === S.pj.id; })[0]; if (f) return f; }
+  if (S.studio && S.studio.running && S.studio.entryId) { var r = l.filter(function (j) { return j.id === S.studio.entryId; })[0]; if (r) return r; }
+  return l[0] || null;
+}
+function pjLive(j) { return !!(j && S.studio && S.studio.running && S.studio.entryId === j.id); }
+function pjStatus(j) {
+  if (pjLive(j)) return { t: '⏳ Ban raha hai', c: 'work' };
+  if (j.status === 'building') return { t: '⏳ Ban raha hai', c: 'work' };
+  if (j.status === 'done') return { t: '✅ Ready', c: 'ok' };
+  if (j.status === 'partial') return { t: 'Adhura', c: 'idle' };
+  return { t: '❌ ' + (j.status || 'fail'), c: 'bad' };
+}
+function pjPct(j) { var st = S.studio || {}; if (!pjLive(j)) return j.status === 'done' ? 100 : 0; if (st.total) return Math.max(3, Math.min(97, Math.round(((st.done || 0) + 0.5) / st.total * 100))); return st.target ? Math.max(3, Math.min(97, Math.round((st.lines || 0) / st.target * 100))) : 5; }
+function pjSide(j) {
+  var box = $('#pjSide'); if (!box) return;
+  var keep = box.scrollTop;
+  if (!j) { box.innerHTML = '<div class="ph"><div><h3>Ava ka project</h3><small>Abhi koi project nahi hai</small></div></div><div class="pbody"><div class="empty">Left me project ki detail likho aur ⚡ Banao dabao — yahan uska naam, features aur live status dikhega.</div></div>'; return; }
+  var st = S.studio || {}, ps = pjStatus(j), live = pjLive(j), stt = j.stats || {};
+  var notes = (j.notes || []).filter(function (n) { return /❌|skip|nahi hai|reject|error|samajh nahi|tests chalaye nahi/i.test(n); }).slice(-6);
+  var h = '<div class="ph"><div style="min-width:0"><h3>' + esc(j.title || 'Ava project') + '</h3><small>' + esc(j.tagline || String(j.description || '').slice(0, 140) || (j.kind === 'design' ? 'UI design' : 'Project')) + '</small></div><span class="grow"></span><span class="pill ' + ps.c + '">' + esc(ps.t) + '</span></div><div class="pbody">';
+  if (live || j.status === 'building') h += '<div class="pjbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pjPct(j) + '"><i style="width:' + pjPct(j) + '%"></i></div><div class="meta" style="margin-top:6px">' + esc(String(st.step || 'start').slice(0, 140)) + (st.waitingUntil && st.waitingUntil > Date.now() ? ' · AI quota ka wait' : '') + '</div>';
+  h += '<div class="meta" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><span class="b">' + (stt.files || 0) + ' files</span><span class="b">' + (stt.lines || (live ? st.lines : 0) || 0) + ' lines</span><span class="b">' + (stt.calls || (live ? st.calls : 0) || 0) + ' AI calls</span>' + (j.verify ? '<span class="b ' + (j.verify.testsFail || j.verify.syntaxBad ? 'high' : 'low') + '">✔ final check: ' + j.verify.syntaxOk + ' files ok · tests ' + j.verify.testsPass + '/' + (j.verify.testsPass + j.verify.testsFail) + '</span>' : '') + '</div>';
+  h += '<h4>Features</h4>' + ((j.features && j.features.length) ? '<ul class="pjf">' + j.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' : '<div class="meta">' + (live ? 'Research ke baad features yahan aayenge…' : 'Features ki list nahi bani.') + '</div>');
+  if (notes.length) h += '<h4>Dhyaan / bugs</h4>' + notes.map(function (n) { return '<div class="pjn">• ' + esc(n) + '</div>'; }).join('');
+  if (j.refMime) h += '<h4>Reference photo</h4><img class="pjref" alt="Reference photo" src="' + ST + '/' + esc(j.id) + '/ref">';
+  if (j.attached && j.attached.length) h += '<div class="meta" style="margin-top:8px">📎 ' + j.attached.map(esc).join(' · ') + '</div>';
+  h += '<h4>Demo</h4><div class="row" style="margin-top:0"><button class="btn s" data-pjdemo="' + esc(j.id) + '">📸 Demo image</button>' + (j.hasDemo || j.kind === 'design' ? '<button class="btn g s" data-pjprev="' + esc(j.id) + '">💻 Laptop preview</button>' : '') + (j.hasCode ? '<button class="btn g s" data-clone="' + esc(j.id) + '">Clone</button><a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + '</div>';
+  var ss = (S.state && S.state.settings) || {}, np = pending().length;
+  h += '<h4>Ava khud upgrade hoti rahe</h4><div class="meta">Auto-upgrade: <b>' + (ss.auto ? 'ON' : 'OFF') + '</b> · ' + (np ? np + ' upgrade tumhare Approve ka intezaar kar raha hai' : 'abhi koi upgrade pending nahi') + '. Har upgrade tumhare Approve ke baad hi lagta hai.</div><div class="row"><button class="btn g s" data-pjup="1">⚡ Abhi upgrade likho</button><button class="btn g s" data-pjgo="ups">Upgrades dekho</button></div></div>';
+  box.innerHTML = h; box.scrollTop = keep;
+}
+function renderProject() {
+  var j = pjCur(), t = $('#pjRowT'), sb = $('#pjRowS');
+  if (t) { t.textContent = j ? (j.title || 'Ava project') : 'Ava ka project'; sb.textContent = j ? pjStatus(j).t + (pjLive(j) ? ' · ' + pjPct(j) + '%' : '') : 'Koi project nahi'; }
+  if (S.view !== 'project') return;
+  pjSide(j);
+  var go = $('#pjGo'); if (go) go.disabled = !!working();
+}
+function pjAddMsg(role, text, cls) { S.pj.chat.push({ role: role, text: text, cls: cls }); var b = $('#pjMsgs'); if (!b) return; var d = document.createElement('div'); d.className = 'pjm ' + role + (cls ? ' ' + cls : ''); d.textContent = text; b.appendChild(d); b.scrollTop = b.scrollHeight; }
+function pjSend(q) {
+  var inp = $('#pjIn'), text = String(q || (inp && inp.value) || '').trim(); if (!text || S.pj.busy) return;
+  if (!guardOk(text)) return;
+  if (inp) inp.value = ''; var hist = S.pj.chat.filter(function (m) { return !m.cls; }).slice(-8).map(function (m) { return { role: m.role, text: m.text }; });
+  pjAddMsg('you', text); S.pj.busy = true; $('#pjSend').disabled = true; var j = pjCur();
+  var tmp = document.createElement('div'); tmp.className = 'pjm ava'; tmp.textContent = 'Ava soch rahi hai…'; $('#pjMsgs').appendChild(tmp);
+  jpost(ST + '/chat', { id: j && j.id, message: text, history: hist }).then(function (r) { tmp.remove(); if (!r.ok) pjAddMsg('ava', '❌ ' + (r.j.error || r.status), 'err'); else pjAddMsg('ava', r.j.reply || '…'); })
+    .catch(function (e) { tmp.remove(); pjAddMsg('ava', '❌ ' + e.message, 'err'); }).then(function () { S.pj.busy = false; $('#pjSend').disabled = false; });
+}
+function pjMsg(t, cls) { var el = $('#pjMsg'); if (el) { el.textContent = t || ''; el.className = 'meta ' + (cls || ''); } }
+function pjStart() {
+  var kind = $('#pjKind').value, b = String($('#pjBrief').value || '').trim(); if (!guardOk(b)) return;
+  var att = (S.att || []).map(function (a) { return { name: a.name, b64: a.b64 }; });
+  if (!b && !att.length) { pjMsg('Pehle project ki detail likho (ya photo / zip do).', 'er'); return; }
+  $('#pjGo').disabled = true;
+  var done = function (r, label) { if (!r.ok) { pjMsg('❌ ' + (r.j.error || r.status), 'er'); return; } S.att = []; renderAtt(); $('#pjBrief').value = ''; $('#pjCnt').textContent = '0 / 6000'; S.pj.id = null; S.studio = { running: true, step: 'start' }; S.studioWas = true; pjMsg(label, 'ok'); renderWork(); loadAll().then(renderProject); };
+  if (kind === 'apk') {
+    if (b.length < 8 && !att.length) { pjMsg('APK ke baare me thoda likho: kaisa app, kya features.', 'er'); $('#pjGo').disabled = false; return; }
+    var send = function (ref) {
+      var prompt = ref ? b.slice(0, 2400) + '\n\nREFERENCE (attached files ka summary):\n' + ref.slice(0, Math.max(0, 2950 - Math.min(b.length, 2400) - 40)) : b.slice(0, 3000);
+      if (b.length > 3000 && !ref) pjMsg('APK brief 3000 akshar tak jaata hai — baaki kaat diya.', 'er');
+      return jpost('/api/apk/generate', { prompt: prompt }).then(function (r) { done(r, '📱 APK ka kaam shuru — 5–10 min, progress yahin dikhega.'); });
+    };
+    (att.length ? (pjMsg('Photo / zip padh rahi hai…'), jpost(ST + '/attach-read', { attachments: att }).then(function (r) { if (!r.ok) throw new Error(r.j.error || r.status); return send(r.j.context || ''); })) : send('')).catch(function (e) { pjMsg('Error: ' + e.message, 'er'); }).then(function () { $('#pjGo').disabled = false; });
+    return;
+  }
+  pjMsg('Ava kaam shuru kar rahi hai…');
+  jpost(ST + '/start', { kind: kind, brief: b, targetLines: +$('#pjTgt').value || 8000, attachments: att.length ? att : undefined }).then(function (r) { done(r, kind === 'ui' ? '🎨 UI design shuru — side panel me live status dikhega.' : '🏗 Project shuru — side panel me live status dikhega, background me chalta rahega.'); })
+    .catch(function (e) { pjMsg('Error: ' + e.message, 'er'); }).then(function () { $('#pjGo').disabled = false; });
+}
+function pjSlug(j) { return String((j && j.title) || 'ava-project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'ava-project'; }
+function pjDemoImage(id) {
+  var j = pjList().filter(function (x) { return x.id === id; })[0]; toast('Demo image ban rahi hai…');
+  af(ST + '/' + id + '/demo.svg').then(function (r) { if (!r.ok) throw new Error('Demo nahi mili (' + r.status + ')'); return r.text(); }).then(function (svg) {
+    var url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    $('#mTitle').textContent = '📸 Demo image — laptop par aisa dikhega';
+    $('#mBody').innerHTML = '<div style="flex:1;overflow:auto;padding:14px;text-align:center"><img alt="Demo image" src="' + url + '" style="max-width:100%;height:auto;border-radius:14px"><div style="margin-top:12px"><button class="btn" id="pjPng">⬇ PNG download</button></div></div>';
+    $('#modal').classList.add('on'); redraw();
+    $('#pjPng').onclick = function () {
+      var im = new Image(); im.onload = function () { var cv = document.createElement('canvas'); cv.width = 2560; cv.height = 1600; cv.getContext('2d').drawImage(im, 0, 0, 2560, 1600); cv.toBlob(function (b) { if (b) { saveBlob(b, pjSlug(j) + '-demo.png'); toast('PNG download ho gayi ✓'); } else toast('PNG nahi ban payi'); }, 'image/png'); };
+      im.onerror = function () { toast('PNG nahi ban payi — browser ne SVG nahi kholi'); }; im.src = url;
+    };
+  }).catch(function (e) { toast('❌ ' + e.message, 4500); });
+}
+function pjLaptop(id) {
+  toast('Laptop preview khul raha hai…');
+  af(ST + '/' + id + '/demo-html').then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); return t; }); }).then(function (html) {
+    $('#mTitle').textContent = '💻 Laptop preview (sandbox — kuch apply nahi hota)';
+    $('#mBody').innerHTML = '<div style="flex:1;overflow:auto;padding:12px"><div id="lapW"><div class="lap" id="lap"><div class="lscr"><iframe id="lapF" sandbox="allow-scripts" title="Laptop preview" width="1280" height="800"></iframe></div><div class="lbase"></div></div></div></div>';
+    $('#lapF').srcdoc = html; $('#modal').classList.add('on'); redraw();
+    var w = Math.max(280, ($('#mBody').clientWidth || 800) - 30), sc = Math.min(1, w / 1308);
+    $('#lap').style.transform = 'scale(' + sc + ')'; $('#lap').style.width = '1308px'; $('#lapW').style.height = Math.round(852 * sc) + 'px'; $('#lapW').style.width = Math.round(1308 * sc) + 'px';
+  }).catch(function (e) { toast(String(e.message || e).slice(0, 160), 5000); });
+}
+(function pjInit() {
+  var ta = $('#pjBrief'); ta.addEventListener('input', function () { $('#pjCnt').textContent = ta.value.length + ' / 6000'; });
+  $('#pjGo').addEventListener('click', pjStart); $('#pjSend').addEventListener('click', function () { pjSend(); });
+  $('#pjIn').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pjSend(); } });
+  $('#pjPhoto').addEventListener('click', function () { $('#pjFile').accept = 'image/*'; $('#pjFile').click(); });
+  $('#pjZip').addEventListener('click', function () { $('#pjFile').accept = '.zip,application/zip'; $('#pjFile').click(); });
+  $('#pjFile').addEventListener('change', function (e) { addFiles(e.target.files); e.target.value = ''; });
+  $('#pjAtts').addEventListener('click', function (e) { var b = e.target.closest('[data-rm]'); if (b) { S.att.splice(+b.getAttribute('data-rm'), 1); renderAtt(); } });
+  $('#pjRow').addEventListener('click', function () { openView('project'); renderProject(); });
+  var chat0 = 'Hi Pavan! Main Ava hoon. Pucho: "kya bana rahi ho?", "ye bug kya hai?" ya "kitna kaam baaki hai?".'; var b0 = $('#pjMsgs'); if (b0) { var d = document.createElement('div'); d.className = 'pjm ava'; d.textContent = chat0; b0.appendChild(d); }
+  document.addEventListener('click', function (e) {
+    var t = e.target, el;
+    if ((el = t.closest('[data-pjq]'))) { pjSend(el.getAttribute('data-pjq')); return; }
+    if ((el = t.closest('[data-pjdemo]'))) { pjDemoImage(el.getAttribute('data-pjdemo')); return; }
+    if ((el = t.closest('[data-pjprev]'))) { pjLaptop(el.getAttribute('data-pjprev')); return; }
+    if ((el = t.closest('[data-pjgo]'))) { openView(el.getAttribute('data-pjgo')); return; }
+    if ((el = t.closest('[data-pj]'))) { S.pj.id = el.getAttribute('data-pj'); openView('project'); renderProject(); return; }
+    if (t.closest('[data-pjup]')) { jpost(AVA + '/improve', { goal: '' }).then(function (r) { toast(r.ok ? (r.j.none ? 'Ava: ' + r.j.say : '✅ Naya proposal taiyar — Upgrades me Approve/Reject karo') : '❌ ' + (r.j.error || r.status), 4500); loadAll(); }).catch(function (er) { toast('Error: ' + er.message, 4500); }); }
+  });
+  var sel = $('#pjKind'); sel.addEventListener('change', function () { $('#pjTgt').style.display = sel.value === 'project' ? '' : 'none'; $('#pjBrief').placeholder = sel.value === 'apk' ? 'Kaisa app, kya features, kaisa dikhna chahiye (APK ke liye ~3000 akshar tak)…' : sel.value === 'ui' ? 'Kaunsi screen, kaisa look, kya dikhna chahiye…' : 'Poora project likho: naam, kya karega, features, kaun use karega, kaisa dikhna chahiye…'; });
+})();
+/* thumbnails (72px) for attachments in the Project form, mirrored from the Home command box */
+var _renderAtt = renderAtt;
+renderAtt = function () {
+  _renderAtt(); var box = $('#pjAtts'); if (!box) return;
+  box.innerHTML = S.att.map(function (a, i) { var ext = /\.png$/i.test(a.name) ? 'png' : /\.webp$/i.test(a.name) ? 'webp' : /\.gif$/i.test(a.name) ? 'gif' : 'jpeg'; return '<span class="att">' + (a.img ? '<img alt="" src="data:image/' + ext + ';base64,' + a.b64 + '">' : /\.zip$/i.test(a.name) ? '🗜' : '📄') + '<span>' + esc(a.name) + '</span>' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao" aria-label="hatao">×</button></span>'; }).join('');
+};
+
 (function poll() { setTimeout(function () { (document.hidden ? Promise.resolve() : loadAll()).then(poll, poll); }, working() ? 3000 : 15000); })();
 setInterval(redraw, 5000);
 requestAnimationFrame(loop);

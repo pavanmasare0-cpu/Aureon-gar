@@ -2104,12 +2104,42 @@ function settingsOpenPane(name) {
 document.querySelectorAll('.list-row[data-open]').forEach(btn => {
   btn.addEventListener('click', () => settingsOpenPane(btn.dataset.open));
 });
-$('btn-open-sentinel')?.addEventListener('click', () => {
-  const code = prompt('Owner code daalo:');
-  if (code === null) return; // cancelled
-  if (!code.trim()) { alert('Code khaali nahi ho sakta.'); return; }
-  const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code.trim())}&theme=${encodeURIComponent(localStorage.getItem('aureon_theme') || 'nebula')}`;
-  window.open(url, '_blank');
+/* Owner code: window.prompt() Android WebView me aksar chalta hi nahi aur window.open(_blank) bhi silently fail hota hai
+   (isi se "code daalne par no reaction" aata tha). Ab: apna input box + native Chrome-open (AureonActions.openUrl). */
+function askOwnerCode() {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6);font:16px/1.5 system-ui,sans-serif';
+    wrap.innerHTML = '<div style="width:100%;max-width:360px;background:#131A22;color:#E6EDF3;border:1px solid #263340;border-radius:16px;padding:20px">'
+      + '<div style="font-weight:600;margin-bottom:4px">Owner code</div>'
+      + '<div style="color:#9AA7B4;font-size:13px;margin-bottom:12px">Sentinel dashboard kholne ke liye apna owner code daalo.</div>'
+      + '<input id="oc-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Owner code" style="width:100%;box-sizing:border-box;min-height:44px;padding:10px 14px;background:#0B0F14;color:#E6EDF3;border:1px solid #263340;border-radius:12px;font:inherit">'
+      + '<div id="oc-err" style="color:#FF6B6B;font-size:13px;min-height:18px;margin-top:6px"></div>'
+      + '<div style="display:flex;gap:8px;margin-top:8px"><button id="oc-no" style="flex:1;min-height:44px;border-radius:12px;border:1px solid #263340;background:transparent;color:#E6EDF3;font:inherit">Cancel</button>'
+      + '<button id="oc-ok" style="flex:1;min-height:44px;border-radius:12px;border:0;background:#5B9BFF;color:#07101C;font:inherit;font-weight:600">Kholo</button></div></div>';
+    document.body.appendChild(wrap);
+    const inp = wrap.querySelector('#oc-in'), err = wrap.querySelector('#oc-err');
+    const done = (v) => { wrap.remove(); resolve(v); };
+    const submit = () => { const v = inp.value.trim(); if (!v) { err.textContent = 'Code khaali nahi ho sakta.'; inp.focus(); return; } done(v); };
+    wrap.querySelector('#oc-ok').onclick = submit;
+    wrap.querySelector('#oc-no').onclick = () => done(null);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') done(null); });
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+async function openExternalUrl(url) {
+  const A = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
+  if (A && A.openUrl) { try { await A.openUrl({ url }); return true; } catch (e) { /* fallback neeche */ } }
+  try { const w = window.open(url, '_blank'); if (w) return true; } catch (e) { /* fallback neeche */ }
+  try { window.location.href = url; return true; } catch (e) { return false; }
+}
+$('btn-open-sentinel')?.addEventListener('click', async () => {
+  const code = await askOwnerCode();
+  if (!code) return; // cancelled
+  const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code)}&theme=${encodeURIComponent(localStorage.getItem('aureon_theme') || 'nebula')}`;
+  const ok = await openExternalUrl(url);
+  if (!ok) alert('Dashboard khul nahi paya. Browser me ye link khol lo:\n' + state.backendUrl);
 });
 settingsEl('settings-back')?.addEventListener('click', settingsShowList);
 $('btn-drawer-settings')?.addEventListener('click', () => setTimeout(() => { settingsShowList(); refreshLogins(); }, 0));

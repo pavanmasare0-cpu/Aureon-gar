@@ -11,6 +11,7 @@
 //  * Har approve ka backup + Rollback button + history (kya badla, kyun, risk, diff, patch download).
 //  * Ye honest hai: Ava "khud ko conscious/free" nahi banati — wo code ka draft likhti hai, tum faisla karte ho.
 const fs = require('fs');
+const { UI_SKILL } = require('./design-skill');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
@@ -342,6 +343,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   }
   const DESIGN_RULES = [
     'You are Ava, and you are also a world-class product/UI designer. This is your DESIGN STUDIO (the Jail): pure creative work, never applied or deployed automatically — the owner will preview it and decide.',
+    UI_SKILL,
     'TASK: design the BEST possible top-level UI screen for the Aureon app / its Sentinel dashboard. If the owner gave a brief, follow it. If not, YOU decide which top-level screen adds the most value (home dashboard, chat, settings, memory vault …) and what visual direction fits.',
     'REFERENCE DIRECTION (evolve it, do not copy blindly): futuristic dark glassmorphism — deep navy, violet/cyan/pink neon glows, rounded translucent cards, a glowing orb avatar for Ava, left sidebar on desktop and bottom navigation on phones, live-status cards, progress bars, tabs.',
     'QUALITY BAR: ONE standalone HTML file, inline CSS + JS, NO external files/fonts/images/CDN/network calls (inline SVG, emoji, CSS gradients only). Mobile-first (360–430px) AND great on desktop. Realistic sample content (Hinglish where natural). Real interactions (tabs, toggles, buttons that change state), smooth micro-animations, prefers-reduced-motion respected, strong typographic hierarchy, consistent spacing, accessible contrast and labels. No lorem ipsum, no dead buttons, no console errors. Must end with </html>.',
