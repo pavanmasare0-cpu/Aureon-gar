@@ -48,15 +48,57 @@ async function downloadZip(url, fetchImpl) {
     const res = await fetchImpl(url, { signal: ctl.signal, headers: { 'User-Agent': 'aureon-skill-installer' } });
     if (res.status === 404) { const e = new Error('Repo nahi mila (private ho sakta hai)'); e.code = 'NOT_FOUND'; throw e; }
     if (!res.ok) throw new Error('GitHub ne ' + res.status + ' diya');
-    if (Number(res.headers.get('content-length') || 0) > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB)');
+    if (Number(res.headers.get('content-length') || 0) > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB). Us skill ke folder ka link bhejo, jaise github.com/user/repo/tree/main/skills/naam');
     const chunks = []; let total = 0;
     for await (const c of res.body) {
       total += c.length;
-      if (total > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB)');
+      if (total > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB). Us skill ke folder ka link bhejo, jaise github.com/user/repo/tree/main/skills/naam');
       chunks.push(c);
     }
     return Buffer.concat(chunks);
   } finally { clearTimeout(timer); }
+}
+
+// One text file as a string (null on 404). Used for single-folder installs, so a huge repo is never downloaded.
+async function fetchText(url, fetchImpl, maxBytes) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(url, { signal: ctl.signal, headers: { 'User-Agent': 'aureon-skill-installer', Accept: 'application/vnd.github+json' } });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('GitHub ne ' + res.status + ' diya');
+    if (Number(res.headers.get('content-length') || 0) > maxBytes) throw new Error('File bahut badi hai');
+    const text = await res.text();
+    if (Buffer.byteLength(text) > maxBytes) throw new Error('File bahut badi hai');
+    return text;
+  } finally { clearTimeout(timer); }
+}
+
+function makeSkill(text, rel) {
+  const s = parseSkillMd(text);
+  const folder = rel.split('/').slice(-2, -1)[0] || '';
+  const name = (s.name || folder).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
+  if (!name || !s.body) return null;
+  return { name, description: s.description.slice(0, 600), body: s.body, path: rel };
+}
+
+// Link points at a folder (…/tree/main/skills/<name>): read only that folder's SKILL.md, no repo zip.
+async function skillsFromSubdir({ owner, repo, ref, subdir, fetchImpl }) {
+  const raw = p => `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${p.split('/').map(encodeURIComponent).join('/')}`;
+  const direct = await fetchText(raw(subdir + '/SKILL.md'), fetchImpl, MAX_SKILL_BYTES);
+  if (direct != null) { const s = makeSkill(direct, subdir + '/SKILL.md'); return s ? [s] : []; }
+  // not a skill folder itself: list the folder through the GitHub API (one request), then read each SKILL.md
+  const treeText = await fetchText(`https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`, fetchImpl, 8 * 1024 * 1024);
+  if (treeText == null) return [];
+  const paths = (JSON.parse(treeText).tree || [])
+    .filter(n => n.type === 'blob' && n.path.startsWith(subdir + '/') && /(^|\/)SKILL\.md$/i.test(n.path)).map(n => n.path).slice(0, MAX_PER_REPO);
+  const found = new Map();
+  for (const p of paths) {
+    const t = await fetchText(raw(p), fetchImpl, MAX_SKILL_BYTES);
+    const s = t != null && makeSkill(t, p);
+    if (s && !found.has(s.name)) found.set(s.name, s);
+  }
+  return [...found.values()];
 }
 
 // Pure function: zip buffer -> list of skills. Exported for tests.
@@ -85,8 +127,9 @@ function extractSkills(buf, subdir) {
 async function installFromGithub({ db, uid, url, fetchImpl = fetch }) {
   if (!db || !uid) throw new Error('Pehle sign in karo');
   const { owner, repo, ref, subdir } = parseGithubUrl(url);
-  const buf = await downloadZip(`https://codeload.github.com/${owner}/${repo}/zip/${encodeURIComponent(ref)}`, fetchImpl);
-  const list = extractSkills(buf, subdir);
+  const list = subdir
+    ? await skillsFromSubdir({ owner, repo, ref, subdir, fetchImpl })
+    : extractSkills(await downloadZip(`https://codeload.github.com/${owner}/${repo}/zip/${encodeURIComponent(ref)}`, fetchImpl), '');
   if (!list.length) { const e = new Error('Is repo mein koi SKILL.md nahi mili'); e.code = 'NO_SKILL'; throw e; }
 
   const col = db.collection('users').doc(uid).collection('skills');
