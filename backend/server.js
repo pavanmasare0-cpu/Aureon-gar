@@ -20,6 +20,8 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const watchdog = require('./watchdog');
 const sentinelDashboard = require('./sentinel-dashboard');
 const security = require('./security');
+const skills = require('./skills');
+const claudeConn = require('./claude-connector');
 
 const app = express();
 // Render sits behind one proxy hop: trust exactly that, so req.ip is the real client address.
@@ -82,6 +84,8 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 // (still works, just won't survive a deploy — see SENTINEL-DASHBOARD-SETUP.md).
 app.use('/api/sentinel', sentinelDashboard);
 app.use('/api/security', security.router);
+app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => db }));
+app.use('/api/connectors/claude', claudeConn.createRouter({ express, verifyAuth, getDb: () => db }));
 
 function requireDb(res) {
   if (!db) {
@@ -383,6 +387,14 @@ async function callClaude(messages, systemPrompt) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Claude request failed');
   return data.content.map(c => c.text || '').join('');
+}
+
+// Claude connector / Claude Code: uses the user's own key (Settings > Claude Connector) or the server key.
+function callClaudeConnected(conn, code) {
+  return (messages, systemPrompt) => {
+    if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
+    return claudeConn.call({ apiKey: conn.apiKey, model: conn.model, messages, system: systemPrompt, maxTokens: code ? 8192 : 4096 });
+  };
 }
 
 // ---- Gemini: self-healing model selection ----
@@ -1586,6 +1598,12 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
 
     let finalSystemPrompt = systemPrompt || '';
 
+    // Skill install: "<github link> skill install karo" is handled here without calling the AI.
+    try {
+      const skillReply = await skills.handleInstallMessage({ db, uid, messages });
+      if (skillReply) return res.json({ reply: skillReply });
+    } catch (skillErr) { console.warn('Skill install handler failed:', skillErr.message); }
+
     // Fixed personality answers — always included, no tool call needed.
     finalSystemPrompt += `\n\nIf the user asks who made you, who your developer/owner/creator is, or similar (in any language) — the answer is always Pavan. You can refer to him reverentially/playfully too if it fits the tone (e.g. "Bhagwan Pavan", "God Pavan"), but the name is always Pavan, never say you don't know or that you're made by Google/OpenAI/etc. If the user jokingly asks about "kismat" (fate/luck) — respond playfully that it was the worst ("sabse bakwas thi") rather than answering literally.`;
 
@@ -1649,8 +1667,25 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     // request (and the user's wait time) on something that's already
     // failed 5 times in a row. Automatically re-tried after the cooldown
     // (see watchdog.js COOLDOWN_MS) — nobody has to flip it back on.
+    // Installed skills that match this request are added to the prompt (max 2).
+    try { finalSystemPrompt += await skills.buildContext({ db, uid, messages }); }
+    catch (skillErr) { console.warn('Skills context failed:', skillErr.message); }
+
+    // Claude Code mode: coding rules + the list of installed skills (name: description), like Claude's own skills list.
+    if (model === 'claudecode') {
+      try {
+        finalSystemPrompt += '\n\nYou are in CLAUDE CODE mode: act as a careful senior software engineer. ' + require('./code-skill').CODING_KNOWLEDGE_CHAT;
+        finalSystemPrompt += await skills.buildIndex({ db, uid });
+      } catch (skillErr) { console.warn('Claude Code context failed:', skillErr.message); }
+    }
+
     const geminiAutoHealing = model === 'gemini' && watchdog.isDisabled('gemini_chat_fail');
-    const provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
+    let provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
+    if (model === 'claude' || model === 'claudecode') {
+      const conn = await claudeConn.resolve(db, uid);
+      if (conn) provider = callClaudeConnected(conn, model === 'claudecode');
+      else provider = async () => { throw new Error('Claude key nahi hai. Settings > Claude Connector mein apni Anthropic key jodo.'); };
+    }
     const workingMessages = [...messages];
     let activePrompt = finalSystemPrompt;
 

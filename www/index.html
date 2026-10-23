@@ -192,6 +192,7 @@
       <button class="sheet-option" data-model="claude">🧠 Claude — Smart</button>
       <button class="sheet-option" data-model="gemini">🔬 Gemini — Research</button>
       <button class="sheet-option" data-model="groq">🚀 Groq — Fastest</button>
+      <button class="sheet-option" data-model="claudecode">🧑‍💻 Claude Code — skills + coding</button>
       <button class="sheet-option" data-model="coding">💻 Coding — all keys, chat + actions</button>
       <button class="sheet-option" data-model="local">🔒 Local — Private</button>
     </div>
@@ -255,6 +256,18 @@
           </button>
           </div>
           <div class="list-group">
+          <button class="list-row" data-open="claude">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span class="row-text"><span class="row-title">Claude Connector</span><span class="row-sub" id="sub-claude">Apni Anthropic key jodo</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="list-row" data-open="claudecode">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span class="row-text"><span class="row-title">Claude Code</span><span class="row-sub" id="sub-claudecode">Skills install karo</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          </div>
+          <div class="list-group">
           <button class="list-row" data-open="camera">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             <span class="row-text"><span class="row-title">Love Camera</span><span class="row-sub">Apni photo</span></span>
@@ -282,6 +295,24 @@
           <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="pg-save" style="flex:1">Key save</button><button class="primary-btn" id="pg-run" style="flex:2">Abhi check karo</button></div>
           <label style="display:flex;gap:10px;align-items:center;font-size:13px;margin:8px 0"><input type="checkbox" id="pg-auto" checked> Roz apne aap check (app khulne par)</label>
           <div id="pg-result"></div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="claude" data-title="Claude Connector">
+          <p class="card-sub">Apni <b>Anthropic API key</b> jodo (console.anthropic.com). Key server par encrypt hoke save hoti hai aur app ko wapas kabhi nahi bheji jaati. Uske baad model picker mein <b>Claude — Smart</b> aur <b>Claude Code</b> teri apni key se chalenge.</p>
+          <div id="cc-status" class="card-sub"></div>
+          <input id="cc-key" class="text-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-...">
+          <select id="cc-model" class="text-input" style="margin-top:8px"></select>
+          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cc-save" style="flex:2">Connect &amp; test</button><button class="primary-btn" id="cc-test" style="flex:1">Test</button><button class="primary-btn" id="cc-remove" style="flex:1">Hatao</button></div>
+          <div id="cc-msg" class="card-sub"></div>
+        </section>
+
+        <section class="settings-card settings-pane hidden" data-pane="claudecode" data-title="Claude Code">
+          <p class="card-sub">Koi bhi <b>GitHub skill link</b> daalo (repo, folder ya SKILL.md ka link). Install hote hi neeche list mein dikhegi, aur <b>Claude Code</b> mode usse apne aap use karega. Skill sirf text guidance hai, kuch chalta nahi.</p>
+          <input id="cs-url" class="text-input" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://github.com/owner/repo/tree/main/skills/name">
+          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cs-install" style="flex:1">Skill install karo</button><button class="primary-btn" id="cs-use" style="flex:1">Claude Code chalu</button></div>
+          <div id="cs-msg" class="card-sub"></div>
+          <div class="section-label" style="margin-top:12px">Installed skills <span id="cs-count"></span></div>
+          <div id="cs-list"></div>
         </section>
 
         <section class="settings-card settings-pane hidden" data-pane="theme" data-title="Theme">
@@ -379,6 +410,7 @@
   <script src="capacitor-shim.js"></script>
   <script src="app.js"></script>
   <script src="device-guard.js"></script>
+  <script src="claude-hub.js"></script>
   <script src="theme.js"></script>
   <script src="ava-guard.js" data-autostart data-position="bottom-left"></script>
   <script src="ava-bot.js"></script>

@@ -35,7 +35,7 @@ function isAgentOn() {
   return $('toggle-agent') ? $('toggle-agent').checked : true;
 }
 
-const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', local: 'Private' };
+const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', claudecode: 'Claude Code', local: 'Private' };
 
 const $ = (id) => document.getElementById(id);
 
