@@ -41,6 +41,8 @@ function parseSkillMd(text) {
   return { name: meta.name || '', description: meta.description || '', body: body.trim() };
 }
 
+function tooBig() { const e = new Error('Repo bahut bada hai (max 25MB)'); e.code = 'TOO_BIG'; return e; }
+
 async function downloadZip(url, fetchImpl) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
@@ -48,11 +50,11 @@ async function downloadZip(url, fetchImpl) {
     const res = await fetchImpl(url, { signal: ctl.signal, headers: { 'User-Agent': 'aureon-skill-installer' } });
     if (res.status === 404) { const e = new Error('Repo nahi mila (private ho sakta hai)'); e.code = 'NOT_FOUND'; throw e; }
     if (!res.ok) throw new Error('GitHub ne ' + res.status + ' diya');
-    if (Number(res.headers.get('content-length') || 0) > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB). Us skill ke folder ka link bhejo, jaise github.com/user/repo/tree/main/skills/naam');
+    if (Number(res.headers.get('content-length') || 0) > MAX_ZIP_BYTES) throw tooBig();
     const chunks = []; let total = 0;
     for await (const c of res.body) {
       total += c.length;
-      if (total > MAX_ZIP_BYTES) throw new Error('Repo bahut bada hai (max 25MB). Us skill ke folder ka link bhejo, jaise github.com/user/repo/tree/main/skills/naam');
+      if (total > MAX_ZIP_BYTES) throw tooBig();
       chunks.push(c);
     }
     return Buffer.concat(chunks);
@@ -85,13 +87,15 @@ function makeSkill(text, rel) {
 // Link points at a folder (…/tree/main/skills/<name>): read only that folder's SKILL.md, no repo zip.
 async function skillsFromSubdir({ owner, repo, ref, subdir, fetchImpl }) {
   const raw = p => `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${p.split('/').map(encodeURIComponent).join('/')}`;
-  const direct = await fetchText(raw(subdir + '/SKILL.md'), fetchImpl, MAX_SKILL_BYTES);
-  if (direct != null) { const s = makeSkill(direct, subdir + '/SKILL.md'); return s ? [s] : []; }
-  // not a skill folder itself: list the folder through the GitHub API (one request), then read each SKILL.md
-  const treeText = await fetchText(`https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`, fetchImpl, 8 * 1024 * 1024);
+  const prefix = subdir ? subdir + '/' : '';
+  const direct = await fetchText(raw(prefix + 'SKILL.md'), fetchImpl, MAX_SKILL_BYTES);
+  if (direct != null) { const s = makeSkill(direct, prefix + 'SKILL.md'); return s ? [s] : []; }
+  // not a skill folder itself: list the files through the GitHub API (one request), then read each SKILL.md
+  const treeText = await fetchText(`https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`, fetchImpl, 16 * 1024 * 1024);
   if (treeText == null) return [];
   const paths = (JSON.parse(treeText).tree || [])
-    .filter(n => n.type === 'blob' && n.path.startsWith(subdir + '/') && /(^|\/)SKILL\.md$/i.test(n.path)).map(n => n.path).slice(0, MAX_PER_REPO);
+    .filter(n => n.type === 'blob' && n.path.startsWith(prefix) && /(^|\/)SKILL\.md$/i.test(n.path) && !/(^|\/)node_modules\//.test(n.path))
+    .map(n => n.path).sort((a, b) => a.length - b.length).slice(0, MAX_PER_REPO);
   const found = new Map();
   for (const p of paths) {
     const t = await fetchText(raw(p), fetchImpl, MAX_SKILL_BYTES);
@@ -127,9 +131,16 @@ function extractSkills(buf, subdir) {
 async function installFromGithub({ db, uid, url, fetchImpl = fetch }) {
   if (!db || !uid) throw new Error('Pehle sign in karo');
   const { owner, repo, ref, subdir } = parseGithubUrl(url);
-  const list = subdir
-    ? await skillsFromSubdir({ owner, repo, ref, subdir, fetchImpl })
-    : extractSkills(await downloadZip(`https://codeload.github.com/${owner}/${repo}/zip/${encodeURIComponent(ref)}`, fetchImpl), '');
+  let list;
+  if (subdir) list = await skillsFromSubdir({ owner, repo, ref, subdir, fetchImpl });
+  else {
+    try { list = extractSkills(await downloadZip(`https://codeload.github.com/${owner}/${repo}/zip/${encodeURIComponent(ref)}`, fetchImpl), ''); }
+    catch (e) {
+      if (e.code !== 'TOO_BIG') throw e;
+      // big repo (e.g. committed node_modules): read only the SKILL.md files instead of the whole zip
+      list = await skillsFromSubdir({ owner, repo, ref, subdir: '', fetchImpl });
+    }
+  }
   if (!list.length) { const e = new Error('Is repo mein koi SKILL.md nahi mili'); e.code = 'NO_SKILL'; throw e; }
 
   const col = db.collection('users').doc(uid).collection('skills');
