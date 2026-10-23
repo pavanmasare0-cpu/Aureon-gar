@@ -218,6 +218,30 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 @media (prefers-reduced-motion:reduce){.pj *,.pjbar i{animation:none!important;transition:none!important}}
 @media (max-width:1179px),(max-height:699px){#v-project.on{display:flex;flex-direction:column}.pj-side{order:-1;overflow:visible}.pj-chat{min-height:360px}.pjmsgs{max-height:420px}}
 
+/* ---------- live feed + variant details ---------- */
+.prog.warn{border-color:rgba(255,193,94,.6)}.prog.idle{border-color:rgba(110,130,255,.25)}
+.ptx b{color:#fff}
+.pwhy{margin-top:6px;padding:7px 10px;border-radius:10px;background:rgba(255,193,94,.1);border:1px solid rgba(255,193,94,.4);color:#ffd9a0;font-size:12px;line-height:1.5}
+.plog{max-height:112px;overflow:auto}.plog div .t{color:#4e578f;margin-right:7px}
+.vgrid{grid-auto-columns:minmax(200px,calc((100% - 40px) / 4.6))}
+.vc{overflow:auto}.vc::-webkit-scrollbar{width:0;height:0}
+.vc .vq{font-size:10.5px;color:var(--mu);font-style:italic;line-height:1.35}
+.vc .bt{flex-direction:row;flex-wrap:nowrap;gap:4px}.vc .bt .btn{width:auto;flex:1 1 0;min-width:0;padding:6px 3px;font-size:11px;white-space:nowrap}
+@media (max-width:1179px){.vc .bt .btn{min-height:44px}.vc{min-height:150px}}
+.vc.gen{align-items:stretch;text-align:left;justify-content:flex-start;gap:6px}
+.vc.gen .vh{display:flex;align-items:center;gap:8px;min-width:0}.vc.gen .vh>div{min-width:0}
+.vc.gen .va{width:34px;height:34px}.vc.gen .va::after{font-size:9px;letter-spacing:3px}
+.vc.gen .vd{font-size:11px;line-height:1.4;color:#c4cbf5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.vc.gen .vb{display:flex;gap:4px;flex-wrap:wrap}.vc.gen .vb .b{font-size:10px;padding:1px 6px}
+.dm{flex:1;min-height:0;overflow:auto;padding:16px 18px 24px;max-width:860px;margin:0 auto;width:100%}
+.dm h2{margin:0 0 4px;font-size:20px}.dm h5{margin:16px 0 6px;font-size:11.5px;letter-spacing:1.2px;color:var(--mu);text-transform:uppercase}
+.dm p{margin:0;line-height:1.55;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.dm .row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.dm pre{margin:0;padding:10px 12px;border-radius:12px;background:#060826;border:1px solid rgba(110,120,255,.25);font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;overflow:auto;max-height:300px;white-space:pre}
+.dm ul{margin:0;padding-left:18px;line-height:1.55;font-size:13.5px}
+.dm .orb{width:64px;height:64px;border-radius:50%;float:right;margin:0 0 8px 12px;background:radial-gradient(circle at 35% 28%,#fff,var(--c1) 24%,var(--c2) 75%);box-shadow:0 0 22px var(--c1)}
+.dm .btn{min-height:44px}
+
 @media (max-width:1179px),(max-height:699px){
   body{overflow:auto}
   #app{height:auto;min-height:100vh;display:flex;flex-direction:column;padding:0 12px 16px}
@@ -310,7 +334,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 
       <section class="panel code" id="pCode">
         <div class="ph"><div><h3>Ava ka Code — live</h3><small id="codeSub">Ava jo likhti hai, yahin dikhta hai</small></div><div class="grow"></div><span class="pill idle" id="codePill"><i></i><span>idle</span></span></div>
-        <div class="prog" id="prog" style="display:none"><div class="pbar"><i id="pbarI"></i></div><div class="ptx" id="ptx"></div><div class="plog" id="plog"></div></div>
+        <div class="prog" id="prog"><div class="pbar"><i id="pbarI"></i></div><div class="ptx" id="ptx" role="status" aria-live="polite"></div><div class="pwhy" id="pwhy" style="display:none"></div><div class="plog" id="plog"></div></div>
         <div class="csel" id="csel"></div>
         <div class="cmeta" id="cmeta"></div>
         <div class="codebox" id="codebox"><div class="empty">Ava ne abhi koi code nahi likha.<br>⚡ <b>Upgrade likho</b> ya 🧪 <b>Prototype</b> dabao — uska code yahin live dikhega.</div></div>
@@ -351,6 +375,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       <div class="vbody">
         <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><select id="tgt2" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj2"><svg class="ic"><use href="#i-code"/></svg>Pura project</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
         <div class="meta" id="msg2" style="min-height:17px;margin-bottom:10px"></div>
+        <div id="pFail" style="margin:0 0 8px"></div>
         <div class="filters" id="filters"></div>
         <div class="pgrid" id="pgrid"></div>
       </div>
@@ -391,7 +416,6 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 <div id="toast"></div>
 
 <script src="/api/sentinel/ava-desk/guard.js"></script>
-<script src="/api/ava/widget.js" defer></script>
 <script>
 (function () {
 'use strict';
@@ -437,6 +461,10 @@ var VARS = [
   { n: 'Ava-Shadow', t: 'Focused · Silent', pal: ['#8b5cff', '#6d28d9', '#f472b6'], brief: 'focused silent dark hacker-mode assistant widget', q: 'Silent mode. Command me.' },
   { n: 'Ava-Pro', t: 'Strategic · Future', pal: ['#3ee0a0', '#38d6ff', '#fde68a'], brief: 'strategic futuristic pro-mode assistant widget with insights', q: "Let's build the future, Pavan." }
 ];
+VARS[0].d = 'Playful aur friendly. Cute companion widget — pastel clouds aur soft bounce. Baat karne ka style halka-fulka, dost jaisa.';
+VARS[1].d = 'Professional aur calm. Minimal, saaf assistant widget. Seedhi aur shant baat, kaam par focus.';
+VARS[2].d = 'Focused aur silent. Dark hacker-mode widget. Kam bolti hai aur command ka intezaar karti hai.';
+VARS[3].d = 'Strategic aur futuristic. Pro-mode widget jo insights deta hai. Aage ki planning par focus.';
 var JCAT = { ui: ['🎨', '#8b7bff'], security: ['🛡️', '#ef6a6a'], utility: ['🔧', '#f5b740'], game: ['🎮', '#4fd1c5'], other: ['🧩', '#9aa0ab'], apk: ['📱', '#34d399'] };
 
 var ST = '/api/sentinel/ava-studio';
@@ -446,7 +474,7 @@ function apkActive() { return (S.apkJobs || []).some(function (a) { return ['gen
 function working() { return S.ops > 0 || S.serverBusy || !!(S.studio && S.studio.running) || apkActive(); }
 function jOf(id) { return S.jail.filter(function (x) { return x.id === id; })[0]; }
 function codeUrl(j) { if (j.apk) return '/api/apk/jobs/' + j.jobId + '/download'; return (j.studio ? ST + '/' : AVA + '/jail/') + j.id + '/code'; }
-function delUrl(j) { return (j.studio ? ST + '/' : AVA + '/jail/') + j.id; }
+function delUrl(j) { return j.apk ? '/api/apk/jobs/' + j.jobId : (j.studio ? ST + '/' : AVA + '/jail/') + j.id; }
 
 /* ------------------------------------------------------------ api */
 function af(url, opts) {
@@ -514,13 +542,22 @@ function applyVariant() {
 }
 function isVariant(j) { return /^Variant "/.test(j.brief || ''); }
 function moodOf(j) { var m = String(j.brief || '').match(/^Variant "([^"]+)"/); var k = m && VARS.filter(function (v) { return v.n === m[1]; })[0]; return k || VARS[0]; }
+function lineInfo(j) {
+  var st = j.stats || {}, m = /(\d+) lines, (\d+) fns/.exec((j.sandbox && j.sandbox.log) || '');
+  return { lines: st.lines || (m && +m[1]) || 0, fns: m ? +m[2] : 0, files: st.files || 0 };
+}
+function varDesc(j) { return String(j.description || '').split(' | Limits:')[0].trim(); }
+function varLimits(j) { var p = String(j.description || '').split(' | Limits:'); return p.length > 1 ? p.slice(1).join(' | ').trim() : ''; }
 function renderVars() {
   var base = VARS.map(function (v, i) {
-    return '<div class="vc' + (i === S.vi ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b>' + v.n + '</b><small>' + v.t + '</small><div class="bt"><button class="btn g s" data-a="pick" data-i="' + i + '">' + (i === S.vi ? 'Active ✓' : 'Select') + '</button><button class="btn s" data-a="clone" data-i="' + i + '">✨ Clone</button></div></div>';
+    return '<div class="vc' + (i === S.vi ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b>' + v.n + '</b><small>' + v.t + '</small><div class="vq">“' + esc(v.q) + '”</div><div class="bt"><button class="btn g s" data-a="pick" data-i="' + i + '">' + (i === S.vi ? 'Active ✓' : 'Select') + '</button><button class="btn s" data-a="clone" data-i="' + i + '">✨ Clone</button><button class="btn g s" data-vdp="' + i + '">Details</button></div></div>';
   }).join('');
   var gen = (S.jail || []).filter(isVariant).sort(function (a, b) { return Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0); }).map(function (j) {
-    var v = moodOf(j), c = JCAT[j.category] || JCAT.other;
-    return '<div class="vc gen' + (S.focus && S.focus.id === j.id ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><span class="va"></span><b title="' + esc(j.title) + '">' + esc(j.title) + '</b><small>' + c[0] + ' ' + esc(v.n) + ' · naya variant</small><div class="bt"><button class="btn g s" data-k="j" data-focus="' + esc(j.id) + '">Code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">👁 Preview</button>' : '<a class="btn s" href="#" data-dl="' + codeUrl(j) + '">⬇ Code</a>') + '</div></div>';
+    var v = moodOf(j), c = JCAT[j.category] || JCAT.other, li = lineInfo(j), ok = j.sandbox && j.sandbox.ok;
+    return '<div class="vc gen' + (S.focus && S.focus.id === j.id ? ' act' : '') + '" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"><div class="vh"><span class="va"></span><div><b title="' + esc(j.title) + '">' + esc(j.title) + '</b><small>' + c[0] + ' ' + esc(v.n) + ' · naya variant</small></div></div>' +
+      '<div class="vd">' + esc(varDesc(j) || 'Ava ne ye variant banaya — Details me poori jaankari dekho.') + '</div>' +
+      '<div class="vb"><span class="b ' + (ok ? 'low' : 'high') + '">sandbox ' + (ok ? '✓' : '✗') + '</span>' + (li.lines ? '<span class="b">' + li.lines + ' lines</span>' : '') + (li.fns ? '<span class="b">' + li.fns + ' fns</span>' : '') + (li.files ? '<span class="b">' + li.files + ' files</span>' : '') + '<span class="b">' + when(j.createdAt) + '</span></div>' +
+      '<div class="bt"><button class="btn g s" data-vd="' + esc(j.id) + '">Details</button><button class="btn g s" data-k="j" data-focus="' + esc(j.id) + '">Code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">👁 Preview</button>' : (j.hasCode ? '<a class="btn s" href="#" data-dl="' + codeUrl(j) + '">⬇ Code</a>' : '')) + '</div></div>';
   }).join('');
   var vg = $('#vgrid'), prev = S.genN || 0, n = (S.jail || []).filter(isVariant).length;
   vg.innerHTML = base + gen; S.genN = n;
@@ -535,7 +572,7 @@ function loadAll() {
   return Promise.all([jget(AVA + '/state'), jget(AVA + '/jail/list'), soft(ST + '/list'), soft(ST + '/status'), soft('/api/apk/jobs')]).then(function (a) {
     var studioList = Array.isArray(a[2]) ? a[2] : [];
     S.apkJobs = Array.isArray(a[4]) ? a[4].filter(function (x) { return x.kind === 'generated'; }) : [];
-    var apkEntries = S.apkJobs.map(function (x) { return { id: 'apk_' + x.id, jobId: x.id, apk: true, kind: 'apk', category: 'apk', title: x.name || 'App', description: x.status === 'done' ? 'APK tayyar — download karo' : x.status === 'failed' ? 'Fail: ' + String(x.error || '').slice(0, 140) : (x.step || x.status), status: x.status, createdAt: x.createdAt, sandbox: { ok: x.status !== 'failed' }, hasCode: x.status === 'done', runUrl: x.runUrl }; });
+    var apkEntries = S.apkJobs.map(function (x) { return { id: 'apk_' + x.id, jobId: x.id, apk: true, kind: 'apk', category: 'apk', title: x.name || 'App', description: x.status === 'done' ? 'APK tayyar — download karo' : x.status === 'failed' ? 'Fail: ' + String(x.error || '').slice(0, 600) : (x.step || x.status), status: x.status, createdAt: x.createdAt, sandbox: { ok: x.status !== 'failed' }, hasCode: x.status === 'done', runUrl: x.runUrl }; });
     S.state = a[0]; S.jail = (Array.isArray(a[1]) ? a[1] : []).concat(studioList).concat(apkEntries); S.studio = a[3] || { running: false };
     S.serverBusy = !!(a[0] && (a[0].busy || a[0].jailPending > 0)); S.lastOk = Date.now();
     studioDone();
@@ -544,16 +581,38 @@ function loadAll() {
   }).catch(function (e) { if (e.session) toast(e.message, 7000); else console.error('loadAll', e && e.stack || e); });
 }
 function elapsed(t) { var m = Math.floor((Date.now() - t) / 60000); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' ghanta ' + (m % 60) + ' min'; }
-function renderProg() { // the visible "what is Ava doing right now" panel
-  var st = S.studio || {}, q = S.state && S.state.jailPending > 0, up = S.ops > 0, box = $('#prog');
+function shortErr(m) {
+  var t = String(m || '').replace(/\s+/g, ' ').trim();
+  if (/quota|rate.?limit|429|exceeded|RESOURCE_EXHAUSTED/i.test(t)) return 'AI ki quota / rate-limit khatam (Gemini ya Groq key ki limit)';
+  return t.slice(0, 160);
+}
+function hhmm(t) { try { return new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) { return ''; } }
+function ago(t) { var m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'abhi' : m < 60 ? m + ' min pehle' : Math.floor(m / 60) + ' ghante pehle'; }
+function renderProg() { // the visible "what is Ava doing right now" panel (never a blank "live" title)
+  var st = S.studio || {}, ji = (S.state && S.state.jailInfo) || { jobs: [] }, q = S.state && S.state.jailPending > 0, up = S.ops > 0, box = $('#prog');
   var ap = (S.apkJobs || []).filter(function (a) { return ['generating', 'committing', 'queued', 'building'].indexOf(a.status) >= 0; })[0];
-  var on = st.running || q || up || ap; box.style.display = on ? '' : 'none'; if (!on) return;
-  var pct = ap && !st.running ? ({ generating: 25, committing: 45, queued: 55, building: 75 }[ap.status] || 30) : st.running ? (st.target > 0 ? Math.min(99, 100 * st.lines / st.target) : (st.total ? 100 * st.done / st.total : 8)) : 12;
-  $('#pbarI').style.width = Math.max(4, pct).toFixed(0) + '%';
-  var tx = st.running ? (st.kind === 'ui' ? '🎨 UI design' : '🏗 Project') + ': ' + (st.step || '') + (st.target > 0 ? ' · ' + st.lines + ' / ' + st.target + ' lines' : '') + ' · ' + st.calls + ' AI calls · ' + elapsed(st.startedAt) + (st.waitingUntil > Date.now() ? ' · ⏳ AI quota wait' : '')
-    : ap ? '📱 APK "' + ap.name + '": ' + (ap.step || ap.status) : q ? '🕓 Prototype ' + S.state.jailPending + ' queue me — Ava likh rahi hai ya AI quota ka wait (har 10 min retry). "Roko" se queue saaf hoti hai.' : '⚡ Ava upgrade likh rahi hai…';
+  var job = ji.jobs && ji.jobs[0], blocked = !!(q && job && job.attempts > 0 && job.lastError), why = '', cls = 'prog', log = [];
+  var on = st.running || q || up || ap, tx;
+  var pct = ap && !st.running ? ({ generating: 25, committing: 45, queued: 55, building: 75 }[ap.status] || 30) : st.running ? (st.target > 0 ? Math.min(99, 100 * st.lines / st.target) : (st.total ? 100 * st.done / st.total : 8)) : on ? 12 : 0;
+  if (st.running) {
+    tx = (st.kind === 'ui' ? '🎨 UI design' : '🏗 Project') + ': ' + (st.step || '') + (st.target > 0 ? ' · ' + st.lines + ' / ' + st.target + ' lines' : '') + ' · ' + st.calls + ' AI calls · ' + elapsed(st.startedAt);
+    if (st.waitingUntil > Date.now()) { cls += ' warn'; why = '⏳ AI quota wait: Ava ' + Math.max(1, Math.round((st.waitingUntil - Date.now()) / 60000)) + ' min me khud dobara try karegi — kaam band nahi hua.'; }
+    log = (st.log || []).slice(-8).map(function (l) { return { t: l.t, m: l.m }; });
+  } else if (ap) { tx = '📱 APK "' + ap.name + '": ' + (ap.step || ap.status); log = [{ t: Date.now(), m: 'Status: ' + ap.status }]; }
+  else if (q) {
+    tx = '🧪 Prototype queue me (' + S.state.jailPending + ') — Ava ' + (blocked ? 'ruki hui hai' : 'likh rahi hai') + (job && job.brief ? ': "' + job.brief.slice(0, 50) + '"' : '');
+    if (blocked) { cls += ' warn'; why = '⛔ ' + shortErr(job.lastError) + '. ' + job.attempts + ' baar try hua (' + ago(job.lastTry) + '). Ava har ' + (ji.retryEveryMin || 10) + ' min me khud dobara try karti hai. Naya/doosra AI key daalo ya "Roko" se queue saaf karo.'; }
+    log = ji.jobs.map(function (j) { return { t: j.lastTry || j.queuedAt, m: (j.brief || '(Ava ki apni soch)') + ' — ' + (j.attempts ? j.attempts + ' try, ' + shortErr(j.lastError) : 'start ho raha hai') }; });
+  } else if (up) { tx = '⚡ Ava upgrade likh rahi hai…'; log = [{ t: Date.now(), m: 'Ava apna code padh ke proposal bana rahi hai (30–60 sec)' }]; }
+  else {
+    cls += ' idle'; var last = protoList().filter(function (j) { return !(j.apk && j.status === 'failed'); })[0];
+    tx = '😴 Ava abhi kuch nahi kar rahi' + (last ? ' · pichla kaam: "' + last.title + '" (' + ago(Date.parse(last.createdAt)) + ')' : '') + '. Upar likho ya 🧪 Prototype dabao — kaam yahin live dikhega.';
+  }
+  box.className = cls; $('#pbarI').style.width = (on ? Math.max(4, pct) : 0).toFixed(0) + '%';
   $('#ptx').textContent = tx;
-  $('#plog').innerHTML = (st.log || []).slice(-5).map(function (l) { return '<div>' + esc(l.m) + '</div>'; }).join('');
+  var w = $('#pwhy'); w.style.display = why ? '' : 'none'; w.textContent = why;
+  $('#plog').innerHTML = log.map(function (l) { return '<div><span class="t">' + hhmm(l.t) + '</span>' + esc(l.m) + '</div>'; }).join('');
+  var cp = $('#codePill'); if (cp) { cp.className = 'pill ' + (on ? 'work' : 'idle'); cp.lastElementChild.textContent = on ? (blocked ? 'wait' : 'LIVE') : 'idle'; }
 }
 function studioDone() { // running -> finished transition + live follow of the file Ava is writing
   var st = S.studio || {};
@@ -626,17 +685,21 @@ function typeCode(lines) {
     if (i >= lines.length) { clearInterval(twTimer); box.scrollTop = 0; }
   }, 30);
 }
-function setFocus(kind, id) { S.focus = { kind: kind, id: id }; showFocus(); renderCodeSel(); $$('.sat').forEach(function (el) { el.classList.toggle('focus', el.getAttribute('data-id') === id); }); }
+function setFocus(kind, id) { S.focus = { kind: kind, id: id }; S.focusAuto = false; showFocus(); renderCodeSel(); $$('.sat').forEach(function (el) { el.classList.toggle('focus', el.getAttribute('data-id') === id); }); }
+function focusList() { var l = protoList(); return l.filter(function (j) { return !(j.apk && j.status === 'failed'); }).concat(l.filter(function (j) { return j.apk && j.status === 'failed'; })); }
 function autoFocus() {
-  if (S.focus) { var still = S.focus.kind === 'p' ? (S.state && (S.state.proposals || []).some(function (p) { return p.id === S.focus.id; })) : S.jail.some(function (j) { return j.id === S.focus.id; }); if (still) return; S.focus = null; }
-  var p = pending()[0]; if (p) { S.focus = { kind: 'p', id: p.id }; showFocus(); return; }
-  var j = protoList()[0]; if (j) { S.focus = { kind: 'j', id: j.id }; showFocus(); }
-  else if (S.state && S.state.history && S.state.history.length) { var h = S.state.history[S.state.history.length - 1]; S.focus = { kind: 'h', id: h.id }; showFocus(); }
+  var cur = S.focus, ok = cur && (cur.kind === 'p' ? (S.state && (S.state.proposals || []).some(function (p) { return p.id === cur.id; })) : S.jail.some(function (j) { return j.id === cur.id; }));
+  if (cur && ok && !S.focusAuto) return;   // the owner picked this one: keep it
+  var next = null, p = pending()[0];
+  if (p) next = { kind: 'p', id: p.id }; else { var j = focusList()[0]; if (j) next = { kind: 'j', id: j.id }; else if (S.state && S.state.history && S.state.history.length) { var h = S.state.history[S.state.history.length - 1]; next = { kind: 'h', id: h.id }; } }
+  if (!next) { if (cur && !ok) S.focus = null; return; }
+  if (cur && ok && cur.kind === next.kind && cur.id === next.id) return;
+  S.focus = next; S.focusAuto = true; showFocus();
 }
 function renderCodeSel() {
   var items = [];
   pending().slice(0, 3).forEach(function (p) { items.push({ k: 'p', id: p.id, t: '⚡ ' + p.title }); });
-  protoList().slice(0, 4).forEach(function (j) { items.push({ k: 'j', id: j.id, t: ((JCAT[j.category] || JCAT.other)[0]) + ' ' + j.title }); });
+  focusList().slice(0, 4).forEach(function (j) { items.push({ k: 'j', id: j.id, t: ((JCAT[j.category] || JCAT.other)[0]) + ' ' + j.title }); });
   $('#csel').innerHTML = items.map(function (it) { return '<button data-k="' + it.k + '" data-id="' + esc(it.id) + '" class="' + (S.focus && S.focus.id === it.id ? 'on' : '') + '" title="' + esc(it.t) + '">' + esc(it.t) + '</button>'; }).join('');
 }
 function pfPicker(j) {
@@ -654,7 +717,7 @@ function showFocus() {
   var f = S.focus; if (!f) return; var meta = $('#cmeta'), sub = $('#codeSub');
   if (f.kind === 'j') {
     var j = S.jail.filter(function (x) { return x.id === f.id; })[0]; if (!j) return;
-    if (j.apk) { sub.textContent = 'APK: ' + j.title; meta.innerHTML = '<span class="b ' + (j.status === 'failed' ? 'high' : 'low') + '">' + esc(j.status) + '</span>' + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + 'APK download</a>' : '') + '<a class="btn g s" href="#" data-dl="/api/apk/jobs/' + esc(j.jobId) + '/source">' + ic('code') + 'Source</a>' + (j.runUrl ? '<a class="btn g s" target="_blank" rel="noopener" href="' + esc(j.runUrl) + '">Build logs</a>' : ''); $('#codebox').innerHTML = '<div class="empty">' + esc(j.description) + '</div>'; return; }
+    if (j.apk) { sub.textContent = 'APK: ' + j.title; meta.innerHTML = '<span class="b ' + (j.status === 'failed' ? 'high' : 'low') + '">' + esc(j.status) + '</span>' + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + 'APK download</a>' : '') + '<a class="btn g s" href="#" data-dl="/api/apk/jobs/' + esc(j.jobId) + '/source">' + ic('code') + 'Source</a>' + (j.runUrl ? '<a class="btn g s" target="_blank" rel="noopener" href="' + esc(j.runUrl) + '">Build logs</a>' : ''); $('#codebox').innerHTML = '<div class="empty" style="text-align:left;white-space:pre-wrap;overflow-wrap:anywhere">' + esc(j.description) + (j.status === 'failed' && /quota|rate.?limit|429|exceeded/i.test(j.description) ? '\n\n💡 Wajah: AI ki quota khatam. Kuch der baad dobara "APK banao" dabao, ya Render me naya GEMINI_API_KEY / GROQ_API_KEY daalo.' : '') + '</div>'; return; }
     sub.textContent = 'Prototype: ' + j.title;
     meta.innerHTML = '<span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="b">' + esc(j.category || 'other') + '</span><span>' + when(j.createdAt) + '</span>' +
       (j.verify ? '<span class="b ' + (j.verify.testsFail || j.verify.syntaxBad ? 'high' : 'low') + '" title="Ava ka final check">✔ ' + j.verify.syntaxOk + ' files ok · tests ' + j.verify.testsPass + '/' + (j.verify.testsPass + j.verify.testsFail) + (j.verify.features && j.verify.features.total ? ' · features ' + j.verify.features.done + '/' + j.verify.features.total : '') + '</span>' : '') + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.studio && j.hasCode ? '<button class="btn g s" data-clone="' + esc(j.id) + '">Clone</button>' : '') + (j.studio ? '<button class="btn g s" data-pj="' + j.id + '">' + ic('pen') + 'Project page</button>' : '') + (j.kind === 'project' ? pfPicker(j) : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + esc(j.id) + '">' + ic('eye') + 'Preview</button>' : '');
@@ -733,12 +796,14 @@ function renderProtoView() {
   var f = '<button data-f="all" class="' + (S.filter === 'all' ? 'on' : '') + '">Sab (' + list.length + ')</button>';
   Object.keys(JCAT).forEach(function (k) { if (by[k]) f += '<button data-f="' + k + '" class="' + (S.filter === k ? 'on' : '') + '">' + JCAT[k][0] + ' ' + k + ' (' + by[k] + ')</button>'; });
   $('#filters').innerHTML = f;
+  var nf = (S.apkJobs || []).filter(function (a) { return a.status === 'failed'; }).length;
+  $('#pFail').innerHTML = nf ? '<button class="btn d s" data-clearfailed="1">🧹 Failed APK saaf karo (' + nf + ')</button>' : '';
   var show = list.filter(function (j) { return S.filter === 'all' || (j.category || 'other') === S.filter; });
   $('#pgrid').innerHTML = show.length ? show.map(function (j) {
     var c = JCAT[j.category] || JCAT.other, id = esc(j.id);
     return '<div class="pcard" style="--c:' + c[1] + '"><div class="av">' + c[0] + '</div><span class="cat">' + esc(j.category || 'other') + '</span><h5>' + esc(j.title) + '</h5><p>' + esc(j.description) + '</p>' +
-      '<div class="setrow" style="margin:0"><span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span><span class="meta">' + when(j.createdAt) + '</span></div>' +
-      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + (j.apk ? 'Status' : 'Live code') + '</button>' + (j.apk && j.hasCode ? '<button class="btn s" data-apkrev="' + esc(j.jobId) + '">✏ Badlao</button>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.apk ? '' : '<button class="btn d s" data-del="' + id + '">' + ic('x') + '</button>') + '</div></div>';
+      '<div class="setrow" style="margin:0"><span class="b ' + (j.sandbox && j.sandbox.ok ? 'low' : 'high') + '">sandbox ' + (j.sandbox && j.sandbox.ok ? '✓' : '✗') + '</span>' + (j.studio && j.status && j.status !== 'done' ? '<span class="b high">' + (j.status === 'stopped' ? '⏸ ruka hua' : j.status === 'partial' ? 'adhoora' : j.status === 'building' ? '⏳ ban raha hai' : esc(j.status)) + '</span>' : '') + '<span class="meta">' + when(j.createdAt) + '</span></div>' +
+      '<div class="bt"><button class="btn g s" data-k="j" data-focus="' + id + '">' + ic('code') + (j.apk ? 'Status' : 'Live code') + '</button>' + (j.apk && j.hasCode ? '<button class="btn s" data-apkrev="' + esc(j.jobId) + '">✏ Badlao</button>' : '') + (j.kind === 'design' && j.hasCode ? '<button class="btn s" data-pv="' + id + '">' + ic('eye') + 'Preview</button>' : '') + (j.hasCode ? '<a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + (j.studio && j.kind === 'project' && (j.status === 'stopped' || j.status === 'partial') && !pjLive(j) ? '<button class="btn s" data-resume="' + id + '" title="Jahan ruka tha wahin se aage">▶ Wahin se</button>' : '') + (j.studio && !pjLive(j) ? '<button class="btn g s" data-restart="' + id + '" title="Same brief se naya build">🔁 Naye sire se</button>' : '') + '<button class="btn d s" data-del="' + id + '" title="Hatao" aria-label="Hatao">' + ic('x') + '</button>' + '</div></div>';
   }).join('') : '<div class="empty" style="grid-column:1/-1">🌙 Abhi Ava ki duniya khaali hai — pehla prototype banao!</div>';
 }
 
@@ -920,12 +985,13 @@ document.addEventListener('click', function (e) {
   if ((el = t.closest('[data-pf]'))) { var pj2 = S.focus && jOf(S.focus.id); if (pj2) showFile(pj2, el.getAttribute('data-pf')); return; }
   if ((el = t.closest('[data-pv]'))) { openPreview(el.getAttribute('data-pv')); return; }
   if ((el = t.closest('[data-clone]'))) { jpost(ST + '/' + el.getAttribute('data-clone') + '/clone').then(function (r) { toast(r.ok ? '✅ Clone ban gaya (list me upar)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
-  if ((el = t.closest('[data-del]'))) { if (confirm('Ye prototype gallery se hata dein?')) af(delUrl(jOf(el.getAttribute('data-del')) || { id: el.getAttribute('data-del') }), { method: 'DELETE' }).then(loadAll); return; }
+  if ((el = t.closest('[data-del]'))) { var dj = jOf(el.getAttribute('data-del')) || { id: el.getAttribute('data-del') }; if (confirm(dj.apk ? 'Ye APK build list se hata dein? (GitHub par jo ban chuka hai wo waisa hi rahega)' : dj.studio && dj.status === 'building' ? 'Ye abhi ban raha hai — rok ke hata dein?' : 'Ye prototype gallery se hata dein?')) af(delUrl(dj), { method: 'DELETE' }).then(function (r) { return r.ok ? null : r.text().then(function (t) { toast('❌ ' + (t || r.status).slice(0, 140), 4500); }); }).then(function () { if (S.pj && S.pj.id === dj.id) S.pj.id = null; return loadAll(); }); return; }
   if ((el = t.closest('[data-focus]'))) { setFocus(el.getAttribute('data-k'), el.getAttribute('data-focus')); openView('home'); return; }
   if ((el = t.closest('.sat'))) { var id = el.getAttribute('data-id'), j = S.jail.filter(function (x) { return x.id === id; })[0]; setFocus('j', id); if (j && j.kind === 'design' && j.hasCode) openPreview(id); return; }
   if ((el = t.closest('#csel button'))) { setFocus(el.getAttribute('data-k'), el.getAttribute('data-id')); return; }
   if ((el = t.closest('#filters button'))) { S.filter = el.getAttribute('data-f'); renderProtoView(); return; }
   if ((el = t.closest('.vc button'))) {
+    if (el.hasAttribute('data-vd') || el.hasAttribute('data-vdp')) return;   // handled by the details modal
     var i = +el.getAttribute('data-i');
     if (el.getAttribute('data-a') === 'pick') { S.vi = i; lsSet('ava_variant_i', i); applyVariant(); }
     else { doProto('#task', 'Variant "' + VARS[i].n + '": ' + VARS[i].brief); }
@@ -990,11 +1056,12 @@ function pjSide(j) {
   var notes = (j.notes || []).filter(function (n) { return /❌|skip|nahi hai|reject|error|samajh nahi|tests chalaye nahi/i.test(n); }).slice(-6);
   var h = '<div class="ph"><div style="min-width:0"><h3>' + esc(j.title || 'Ava project') + '</h3><small>' + esc(j.tagline || String(j.description || '').slice(0, 140) || (j.kind === 'design' ? 'UI design' : 'Project')) + '</small></div><span class="grow"></span><span class="pill ' + ps.c + '">' + esc(ps.t) + '</span></div><div class="pbody">';
   if (live || j.status === 'building') h += '<div class="pjbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pjPct(j) + '"><i style="width:' + pjPct(j) + '%"></i></div><div class="meta" style="margin-top:6px">' + esc(String(st.step || 'start').slice(0, 140)) + (st.waitingUntil && st.waitingUntil > Date.now() ? ' · AI quota ka wait' : '') + '</div>';
-  h += '<div class="meta" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><span class="b">' + (stt.files || 0) + ' files</span><span class="b">' + (stt.lines || (live ? st.lines : 0) || 0) + ' lines</span><span class="b">' + (stt.calls || (live ? st.calls : 0) || 0) + ' AI calls</span>' + (j.verify ? '<span class="b ' + (j.verify.testsFail || j.verify.syntaxBad ? 'high' : 'low') + '">✔ final check: ' + j.verify.syntaxOk + ' files ok · tests ' + j.verify.testsPass + '/' + (j.verify.testsPass + j.verify.testsFail) + '</span>' : '') + '</div>';
+  h += '<div class="meta" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><span class="b">' + (stt.files || 0) + ' files</span><span class="b">' + (stt.lines || (live ? st.lines : 0) || 0) + ' lines</span><span class="b">' + (stt.calls || (live ? st.calls : 0) || 0) + ' AI calls</span>' + (j.verify ? '<span class="b ' + (j.verify.testsFail || j.verify.syntaxBad ? 'high' : 'low') + '">✔ final check: ' + j.verify.syntaxOk + ' files ok · tests ' + j.verify.testsPass + '/' + (j.verify.testsPass + j.verify.testsFail) + '</span>' + (j.verify.bugsFound != null ? '<span class="b ' + (j.verify.bugsFound > j.verify.bugsFixed ? 'high' : 'low') + '">🐞 bugs: ' + j.verify.bugsFound + ' mile · ' + j.verify.bugsFixed + ' theek</span>' : '') : '') + '</div>';
   h += '<h4>Features</h4>' + ((j.features && j.features.length) ? '<ul class="pjf">' + j.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' : '<div class="meta">' + (live ? 'Research ke baad features yahan aayenge…' : 'Features ki list nahi bani.') + '</div>');
   if (notes.length) h += '<h4>Dhyaan / bugs</h4>' + notes.map(function (n) { return '<div class="pjn">• ' + esc(n) + '</div>'; }).join('');
   if (j.refMime) h += '<h4>Reference photo</h4><img class="pjref" alt="Reference photo" src="' + ST + '/' + esc(j.id) + '/ref">';
   if (j.attached && j.attached.length) h += '<div class="meta" style="margin-top:8px">📎 ' + j.attached.map(esc).join(' · ') + '</div>';
+  h += '<h4>Control</h4><div class="row" style="margin-top:0">' + (live ? '<button class="btn d s" data-pjstop="1">⏹ Roko</button>' : (j.kind === 'project' && (j.status === 'stopped' || j.status === 'partial') ? '<button class="btn s" data-resume="' + esc(j.id) + '">▶ Wahin se shuru</button>' : '') + '<button class="btn g s" data-restart="' + esc(j.id) + '">🔁 Naye sire se</button>') + '<button class="btn d s" data-del="' + esc(j.id) + '">🗑 Hatao</button></div>';
   h += '<h4>Demo</h4><div class="row" style="margin-top:0"><button class="btn s" data-pjdemo="' + esc(j.id) + '">📸 Demo image</button>' + (j.hasDemo || j.kind === 'design' ? '<button class="btn g s" data-pjprev="' + esc(j.id) + '">💻 Laptop preview</button>' : '') + (j.hasCode ? '<button class="btn g s" data-clone="' + esc(j.id) + '">Clone</button><a class="btn g s" href="#" data-dl="' + codeUrl(j) + '">' + ic('down') + (j.kind === 'project' ? 'Zip' : 'Code') + '</a>' : '') + '</div>';
   var ss = (S.state && S.state.settings) || {}, np = pending().length;
   h += '<h4>Ava khud upgrade hoti rahe</h4><div class="meta">Auto-upgrade: <b>' + (ss.auto ? 'ON' : 'OFF') + '</b> · ' + (np ? np + ' upgrade tumhare Approve ka intezaar kar raha hai' : 'abhi koi upgrade pending nahi') + '. Har upgrade tumhare Approve ke baad hi lagta hai.</div><div class="row"><button class="btn g s" data-pjup="1">⚡ Abhi upgrade likho</button><button class="btn g s" data-pjgo="ups">Upgrades dekho</button></div></div>';
@@ -1089,6 +1156,59 @@ renderAtt = function () {
   _renderAtt(); var box = $('#pjAtts'); if (!box) return;
   box.innerHTML = S.att.map(function (a, i) { var ext = /\.png$/i.test(a.name) ? 'png' : /\.webp$/i.test(a.name) ? 'webp' : /\.gif$/i.test(a.name) ? 'gif' : 'jpeg'; return '<span class="att">' + (a.img ? '<img alt="" src="data:image/' + ext + ';base64,' + a.b64 + '">' : /\.zip$/i.test(a.name) ? '🗜' : '📄') + '<span>' + esc(a.name) + '</span>' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao" aria-label="hatao">×</button></span>'; }).join('');
 };
+
+
+/* ------------------------------------------------------------ variant details (what is this variant? what does its code contain?) */
+function openDetail(title, html) { $('#mTitle').textContent = title; $('#mBody').innerHTML = '<div class="dm">' + html + '</div>'; $('#modal').classList.add('on'); redraw(); }
+function codeOutline(t) {
+  var names = [], re = /function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/g, m;
+  while ((m = re.exec(t)) && names.length < 24) { var n = m[1] || m[2]; if (names.indexOf(n) < 0) names.push(n); }
+  return names;
+}
+function showVariantDetails(id) {
+  var j = jOf(id); if (!j) return;
+  var v = moodOf(j), c = JCAT[j.category] || JCAT.other, li = lineInfo(j), ok = j.sandbox && j.sandbox.ok, lim = varLimits(j);
+  var h = '<span class="orb" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"></span><h2>' + esc(j.title) + '</h2><div class="meta">' + c[0] + ' ' + esc(v.n) + ' · ' + when(j.createdAt) + '</div>' +
+    '<div class="row"><span class="b ' + (ok ? 'low' : 'high') + '">sandbox ' + (ok ? '✓' : '✗') + '</span>' + (li.lines ? '<span class="b">' + li.lines + ' lines</span>' : '') + (li.fns ? '<span class="b">' + li.fns + ' functions</span>' : '') + (li.files ? '<span class="b">' + li.files + ' files</span>' : '') + (j.kind === 'design' ? '<span class="b">UI design</span>' : '') + '</div>' +
+    '<h5>Ye kya hai</h5><p>' + esc(varDesc(j) || '(Ava ne description nahi likhi)') + '</p>' +
+    (lim ? '<h5>Limits / dhyaan</h5><p>' + esc(lim) + '</p>' : '') +
+    '<h5>Tumne kya bola tha</h5><p>' + esc(j.brief || '(Ava ne khud chuna)') + '</p>' +
+    (j.sandbox && j.sandbox.log ? '<h5>Check ka result</h5><p>' + esc(j.sandbox.log) + '</p>' : '') +
+    (j.features && j.features.length ? '<h5>Features</h5><ul>' + j.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' : '') +
+    (j.files && j.files.length ? '<h5>Files (' + j.files.length + ')</h5><ul>' + j.files.slice(0, 30).map(function (f) { return '<li>' + esc(f.path) + ' <span class="meta">(' + f.lines + ' lines)</span></li>'; }).join('') + '</ul>' : '') +
+    '<h5>Code ka naksha</h5><div id="dmCode" class="meta">' + (j.hasCode ? 'Code load ho raha hai…' : 'Is variant ka code ab store me nahi hai.') + '</div>' +
+    '<div class="row" style="margin-top:16px"><button class="btn" data-dmfocus="' + esc(j.id) + '">💻 Live panel me code dekho</button>' + (j.kind === 'design' && j.hasCode ? '<button class="btn g" data-pv="' + esc(j.id) + '">👁 Preview</button>' : '') + (j.hasCode ? '<a class="btn g" href="#" data-dl="' + codeUrl(j) + '">⬇ Download</a>' : '') + (j.studio ? '<button class="btn g" data-pj="' + esc(j.id) + '">Project page</button>' : '') + '</div>';
+  openDetail(j.title, h);
+  if (!j.hasCode || j.apk || (j.studio && j.kind === 'project')) return;
+  var u = j.studio ? ST + '/' + j.id + '/file' : AVA + '/jail/' + j.id + '/code';
+  af(u).then(function (r) { return r.text(); }).then(function (t) {
+    var box = $('#dmCode'); if (!box) return; var names = codeOutline(t), lines = t.split('\n');
+    box.innerHTML = '<div class="row" style="margin:0 0 8px">' + (names.length ? names.map(function (n) { return '<span class="b">' + esc(n) + '</span>'; }).join('') : '<span class="meta">(functions nahi mile)</span>') + '</div><pre>' + esc(lines.slice(0, 30).join('\n')) + (lines.length > 30 ? '\n… (' + (lines.length - 30) + ' lines aur — "Live panel me code dekho" dabao)' : '') + '</pre>';
+  }).catch(function () { var box = $('#dmCode'); if (box) box.textContent = 'Code load nahi hua.'; });
+}
+function showPersonaDetails(i) {
+  var v = VARS[i]; if (!v) return;
+  openDetail(v.n, '<span class="orb" style="--c1:' + v.pal[0] + ';--c2:' + v.pal[1] + '"></span><h2>' + esc(v.n) + '</h2><div class="meta">' + esc(v.t) + (i === S.vi ? ' · abhi Active ✓' : '') + '</div>' +
+    '<h5>Kaisi hai</h5><p>' + esc(v.d || v.t) + '</p><h5>Widget ka look</h5><p>' + esc(v.brief) + '</p><h5>Wo kya bolti hai</h5><p>“' + esc(v.q) + '”</p>' +
+    '<h5>Rang</h5><div class="row">' + v.pal.map(function (x) { return '<span class="b" style="background:' + x + ';color:#0a0d2a;border-color:' + x + '">' + x + '</span>'; }).join('') + '</div>' +
+    '<div class="row" style="margin-top:16px"><button class="btn" data-dpick="' + i + '">' + (i === S.vi ? 'Active ✓' : 'Select karo') + '</button><button class="btn g" data-dclone="' + i + '">✨ Is mood ka naya variant banao</button></div>');
+}
+function burstRefresh() { [1200, 3000, 6000, 10000].forEach(function (ms) { setTimeout(function () { loadAll(); }, ms); }); }
+function jobAct(url, body, okMsg, id) {
+  return jpost(url, body || {}).then(function (r) { toast(r.ok ? okMsg : '❌ ' + (r.j.error || r.status), 5000); if (r.ok) { if (id) S.pj.id = id; S.studio = { running: true, step: 'start' }; S.studioWas = true; renderWork(); burstRefresh(); } return loadAll(); }).catch(function (e) { toast('Error: ' + e.message, 4500); });
+}
+document.addEventListener('click', function (e) {
+  var t = e.target, el;
+  if ((el = t.closest('[data-resume]'))) { var rid = el.getAttribute('data-resume'); jobAct(ST + '/' + rid + '/resume', {}, '▶ Jahan ruka tha wahin se shuru — side panel me live dikhega', rid); return; }
+  if ((el = t.closest('[data-restart]'))) { var xid = el.getAttribute('data-restart'); if (confirm('Same brief se naye sire se banayein? (Purana entry waisa hi rahega, quota ki AI calls lagengi.)')) jobAct(ST + '/' + xid + '/restart', {}, '🔁 Naya build shuru — side panel me live dikhega', null); return; }
+  if (t.closest('[data-pjstop]')) { jpost(ST + '/cancel').then(function () { toast('⏹ Roka ja raha hai… (checkpoint bacha rahega, "Wahin se shuru" se aage badhega)', 5000); burstRefresh(); return loadAll(); }); return; }
+  if (t.closest('[data-clearfailed]')) { if (confirm('Saari failed APK builds list se hata dein?')) jpost('/api/apk/jobs/clear-failed').then(function (r) { toast(r.ok ? '🧹 ' + (r.j.removed || 0) + ' failed build hata di' : '❌ ' + (r.j.error || r.status), 4500); return loadAll(); }); return; }
+  if ((el = t.closest('[data-vd]'))) { showVariantDetails(el.getAttribute('data-vd')); return; }
+  if ((el = t.closest('[data-vdp]'))) { showPersonaDetails(+el.getAttribute('data-vdp')); return; }
+  if ((el = t.closest('[data-dmfocus]'))) { $('#modal').classList.remove('on'); setFocus('j', el.getAttribute('data-dmfocus')); var cs = $('#codebox'); if (cs && cs.scrollIntoView) cs.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if ((el = t.closest('[data-dpick]'))) { S.vi = +el.getAttribute('data-dpick'); lsSet('ava_variant_i', S.vi); applyVariant(); $('#modal').classList.remove('on'); return; }
+  if ((el = t.closest('[data-dclone]'))) { var i = +el.getAttribute('data-dclone'); $('#modal').classList.remove('on'); doProto('#task', 'Variant "' + VARS[i].n + '": ' + VARS[i].brief); return; }
+});
 
 (function poll() { setTimeout(function () { (document.hidden ? Promise.resolve() : loadAll()).then(poll, poll); }, working() ? 3000 : 15000); })();
 setInterval(redraw, 5000);

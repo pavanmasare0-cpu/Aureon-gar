@@ -291,7 +291,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
       github: { configured: ghReady(), repo: gh().repo || null, branch: gh().branch, base: gh().base, compare: gh().repo ? 'https://github.com/' + gh().repo + '/compare/' + gh().base + '...' + gh().branch + '?expand=1' : null },
       keys: Object.keys(allowedKeys()).map((k) => k.replace(/_\d$/, '_N')).filter((v, i, a) => a.indexOf(v) === i),
       version: Math.max(0, ...state.history.filter((h) => h.status === 'applied').map((h) => h.version || 0)), latest: state.version, settings: state.settings, lastAuto: state.lastAuto,
-      jailPending: jailQueue.length, busy, llm: hook && hook.llm ? 'ava' : (process.env.GROQ_API_KEY ? 'groq' : 'none'), signals: signals(),
+      jailPending: jailQueue.length, jailInfo: { running: jailRunning, retryEveryMin: 10, jobs: jailQueue.slice(0, 5).map((j) => ({ brief: String(j.brief || '').slice(0, 80), attempts: j.attempts || 0, queuedAt: j.queuedAt, lastTry: j.lastTry || 0, lastError: j.lastError || '' })) }, busy, llm: hook && hook.llm ? 'ava' : (process.env.GROQ_API_KEY ? 'groq' : 'none'), signals: signals(),
       proposals: state.proposals.slice(-20).reverse().map(pubP), history: state.history.map(pubH),
     });
   });
@@ -381,7 +381,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
         if (Date.now() - job.queuedAt > JAIL_MAX_QUEUE_AGE_MS) { jailQueue.shift(); if (logEvent) logEvent('error', { name: 'Ava' }, 'Jail job "' + (job.brief || '(Ava ki apni soch)') + '" 6 ghante retry ke baad bhi quota nahi khula — chhod diya.'); continue; }
         try { await jailGenerateCore(job.brief); jailQueue.shift(); }
         catch (e) {
-          if (looksLikeRateLimit(e.message)) { job.attempts = (job.attempts || 0) + 1; break; } // stays queued, tick retries
+          if (looksLikeRateLimit(e.message)) { job.attempts = (job.attempts || 0) + 1; job.lastError = String(e && e.message || e).slice(0, 300); job.lastTry = Date.now(); break; } // stays queued, tick retries
           jailQueue.shift(); if (logEvent) logEvent('error', { name: 'Ava' }, 'Jail job fail: ' + e.message);
         }
       }

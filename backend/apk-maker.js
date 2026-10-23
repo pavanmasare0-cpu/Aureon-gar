@@ -324,6 +324,18 @@ function factory(opts) {
 
   const pub = (j) => ({ id: j.id, kind: j.kind, name: j.name, slug: j.slug, status: j.status, step: j.step || '', error: j.error || '', runUrl: j.runUrl || '', createdAt: j.createdAt, updatedAt: j.updatedAt, color: j.color || '' });
   router.get('/status', (req, res) => res.json({ configured: configured(), repo: repo() ? repo().replace(/^[^/]+\//, '…/') : '', tokenSet: !!token(), branch: appsBranch() }));
+  // Remove builds from the list (the owner's "New app / star" failed entries had no way out). Only the list entry is removed, nothing else is touched.
+  router.post('/jobs/clear-failed', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    await ready; const n = jobs.filter((j) => j.status === 'failed').length;
+    jobs = jobs.filter((j) => j.status !== 'failed'); save(); auth.action(req, 'apk clear failed (' + n + ')'); res.json({ ok: true, removed: n });
+  });
+  router.delete('/jobs/:id', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    await ready; const j = jobs.find((x) => x.id === req.params.id);
+    if (!j) return res.status(404).json({ error: 'Ye build list me nahi mila' });
+    jobs = jobs.filter((x) => x.id !== j.id); save(); auth.action(req, 'apk remove ' + (j.slug || j.id)); res.json({ ok: true });
+  });
   router.get('/jobs', async (req, res) => { await ready; await refreshAll().catch(() => {}); res.json(jobs.slice(0, MAX_JOBS).map(pub)); });
 
   function guard(req, res) {
