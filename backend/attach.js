@@ -87,4 +87,4 @@ async function parseAttachments(list, llm) {
   }
   return { context: ctx.join('\n\n').slice(0, CONTEXT_CHARS + 6000), notes, images, zips, ok: ctx.length > 0 };
 }
-module.exports = { parseAttachments, summariseZip, zipEntries, isImage, MAX_ZIP, MAX_IMG, MAX_IMAGES };
+module.exports = { parseAttachments, summariseZip, zipEntries, readEntry, isImage, MAX_ZIP, MAX_IMG, MAX_IMAGES };

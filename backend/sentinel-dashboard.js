@@ -690,7 +690,46 @@ async function pingOnce(url, timeoutMs) {
   } finally { clearTimeout(t); }
 }
 
+// ---------------- v28: link se add (website / GitHub repo) + GitHub-only health (CI) ----------------
+function isPrivateHost(h) {
+  h = String(h || '').toLowerCase();
+  return h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h.startsWith('[') ||
+    /^(127\.|10\.|0\.|169\.254\.|192\.168\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^(fc|fd|fe80)/i.test(h);
+}
+// Repo-only server (no hosted URL needed): checks via GitHub API that the repo exists + latest GitHub Actions run. Read-only, changes nothing.
+async function checkGithubOnly(server) {
+  const started = Date.now(), token = githubToken(server);
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'aureon-sentinel', ...(token ? { Authorization: 'Bearer ' + token } : {}) };
+  const get = async (p) => {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 15000);
+    try { const r = await fetch('https://api.github.com/repos/' + server.ghRepo + p, { headers, signal: c.signal }); return { r, j: r.ok ? await r.json().catch(() => null) : null }; }
+    finally { clearTimeout(t); }
+  };
+  let ok = false;
+  try {
+    const repo = await get('');
+    if (repo.r.status === 404) { server.lastStatus = 'DOWN'; server.lastError = token ? 'repo nahi mila ya token ko access nahi' : 'repo nahi mila — private ho to Render me GITHUB_TOKEN set karo'; }
+    else if (repo.r.status === 403 || repo.r.status === 429) { server.lastStatus = 'HTTP_' + repo.r.status; server.lastError = 'GitHub rate limit — Render me GITHUB_TOKEN jodo'; }
+    else if (!repo.r.ok || !repo.j) { server.lastStatus = 'HTTP_' + repo.r.status; server.lastError = 'GitHub ne HTTP ' + repo.r.status + ' diya'; }
+    else {
+      const info = { pushedAt: repo.j.pushed_at, openIssues: repo.j.open_issues_count, archived: !!repo.j.archived, isPrivate: !!repo.j.private, defaultBranch: repo.j.default_branch, homepage: repo.j.homepage || '' };
+      try {
+        const runs = await get('/actions/runs?per_page=1' + (server.ghBranch ? '&branch=' + encodeURIComponent(server.ghBranch) : ''));
+        const run = runs.j && runs.j.workflow_runs && runs.j.workflow_runs[0];
+        if (run) { info.ci = run.status === 'completed' ? run.conclusion : run.status; info.ciName = String(run.name || '').slice(0, 60); }
+      } catch (e) { /* CI info optional */ }
+      server.ghInfo = info;
+      if (info.ci === 'failure' || info.ci === 'timed_out') { server.lastStatus = 'CI_FAILING'; server.lastError = 'Latest GitHub Actions run fail hui' + (info.ciName ? ': ' + info.ciName : ''); }
+      else { ok = true; server.lastStatus = 'HEALTHY'; server.lastError = null; }
+    }
+  } catch (e) { server.lastStatus = 'DOWN'; server.lastError = e.name === 'AbortError' ? 'GitHub 15s me jawab nahi diya' : e.message; }
+  const ms = Date.now() - started; server.lastResponseMs = ms; server.lastCheckedAt = new Date().toISOString();
+  recordSample(server, { ok, ms });
+  return ok;
+}
+
 async function checkServer(server) {
+  if (server.ghOnly) return checkGithubOnly(server);
   let r = await pingOnce(server.healthUrl, 8000);
   // Render/Heroku free instances sleep when idle and need up to ~50 s to wake.
   // Don't call that an outage (and don't trigger AI "fixes") — wake it and re-check once.
@@ -735,6 +774,10 @@ async function runMonitorCycle() {
       const remind = !!prevDownSince && Date.now() - (server.lastAlertAt || 0) >= REMIND_MS;
       if (prevDownSince && !remind) continue;
       server.lastAlertAt = Date.now();
+      if (server.ghOnly) {   // repo-only check: AI fix proposal nahi, sirf alert (kuch change nahi hota)
+        await sendAlertEmail(`Aureon Sentinel: ${server.name} — GitHub check fail`, `${server.lastError || server.lastStatus}\nGitHub Actions / repo kholke dekho. Sentinel ne kuch change nahi kiya.`);
+        continue;
+      }
       if (server.type === 'self' || server.type === 'github') {
         const aiProposal = await generateAIFixProposal(server, server.lastError || server.lastStatus);
         const newProposals = aiProposal ? [aiProposal] : scanForProposals(server);
@@ -865,6 +908,49 @@ router.post('/servers', (req, res) => {
   servers.push(server);
   persistServers();
   res.json(publicServer(server));
+});
+
+// ---------------- v28 routes: /servers/quick (link se add) and /project-check (zip, kuch run nahi hota) ----------------
+let projectCheck = null; try { projectCheck = require('./project-check'); } catch (e) { console.error('[sentinel] project-check disabled:', e.message); }
+router.post('/servers/quick', async (req, res) => {
+  let link = String((req.body || {}).link || '').trim().slice(0, 300);
+  if (!link) return res.status(400).json({ error: 'link likho (website ya GitHub repo)' });
+  if (!/^https?:\/\//i.test(link)) link = /^[\w.-]+\/[\w.-]+$/.test(link) ? 'https://github.com/' + link : 'https://' + link;
+  let u; try { u = new URL(link); } catch (e) { return res.status(400).json({ error: 'link samajh nahi aaya' }); }
+  if (!/^https?:$/.test(u.protocol) || isPrivateHost(u.hostname)) return res.status(400).json({ error: 'sirf public website / GitHub link (localhost ya private address nahi)' });
+  const host = u.hostname.toLowerCase(), seg = u.pathname.split('/').filter(Boolean), added = [], notes = [];
+  const base = { localPath: null, restartWebhookUrl: null, ghRepo: null, ghBranch: null, ghPath: null, ghToken: null, ghTokenEnc: null, lastStatus: 'UNKNOWN' };
+  if (/^(www\.)?github\.com$/.test(host)) {
+    if (seg.length < 2) return res.status(400).json({ error: 'GitHub link me owner/repo chahiye (jaise github.com/pavan/myapp)' });
+    const owner = seg[0], repo = seg[1].replace(/\.git$/i, ''), full = owner + '/' + repo;
+    if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return res.status(400).json({ error: 'GitHub owner/repo ka naam galat hai' });
+    if (servers.some((s) => s.ghRepo && s.ghRepo.toLowerCase() === full.toLowerCase())) return res.status(409).json({ error: full + ' pehle se Sentinel me hai' });
+    const sv = { ...base, id: newId(), name: repo, healthUrl: 'https://github.com/' + full, type: 'github', ghRepo: full, ghBranch: seg[2] === 'tree' && seg[3] ? seg[3] : '', ghPath: seg[2] === 'tree' ? seg.slice(4).join('/') : '', ghOnly: true };
+    await checkGithubOnly(sv);
+    if (sv.lastStatus === 'DOWN' && !sv.ghInfo) return res.status(400).json({ error: sv.lastError || 'repo nahi mila' });
+    if (!sv.ghBranch) sv.ghBranch = (sv.ghInfo && sv.ghInfo.defaultBranch) || 'main';
+    servers.push(sv); added.push(sv);
+    const hp = sv.ghInfo && sv.ghInfo.homepage;
+    if (hp) { try { const hu = new URL(hp); if (/^https?:$/.test(hu.protocol) && !isPrivateHost(hu.hostname) && !servers.some((s) => s.healthUrl === hu.href)) { const web = { ...base, id: newId(), name: repo + ' (website)', healthUrl: hu.href, type: 'external' }; servers.push(web); added.push(web); notes.push('Repo ki website bhi add ho gayi: ' + hu.href); } } catch (e) { /* bad homepage */ } }
+    notes.push(sv.lastStatus === 'HEALTHY' ? 'Repo theek hai' + (sv.ghInfo && sv.ghInfo.ci ? ' (CI: ' + sv.ghInfo.ci + ')' : ' (is repo me GitHub Actions nahi mile)') : (sv.lastError || sv.lastStatus));
+  } else {
+    if (servers.some((s) => s.healthUrl && s.healthUrl.replace(/\/$/, '') === u.href.replace(/\/$/, ''))) return res.status(409).json({ error: 'ye link pehle se Sentinel me hai' });
+    const sv = { ...base, id: newId(), name: host.replace(/^www\./, ''), healthUrl: u.href, type: 'external' };
+    const p = await pingOnce(u.href, 10000); sv.lastCheckedAt = new Date().toISOString();
+    if (p.ok) { sv.lastStatus = 'HEALTHY'; sv.lastResponseMs = p.ms; } else { sv.lastStatus = p.status ? 'HTTP_' + p.status : 'UNKNOWN'; sv.lastError = p.status ? 'HTTP ' + p.status : (p.error || 'jawab nahi aaya'); }
+    servers.push(sv); added.push(sv);
+    notes.push(p.ok ? 'Website chal rahi hai (' + p.ms + ' ms)' : 'Abhi jawab nahi aaya — Sentinel har 5 min check karega (so rahi ho to jaag jayegi)');
+  }
+  persistServers();
+  res.json({ ok: true, added: added.map(publicServer), notes });
+});
+router.post('/project-check', express.json({ limit: '36mb' }), (req, res) => {
+  if (!projectCheck) return res.status(503).json({ error: 'project-check module load nahi hua' });
+  const b = req.body || {}; let buf; try { buf = Buffer.from(String(b.data || '').replace(/^data:[^,]*,/, ''), 'base64'); } catch (e) { buf = null; }
+  if (!buf || buf.length < 22) return res.status(400).json({ error: 'zip khaali hai' });
+  if (buf.length > 25 * 1024 * 1024) return res.status(413).json({ error: 'zip 25 MB se badi hai' });
+  try { res.json({ ok: true, name: String(b.name || 'project.zip').replace(/[^\w.\- ]/g, '_').slice(0, 80), report: projectCheck.checkZip(buf) }); }
+  catch (e) { res.status(400).json({ error: String(e.message).slice(0, 160) }); }
 });
 
 router.delete('/servers/:id', (req, res) => {
@@ -1144,6 +1230,21 @@ ${THEME_TAGS}
       <div id="servers"></div>
       <div class="card">
         <div class="grid">
+          <input id="q-link" placeholder="Website ya GitHub link (https://github.com/owner/repo) — Render zaroori nahi">
+          <button onclick="quickAdd()">Link se add karo</button>
+          <div class="meta" id="q-msg">Website = uptime + SSL check. GitHub repo = repo + CI (GitHub Actions) check. Private repo ho to Render me GITHUB_TOKEN chahiye.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="grid">
+          <div class="meta">Koi project (zip) check karna hai? Code chalaye bina syntax, package.json, missing files aur secrets dekhta hai.</div>
+          <input id="pc-file" type="file" accept=".zip,application/zip,application/x-zip-compressed">
+          <button onclick="projectCheck()">Project check karo</button>
+          <div id="pc-out" class="meta"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="grid">
           <input id="s-name" placeholder="Name (e.g. Aureon backend)">
           <input id="s-url" placeholder="Health check URL (https://.../health)">
           <select id="s-type" onchange="toggleTypeFields()">
@@ -1327,6 +1428,7 @@ function renderServers(servers) {
       (s.downForMin != null ? '<div class="meta" style="color:var(--danger)">⛔ ' + s.downForMin + ' min se down hai</div>' : '') +
       '<div style="margin-top:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' + sparkSvg(s.spark) + '<span class="meta">' + (s.uptime24 != null ? s.uptime24 + '% uptime 24h' : '') + (s.avgMs ? ' · avg ' + s.avgMs + ' ms · p95 ' + s.p95Ms + ' ms' : '') + '</span></div>' +
       (s.type === 'github' ? '<div class="meta">' + esc(s.ghRepo) + ' @ ' + esc(s.ghBranch) + (s.ghPath ? '/' + esc(s.ghPath) : '') + '</div>' : '') +
+      (s.ghInfo ? '<div class="meta">' + (s.ghInfo.ci ? 'CI: ' + esc(s.ghInfo.ci) + ' · ' : '') + 'last push ' + (s.ghInfo.pushedAt ? new Date(s.ghInfo.pushedAt).toLocaleDateString() : '?') + ' · ' + (s.ghInfo.openIssues || 0) + ' open issues' + (s.ghInfo.archived ? ' · ARCHIVED' : '') + '</div>' : '') +
       (s.lastCheckedAt ? '<div class="meta">checked ' + new Date(s.lastCheckedAt).toLocaleString() + (bits.length ? ' - ' + esc(bits.join(' - ')) : '') + '</div>' : '') +
       (s.lastError && st !== 'HEALTHY' ? '<div class="meta" style="color:var(--danger)">' + esc(s.lastError) + '</div>' : '') +
       '</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
@@ -1369,6 +1471,37 @@ function toggleTypeFields() {
   ['s-gh-repo','s-gh-branch','s-gh-path','s-gh-token'].forEach(id => {
     document.getElementById(id).style.display = type === 'github' ? '' : 'none';
   });
+}
+
+async function quickAdd() {
+  var inp = document.getElementById('q-link'), msg = document.getElementById('q-msg'), link = inp.value.trim();
+  if (!link) { msg.textContent = 'Pehle link paste karo'; return; }
+  msg.textContent = 'Check ho raha hai…';
+  var res = await authFetch(API + '/servers/quick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ link: link }) });
+  var j = await res.json().catch(function () { return {}; });
+  if (!res.ok) { msg.textContent = '❌ ' + (j.error || 'add nahi hua'); return; }
+  inp.value = ''; msg.textContent = '✅ ' + (j.added || []).map(function (s) { return s.name; }).join(', ') + ' add hua. ' + (j.notes || []).join(' · ');
+  load();
+}
+async function projectCheck() {
+  var f = document.getElementById('pc-file').files[0], out = document.getElementById('pc-out');
+  if (!f) { out.textContent = 'Pehle zip chuno'; return; }
+  if (f.size > 25 * 1024 * 1024) { out.textContent = 'Zip 25 MB se badi hai'; return; }
+  out.textContent = 'Padh raha hai…';
+  var data = await new Promise(function (ok) { var fr = new FileReader(); fr.onload = function () { ok(fr.result); }; fr.onerror = function () { ok(null); }; fr.readAsDataURL(f); });
+  if (!data) { out.textContent = 'File padh nahi paye'; return; }
+  var res = await authFetch(API + '/project-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: f.name, data: data }) });
+  var j = await res.json().catch(function () { return {}; });
+  if (!res.ok) { out.textContent = '❌ ' + (j.error || 'check nahi hua'); return; }
+  var r = j.report, L = [];
+  L.push((r.verdict === 'GOOD' ? '✅ Theek hai' : r.verdict === 'RISK' ? '⚠️ Secrets/.env ka khatra' : '❌ Problems mili') + ' — ' + r.files + ' files, JS ok ' + r.js.ok + '/' + r.js.checked + (r.js.esmSkipped ? ' (' + r.js.esmSkipped + ' ESM skip)' : ''));
+  r.js.bad.forEach(function (b) { L.push('❌ syntax: ' + b.path + (b.line ? ':' + b.line : '') + ' — ' + b.error); });
+  r.json.bad.forEach(function (b) { L.push('❌ JSON: ' + b.path + ' — ' + b.error); });
+  r.pkg.issues.forEach(function (x) { L.push('❌ package.json: ' + x); });
+  r.missingRequires.forEach(function (x) { L.push('❌ file nahi mili: ' + x); });
+  r.secrets.forEach(function (s) { L.push('⚠️ secret: ' + s.path + ':' + s.line + ' (' + s.kind + ')'); });
+  r.envFiles.forEach(function (x) { L.push('⚠️ .env file zip me hai: ' + x); });
+  out.innerHTML = L.map(function (x) { return '<div>' + esc(x) + '</div>'; }).join('');
 }
 
 async function addServer() {
