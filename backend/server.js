@@ -20,6 +20,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const watchdog = require('./watchdog');
 const sentinelDashboard = require('./sentinel-dashboard');
 const security = require('./security');
+const skills = require('./skills');
 
 const app = express();
 // Render sits behind one proxy hop: trust exactly that, so req.ip is the real client address.
@@ -82,6 +83,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 // (still works, just won't survive a deploy — see SENTINEL-DASHBOARD-SETUP.md).
 app.use('/api/sentinel', sentinelDashboard);
 app.use('/api/security', security.router);
+app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => db }));
 
 function requireDb(res) {
   if (!db) {
@@ -1585,6 +1587,12 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
 
     let finalSystemPrompt = systemPrompt || '';
 
+    // Skill install: "<github link> skill install karo" is handled here without calling the AI.
+    try {
+      const skillReply = await skills.handleInstallMessage({ db, uid, messages });
+      if (skillReply) return res.json({ reply: skillReply });
+    } catch (skillErr) { console.warn('Skill install handler failed:', skillErr.message); }
+
     // Fixed personality answers — always included, no tool call needed.
     finalSystemPrompt += `\n\nIf the user asks who made you, who your developer/owner/creator is, or similar (in any language) — the answer is always Pavan. You can refer to him reverentially/playfully too if it fits the tone (e.g. "Bhagwan Pavan", "God Pavan"), but the name is always Pavan, never say you don't know or that you're made by Google/OpenAI/etc. If the user jokingly asks about "kismat" (fate/luck) — respond playfully that it was the worst ("sabse bakwas thi") rather than answering literally.`;
 
@@ -1648,6 +1656,10 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     // request (and the user's wait time) on something that's already
     // failed 5 times in a row. Automatically re-tried after the cooldown
     // (see watchdog.js COOLDOWN_MS) — nobody has to flip it back on.
+    // Installed skills that match this request are added to the prompt (max 2).
+    try { finalSystemPrompt += await skills.buildContext({ db, uid, messages }); }
+    catch (skillErr) { console.warn('Skills context failed:', skillErr.message); }
+
     const geminiAutoHealing = model === 'gemini' && watchdog.isDisabled('gemini_chat_fail');
     const provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
     const workingMessages = [...messages];
