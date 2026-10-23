@@ -517,16 +517,54 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
     msgsEl.appendChild(m); msgsEl.scrollTop = msgsEl.scrollHeight; return m;
   }
   function renderChips() {
-    var list = IS_SENTINEL ? ['Server status', 'Check now', 'Kya naya seekha?'] : ['Kya naya seekha?', 'Battery kitna hai?', 'Mujhe kya yaad dilana hai?'];
+    var list = IS_SENTINEL ? ['Lab me kya chal raha hai?', 'Mujhe ek app chahiye', 'Server status', 'Check now'] : ['Kya naya seekha?', 'Battery kitna hai?', 'Mujhe kya yaad dilana hai?'];
     chipsEl.innerHTML = '<div class="ava-q">HOW CAN I HELP YOU TODAY?</div>';
     list.forEach(function (t) { var c = el('button', 'ava-chip'); c.textContent = '✦ ' + t; c.onclick = function () { send(t); }; chipsEl.appendChild(c); });
   }
 
+  async function soft(path) { try { return await api('GET', path); } catch (e) { return null; } }
+  function cut(t, n) { t = String(t == null ? '' : t); return t.length > n ? t.slice(0, n - 1) + '…' : t; }
+  // Ava Lab ka live data (read-only GET) — taaki Ava ko pata ho lab me kya chal raha hai
+  async function labContext() {
+    var r = await Promise.all([soft('/api/sentinel/ava/state'), soft('/api/sentinel/ava/jail/list'), soft('/api/sentinel/ava-studio/list'), soft('/api/sentinel/ava-studio/status'), soft('/api/apk/jobs')]);
+    var st = r[0], jail = Array.isArray(r[1]) ? r[1] : [], list = Array.isArray(r[2]) ? r[2] : [], sd = r[3], apk = Array.isArray(r[4]) ? r[4] : [];
+    if (!st && !list.length && !sd) return '';
+    var nav = document.querySelector('#nav button.on'), out = { screen: nav ? nav.getAttribute('data-v') : undefined };
+    if (st) out.ava = { version: st.version, latest: st.latest, busy: !!st.busy, pendingJail: st.jailPending || 0, llm: st.llm, autoUpgrade: st.settings };
+    if (st && st.proposals) out.proposals = st.proposals.slice(0, 8).map(function (p) { return { id: p.id, title: cut(p.title || p.goal, 90), status: p.status, risk: p.risk, file: p.file }; });
+    if (st && st.history) out.history = st.history.slice(0, 5).map(function (h) { return { v: h.version, title: cut(h.title, 80), status: h.status }; });
+    if (sd) out.job = { running: !!sd.running, kind: sd.kind, step: cut(sd.step, 140), done: sd.done, total: sd.total, lines: sd.lines, target: sd.target, error: cut(sd.error, 140), log: (sd.log || []).slice(-5).map(function (l) { return cut(l && l.m, 120); }) };
+    out.projects = list.slice(0, 12).map(function (j) { return { id: j.id, title: cut(j.title, 60), kind: j.kind, status: j.status, tagline: cut(j.tagline || j.description, 110), features: (j.features || []).slice(0, 8).map(function (f) { return cut(f, 70); }), stats: j.stats, finalCheck: j.verify, notes: (j.notes || []).slice(-3).map(function (n) { return cut(n, 120); }), files: (j.files || []).slice(-8).map(function (f) { return f && f.path; }) }; })
+      .concat(apk.filter(function (x) { return x.kind === 'generated'; }).slice(0, 4).map(function (x) { return { title: cut(x.name || 'App', 60), kind: 'apk', status: x.status }; }));
+    out.prototypes = jail.slice(0, 10).map(function (j) { return { title: cut(j.title, 60), category: j.category, status: j.status, risk: j.risk }; });
+    return cut(JSON.stringify(out), 4200);
+  }
   async function sentinelContext() {
-    var s = await api('GET', '/api/sentinel/servers'), p = await api('GET', '/api/sentinel/proposals');
+    var s = (await soft('/api/sentinel/servers')) || [], p = (await soft('/api/sentinel/proposals')) || [];
     var lines = s.map(function (x) { return '- id=' + x.id + ' | ' + x.name + ' | ' + x.type + ' | status=' + (x.lastStatus || 'UNKNOWN') + ' | ' + x.healthUrl + (x.lastCheckedAt ? ' | checked ' + x.lastCheckedAt : ''); });
     var pend = p.filter(function (x) { return x.status === 'pending'; }).map(function (x) { return '- ' + (x.serverName || '') + ': ' + String(x.description || x.kind || '').slice(0, 160); });
-    return 'Servers (' + s.length + '):\n' + (lines.join('\n') || '(none)') + '\n\nPending proposals awaiting human approval (' + pend.length + '):\n' + (pend.join('\n') || '(none)');
+    var out = 'Servers (' + s.length + '):\n' + (lines.join('\n') || '(none)') + '\n\nPending proposals awaiting human approval (' + pend.length + '):\n' + (pend.join('\n') || '(none)');
+    var lab = ''; try { lab = await labContext(); } catch (e) {}
+    return cut(out, 3800) + (lab ? '\n\nAVA LAB LIVE DATA (json, read-only, taken now):\n' + lab : '');
+  }
+  // [[BRIEF type=project|apk|ui|upgrade]]...[[/BRIEF]] -> tappable card. Ava kabhi khud start nahi karti: Pavan form dekh ke Banao dabata hai.
+  var RX_BRIEF = /\[\[BRIEF\s+type=(project|apk|ui|upgrade)\]\]([\s\S]*?)\[\[\/BRIEF\]\]/gi;
+  function splitBriefs(text) { var briefs = []; var clean = String(text || '').replace(RX_BRIEF, function (a, t, b) { b = String(b).trim(); if (b) briefs.push({ type: t.toLowerCase(), text: b }); return ''; }).trim(); return { clean: clean || (briefs.length ? 'Ye brief taiyar hai 👇' : ''), briefs: briefs }; }
+  function applyBrief(type, text) {
+    function go(v) { var b = document.querySelector('#nav button[data-v="' + v + '"]'); if (b) b.click(); }
+    var f = type === 'upgrade' ? document.getElementById('task') : document.getElementById('pjBrief');
+    if (f) {
+      go(type === 'upgrade' ? 'home' : 'proj'); f.value = text; var sel = document.getElementById('pjType'); if (type !== 'upgrade' && sel) sel.value = type;
+      try { f.focus(); } catch (e) {} addMsg('note', type === 'upgrade' ? '✅ Upgrade box me bhar diya — Upgrade tum dabao.' : '✅ Project form me bhar diya — dekh ke "Ava ko banane do" tum dabao.'); return;
+    }
+    try { navigator.clipboard.writeText(text); addMsg('note', '📋 Form nahi mila (Ava Lab kholo) — brief copy kar diya.'); } catch (e) { addMsg('note', 'Form nahi mila — brief upar se copy kar lo.'); }
+  }
+  function addBriefCard(b) {
+    var m = el('div', 'ava-m note'); m.appendChild(document.createTextNode(cut(b.text, 260)));
+    var row = el('div'); row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px';
+    var go = el('button', 'ava-chip'); go.style.minHeight = '44px'; go.textContent = b.type === 'upgrade' ? '⚡ Upgrade box me bharo' : '📝 Form me bharo (' + b.type + ')'; go.onclick = function () { applyBrief(b.type, b.text); };
+    var cp = el('button', 'ava-chip'); cp.style.minHeight = '44px'; cp.textContent = '📋 Copy'; cp.onclick = function () { try { navigator.clipboard.writeText(b.text); } catch (e) {} };
+    row.appendChild(go); row.appendChild(cp); m.appendChild(row); msgsEl.appendChild(m); msgsEl.scrollTop = msgsEl.scrollHeight; return m;
   }
   async function runSentinelActions(actions) {
     var notes = [];
@@ -806,9 +844,11 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       var out = IS_SENTINEL ? await askSentinel(hist.slice(-12)) : await askApp(hist.slice(-12));
       typing.remove();
       (out.notes || []).forEach(function (n) { addMsg('note', n); });
-      addMsg('ai', out.reply);
-      hist.push({ role: 'assistant', content: out.reply }); saveHist();
-      speak(out.reply); flash('happy', 1200);
+      var sp = IS_SENTINEL ? splitBriefs(out.reply) : { clean: out.reply, briefs: [] };
+      addMsg('ai', sp.clean);
+      sp.briefs.slice(0, 2).forEach(addBriefCard);
+      hist.push({ role: 'assistant', content: sp.clean }); saveHist();
+      speak(sp.clean); flash('happy', 1200);
     } catch (e) {
       typing.remove(); addMsg('err', e.message || String(e)); hist.pop();
     }
