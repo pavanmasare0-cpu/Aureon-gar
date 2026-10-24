@@ -154,7 +154,7 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
       job.calls++;
       try { return await askRaw(prompt); }
       catch (e) {
-        if (RATE.test(String(e && e.message)) && attempt < 14) { let wait = Math.min((process.env.AVA_STUDIO_TEST ? 500 : 30000) * 2 ** Math.min(attempt, 5), 900000); const nr = llm.nextReadyMs ? llm.nextReadyMs() : 0; if (nr > 0 && !process.env.AVA_STUDIO_TEST) wait = Math.max(3000, Math.min(wait, nr + 1500)); /* all keys/models already tried; wait only until the first one is back */ job.waiting = Date.now() + wait; say('⏳ AI quota/limit — ' + Math.round(wait / 1000) + 's ruk ke dobara try (kaam background me jaari rahega)'); await sleep(wait); job.waiting = 0; continue; }
+        if (RATE.test(String(e && e.message)) && attempt < 14) { let wait = Math.min((process.env.AVA_STUDIO_TEST ? 500 : Number(process.env.AVA_STUDIO_WAIT_MS || 5000)) * 2 ** Math.min(attempt, 4), process.env.AVA_STUDIO_TEST ? 900000 : Number(process.env.AVA_STUDIO_WAIT_MAX_MS || 60000)); const nr = llm.nextReadyMs ? llm.nextReadyMs() : 0; if (nr > 0 && !process.env.AVA_STUDIO_TEST) wait = Math.max(3000, Math.min(wait, nr + 1500)); /* all keys/models already tried; wait only until the first one is back */ job.waiting = Date.now() + wait; say('⏳ AI quota/limit — ' + Math.round(wait / 1000) + 's ruk ke dobara try — wajah: ' + String(e && e.message || '').replace(/\s+/g, ' ').slice(0, 130)); await sleep(wait); job.waiting = 0; continue; }
         throw e;
       }
     }
