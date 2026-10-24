@@ -35,7 +35,7 @@ function isAgentOn() {
   return $('toggle-agent') ? $('toggle-agent').checked : true;
 }
 
-const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', claudecode: 'Claude Code', local: 'Private' };
+const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', claudecode: 'Code mode', local: 'Private' };
 
 const $ = (id) => document.getElementById(id);
 
@@ -539,7 +539,7 @@ state.pendingImages = []; // v9: any number of photos for one message
 state.pendingFileText = null; // extracted text for txt files
 state.pendingFileName = null;
 
-// ➕ opens a bottom sheet (like the Claude app): Photos = gallery with MANY-photo select (image-only input),
+// ➕ opens a bottom sheet (like a modern chat app): Photos = gallery with MANY-photo select (image-only input),
 // Files = pdf / zip / video / docs (separate input). One picker that accepts both makes Android show the plain file
 // browser where a tap selects only ONE file, so the two live in separate pickers.
 function showAttachSheet(beforeOpen) {
@@ -761,13 +761,6 @@ async function sendMessage() {
   const fileText = state.pendingFileText;
   const fileName = state.pendingFileName;
   if (!text && !image && !fileText && !fileName) return;
-
-  // Ava Guard (v17): rate limit, injection / secret check. Blocked text can be re-sent unchanged to override.
-  if (text && window.AvaGuard) {
-    const gv = window.AvaGuard.instance.check(text, { key: 'chat' });
-    if (gv.redact) { input.value = gv.redacted; addMessage('error', gv.reason); return; }
-    if (!gv.allow) { addMessage('error', gv.reason); return; }
-  }
 
   // Tell the native side a real interaction just happened, so the
   // "been quiet for X hours" proactive check-in resets its clock —
@@ -1025,7 +1018,7 @@ function confirmSensitiveAction(name, args) {
 // server-side (see /api/generate-zip), no client-side zip library needed.
 // Doesn't save/share anything itself — just prepares the file and hands
 // back what's needed for a tappable file card (see addFileCardMessage),
-// the same way a file I (Claude) create shows up as a card you open when
+// the same way a file I create shows up as a card you open when
 // you're ready, not something forced on you the instant it's done.
 async function createZipAndDeliver(args) {
   const files = Array.isArray(args.files) ? args.files : [];

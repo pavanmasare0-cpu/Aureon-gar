@@ -189,10 +189,10 @@
       <div class="sheet-handle"></div>
       <div class="section-label">AI Model</div>
       <button class="sheet-option" data-model="openai">⚡ OpenAI — Fast</button>
-      <button class="sheet-option" data-model="claude">🧠 Claude — Smart</button>
+      <button class="sheet-option" data-model="claude">🧠 Smart</button>
       <button class="sheet-option" data-model="gemini">🔬 Gemini — Research</button>
       <button class="sheet-option" data-model="groq">🚀 Groq — Fastest</button>
-      <button class="sheet-option" data-model="claudecode">🧑‍💻 Claude Code — skills + coding</button>
+      <button class="sheet-option" data-model="claudecode">🧑‍💻 Code mode — skills + coding</button>
       <button class="sheet-option" data-model="coding">💻 Coding — all keys, chat + actions</button>
       <button class="sheet-option" data-model="local">🔒 Local — Private</button>
     </div>
@@ -256,14 +256,14 @@
           </button>
           </div>
           <div class="list-group">
-          <button class="list-row" data-open="claude">
+          <button class="list-row" data-open="connect">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <span class="row-text"><span class="row-title">Claude Connector</span><span class="row-sub" id="sub-claude">Apni Anthropic key jodo</span></span>
+            <span class="row-text"><span class="row-title">Apps &amp; Automation</span><span class="row-sub" id="sub-connect">Koi bhi app jodo, kaam automate karo</span></span>
             <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
           <button class="list-row" data-open="claudecode">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            <span class="row-text"><span class="row-title">Claude Code</span><span class="row-sub" id="sub-claudecode">Skills install karo</span></span>
+            <span class="row-text"><span class="row-title">Code mode</span><span class="row-sub" id="sub-claudecode">Skills install karo</span></span>
             <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
           </div>
@@ -297,19 +297,53 @@
           <div id="pg-result"></div>
         </section>
 
-        <section class="settings-card settings-pane hidden" data-pane="claude" data-title="Claude Connector">
-          <p class="card-sub">Apni <b>Anthropic API key</b> jodo (console.anthropic.com). Key server par encrypt hoke save hoti hai aur app ko wapas kabhi nahi bheji jaati. Uske baad model picker mein <b>Claude — Smart</b> aur <b>Claude Code</b> teri apni key se chalenge.</p>
-          <div id="cc-status" class="card-sub"></div>
-          <input id="cc-key" class="text-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-...">
-          <select id="cc-model" class="text-input" style="margin-top:8px"></select>
-          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cc-save" style="flex:2">Connect &amp; test</button><button class="primary-btn" id="cc-test" style="flex:1">Test</button><button class="primary-btn" id="cc-remove" style="flex:1">Hatao</button></div>
-          <div id="cc-msg" class="card-sub"></div>
+        <section class="settings-card settings-pane hidden" data-pane="connect" data-title="Apps &amp; Automation">
+          <p class="card-sub">Koi bhi app jodo — <b>MCP server</b>, <b>REST API</b> ya <b>Webhook</b> (Slack, Discord, Zapier, Make, n8n...). Phir Aureon ko seedhi bhasha me kaam batao, wo apne aap us app ko chalayegi. Token server par encrypt hoke rehta hai, app ko wapas kabhi nahi aata.</p>
+          <div class="section-label" style="margin-top:12px">Jude hue apps <span id="ap-count"></span></div>
+          <div id="ap-list"></div>
+          <button class="primary-btn" id="ap-toggle" style="width:100%;margin:8px 0">➕ App jodo</button>
+          <div id="ap-form" class="hidden">
+            <select id="ap-preset" class="text-input"></select>
+            <input id="ap-name" class="text-input" style="margin-top:8px" placeholder="Naam (jaise Notion, GitHub, Slack)" maxlength="40" autocomplete="off">
+            <input id="ap-url" class="text-input" style="margin-top:8px" type="url" placeholder="https://..." autocomplete="off" autocapitalize="off" spellcheck="false">
+            <select id="ap-auth" class="text-input" style="margin-top:8px">
+              <option value="bearer">Token (Authorization: Bearer)</option>
+              <option value="header">Token custom header me</option>
+              <option value="basic">Basic (user:password)</option>
+              <option value="none">Koi auth nahi</option>
+            </select>
+            <input id="ap-hname" class="text-input hidden" style="margin-top:8px" placeholder="Header ka naam (jaise X-API-Key)" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <input id="ap-token" class="text-input" style="margin-top:8px" type="password" placeholder="Token / API key" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <input id="ap-extra" class="text-input" style="margin-top:8px" placeholder='Extra headers (optional) {"Notion-Version":"2022-06-28"}' autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="primary-btn" id="ap-save" style="width:100%;margin:10px 0">Connect &amp; test</button>
+          </div>
+          <div id="ap-msg" class="card-sub"></div>
+
+          <div class="section-label" style="margin-top:18px">Automations <span id="au-count"></span></div>
+          <div id="au-list"></div>
+          <button class="primary-btn" id="au-toggle" style="width:100%;margin:8px 0">➕ Nayi automation</button>
+          <div id="au-form" class="hidden">
+            <input id="au-name" class="text-input" placeholder="Naam (jaise Roz subah summary)" maxlength="60" autocomplete="off">
+            <textarea id="au-text" class="text-input" rows="4" style="margin-top:8px" maxlength="2000" placeholder="Kya karna hai? Jaise: Mere GitHub repos me naye issues dekho aur Slack pe summary bhejo."></textarea>
+            <div class="card-sub" style="margin-top:8px">Kaun se apps use kare:</div>
+            <div id="au-apps"></div>
+            <select id="au-trig" class="text-input" style="margin-top:8px">
+              <option value="manual">Sirf jab main chalau</option>
+              <option value="interval">Har kuch minute me (apne aap)</option>
+              <option value="webhook">Jab koi link hit kare (webhook)</option>
+            </select>
+            <input id="au-every" class="text-input hidden" style="margin-top:8px" type="number" min="5" max="10080" value="60" placeholder="Kitne minute baad (min 5)">
+            <label style="display:flex;gap:10px;align-items:center;font-size:13px;margin:10px 0"><input type="checkbox" id="au-write"> Changes allowed (message bhejna, likhna, delete karna). Band ho to sirf padhegi.</label>
+            <button class="primary-btn" id="au-save" style="width:100%;margin:6px 0">Automation banao</button>
+          </div>
+          <div id="au-msg" class="card-sub"></div>
+          <p class="card-sub" style="margin-top:10px;opacity:.7">Apne aap chalne wali automations tabhi chalti hain jab server jaag raha ho (free Render sleep karta hai — uptime pinger ya webhook trigger use karo).</p>
         </section>
 
-        <section class="settings-card settings-pane hidden" data-pane="claudecode" data-title="Claude Code">
-          <p class="card-sub">Koi bhi <b>GitHub skill link</b> daalo (repo, folder ya SKILL.md ka link). Install hote hi neeche list mein dikhegi, aur <b>Claude Code</b> mode usse apne aap use karega. Skill sirf text guidance hai, kuch chalta nahi.</p>
+        <section class="settings-card settings-pane hidden" data-pane="claudecode" data-title="Code mode">
+          <p class="card-sub">Koi bhi <b>GitHub skill link</b> daalo (repo, folder ya SKILL.md ka link). Install hote hi neeche list mein dikhegi, aur <b>Code mode</b> usse apne aap use karega. Skill sirf text guidance hai, kuch chalta nahi.</p>
           <input id="cs-url" class="text-input" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://github.com/owner/repo/tree/main/skills/name">
-          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cs-install" style="flex:1">Skill install karo</button><button class="primary-btn" id="cs-use" style="flex:1">Claude Code chalu</button></div>
+          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cs-install" style="flex:1">Skill install karo</button><button class="primary-btn" id="cs-use" style="flex:1">Code mode chalu</button></div>
           <div id="cs-msg" class="card-sub"></div>
           <div class="section-label" style="margin-top:12px">Installed skills <span id="cs-count"></span></div>
           <div id="cs-list"></div>
@@ -410,9 +444,9 @@
   <script src="capacitor-shim.js"></script>
   <script src="app.js"></script>
   <script src="device-guard.js"></script>
-  <script src="claude-hub.js"></script>
+  <script src="skills-hub.js"></script>
+  <script src="connect-hub.js"></script>
   <script src="theme.js"></script>
-  <script src="ava-guard.js" data-autostart data-position="bottom-left"></script>
   <script src="ava-bot.js"></script>
 </body>
 </html>

@@ -2,13 +2,11 @@
 // orb (prototypes), variants, live code, upgrades, Ava ki Duniya. Data comes from /api/sentinel/ava/* (backend/ava-self.js).
 //
 //   GET /api/sentinel/ava-desk           the page (same owner login / stealth lock as the other dashboards)
-//   GET /api/sentinel/ava-desk/guard.js  Ava Guard for the page (its CSP only allows scripts from this origin)
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'ava-desk.html'), 'utf8');
-const GUARD_FILE = path.join(__dirname, 'public', 'ava-guard.js');
 const BRAIN_FILE = path.join(__dirname, 'ava-brain.html');   // the 3D brain shown in Ava Lab (iframe), fed with Ava's real memories
 const { dataDir } = require('./data-dir');
 // three.js r128 (pinned). The dashboard CSP only allows scripts from this origin, so it is fetched once from cdnjs and served from here.
@@ -25,8 +23,6 @@ async function getThree() {
   try { fs.writeFileSync(file, t); } catch (e) { /* read-only disk: keep in memory only */ }
   return (threeMem = t);
 }
-let guard = null;
-try { guard = require(GUARD_FILE); } catch (e) { guard = null; }
 
 module.exports = function createAvaDesk({ auth }) {
   const router = express.Router();
@@ -35,10 +31,6 @@ module.exports = function createAvaDesk({ auth }) {
   router.get('/ava-desk/three.js', async (req, res) => {
     try { res.type('application/javascript').set('Cache-Control', 'private, max-age=86400').send(await getThree()); }
     catch (e) { res.status(502).type('text/plain').send('three.js nahi mili: ' + e.message); }
-  });
-  router.get('/ava-desk/guard.js', (req, res) => {
-    if (!guard) return res.status(404).type('text/plain').send('guard not installed');
-    res.type('application/javascript').send(fs.readFileSync(GUARD_FILE, 'utf8'));
   });
   return { router, page: PAGE };
 };

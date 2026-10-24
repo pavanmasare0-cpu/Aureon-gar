@@ -21,7 +21,6 @@ const watchdog = require('./watchdog');
 const sentinelDashboard = require('./sentinel-dashboard');
 const security = require('./security');
 const skills = require('./skills');
-const claudeConn = require('./claude-connector');
 
 const app = express();
 // Render sits behind one proxy hop: trust exactly that, so req.ip is the real client address.
@@ -85,7 +84,11 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 app.use('/api/sentinel', sentinelDashboard);
 app.use('/api/security', security.router);
 app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => db }));
-app.use('/api/connectors/claude', claudeConn.createRouter({ express, verifyAuth, getDb: () => db }));
+// Apps & Automation (v29): connect any MCP / REST / webhook app and let Aureon automate it. See connect.js.
+const connect = require('./connect');
+const llmText = require('./llm-text');
+app.use('/api/connect', connect.createRouter({ express, verifyAuth, getDb: () => db, llm: llmText }));
+connect.startScheduler({ getDb: () => db, llm: llmText });
 
 function requireDb(res) {
   if (!db) {
@@ -366,12 +369,12 @@ async function callOpenAI(messages, systemPrompt) {
   return data.choices[0].message.content;
 }
 
-async function callClaude(messages, systemPrompt) {
+async function callSmart(messages, systemPrompt, maxTokens = 1024) {
   if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set in backend/.env');
   const body = {
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: maxTokens,
     messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
   };
   if (systemPrompt) body.system = systemPrompt;
@@ -385,16 +388,8 @@ async function callClaude(messages, systemPrompt) {
     body: JSON.stringify(body)
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Claude request failed');
+  if (!res.ok) throw new Error(data.error?.message || 'Smart model request failed');
   return data.content.map(c => c.text || '').join('');
-}
-
-// Claude connector / Claude Code: uses the user's own key (Settings > Claude Connector) or the server key.
-function callClaudeConnected(conn, code) {
-  return (messages, systemPrompt) => {
-    if (!String(systemPrompt || '').includes('Style rules:')) systemPrompt = (systemPrompt || '') + STYLE_RULES;
-    return claudeConn.call({ apiKey: conn.apiKey, model: conn.model, messages, system: systemPrompt, maxTokens: code ? 8192 : 4096 });
-  };
 }
 
 // ---- Gemini: self-healing model selection ----
@@ -995,7 +990,7 @@ async function callCodingAgent(messages, systemPrompt) {
     : mergeTwoAnswers(userText, second, text);
 }
 
-const PROVIDERS = { openai: callOpenAI, claude: callClaude, gemini: callGemini, groq: callGroq, local: callLocal,
+const PROVIDERS = { openai: callOpenAI, claude: callSmart, gemini: callGemini, groq: callGroq, local: callLocal,
   // Coding mode: with tools -> fast agent path; without tools -> two brains + merge
   coding: (messages, systemPrompt, useTools) => (useTools ? callCodingAgent(messages, systemPrompt) : callCoding(messages, systemPrompt)) };
 
@@ -1671,21 +1666,17 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     try { finalSystemPrompt += await skills.buildContext({ db, uid, messages }); }
     catch (skillErr) { console.warn('Skills context failed:', skillErr.message); }
 
-    // Claude Code mode: coding rules + the list of installed skills (name: description), like Claude's own skills list.
+    // Code mode: coding rules + the list of installed skills (name: description).
     if (model === 'claudecode') {
       try {
-        finalSystemPrompt += '\n\nYou are in CLAUDE CODE mode: act as a careful senior software engineer. ' + require('./code-skill').CODING_KNOWLEDGE_CHAT;
+        finalSystemPrompt += '\n\nYou are in CODE mode: act as a careful senior software engineer. ' + require('./code-skill').CODING_KNOWLEDGE_CHAT;
         finalSystemPrompt += await skills.buildIndex({ db, uid });
-      } catch (skillErr) { console.warn('Claude Code context failed:', skillErr.message); }
+      } catch (skillErr) { console.warn('Code mode context failed:', skillErr.message); }
     }
 
     const geminiAutoHealing = model === 'gemini' && watchdog.isDisabled('gemini_chat_fail');
     let provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
-    if (model === 'claude' || model === 'claudecode') {
-      const conn = await claudeConn.resolve(db, uid);
-      if (conn) provider = callClaudeConnected(conn, model === 'claudecode');
-      else provider = async () => { throw new Error('Claude key nahi hai. Settings > Claude Connector mein apni Anthropic key jodo.'); };
-    }
+    if (model === 'claudecode') provider = (m, sp) => callSmart(m, sp, 8192);   // server ANTHROPIC_API_KEY
     const workingMessages = [...messages];
     let activePrompt = finalSystemPrompt;
 

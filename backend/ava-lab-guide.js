@@ -7,12 +7,11 @@ AVA LAB — KYA HAI
 Ava Lab (Ava Desktop) Pavan ka personal AI builder hai: Ava khud code likhti hai, Pavan sirf Approve/Reject karta hai. Kuch bhi Approve ke bina apply nahi hota.
 
 TABS / JAGAHEIN
-- Ava ki Duniya (home): orb + command box ("Ava ko likho"), Ava Variants (alag moods), "Ava ka Code — live" (Ava jo likh rahi hai wo live), halat (pending upgrades, version, prototypes, Ava Guard ON/off).
+- Ava ki Duniya (home): orb + command box ("Ava ko likho"), Ava Variants (alag moods), "Ava ka Code — live" (Ava jo likh rahi hai wo live), halat (pending upgrades, version, prototypes).
 - Upgrades: Ava apne liye upgrade PROPOSAL likhti hai (diff dikhta hai, risk low/medium/high). Approve = lagta hai, Reject = hat jata hai. Auto-upgrade ON ho to Ava khud har N ghante me naya proposal banati hai — tab bhi lagta Approve ke baad hi hai. History me purane upgrades (rollback ke liye).
 - Prototypes: Ava ke chhote UI/widget experiments (sandbox check ke saath).
 - Project (v26): project = app, ek hi cheez. Poori details likho -> Ava banati hai. Side panel me naam, features, live status, final check, bugs. Yahin project chat, photo/zip upload, Demo image (PNG), Laptop preview, Clone, Code/Zip download, self-upgrade card.
 - Command box (home): jo likho usse Ava samajhti hai: project / UI design / upgrade / prototype / APK. Zip ya photo attach ho to hamesha project ya UI banta hai.
-- Ava Guard: input me secrets (API key, token), injection ya shaky text pakadta hai. ON dikhna chahiye.
 - Boss Orders: owner ka priority order queue (kabhi chup-chap drop nahi hota).
 
 PROJECT BANANE KA FLOW (Ava Studio)

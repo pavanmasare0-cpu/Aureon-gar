@@ -15,7 +15,7 @@ Aureon app (www/ — APK REBUILD chahiye):
 - style.css: focus ring, reduced-motion, 44px targets, chat image max 240px.
 
 Render env: GEMINI_API_KEY (photo + research), GROQ_API_KEY (fallback), SENTINEL_OWNER_CODE, SENTINEL_ENC_KEY.
-Test: cd backend && node --test tests/security.test.js test/ava-guard.test.js test/ava-jail-gate.test.js
+Test: cd backend && node --test tests/security.test.js test/ava-jail-gate.test.js
 
 UPDATE (live panel + variant details):
 - "Ava ka Code — live" ab kabhi purane failed APK par nahi atakta: sabse naya healthy item auto-follow hota hai (tumne khud kuch chuna ho to wahi pinned rehta hai).

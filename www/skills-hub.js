@@ -1,4 +1,4 @@
-/* Aureon — Claude Connector + Claude Code (skills) settings panes.
+/* Aureon — Code mode (skills) settings pane.
    Needs app.js globals: state (backendUrl, model), authHeaders(), MODEL_LABELS. */
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -19,49 +19,7 @@
   }
   function needLogin() { return typeof state === 'undefined' || !state.user; }
 
-  /* ---------------- Claude Connector ---------------- */
-  async function loadClaude() {
-    if (needLogin()) { say('cc-status', 'Pehle sign in karo.', true); return; }
-    say('cc-status', 'Check ho raha hai…');
-    var j = await api('/api/connectors/claude');
-    if (j.error) { say('cc-status', j.error, true); return; }
-    var sel = $('cc-model');
-    sel.textContent = '';
-    (j.models || []).forEach(function (m) {
-      var o = document.createElement('option'); o.value = m.id; o.textContent = m.label; if (m.id === j.model) o.selected = true; sel.appendChild(o);
-    });
-    var sub = $('sub-claude');
-    if (j.connected) { say('cc-status', 'Connected: key ...' + j.last4 + ' (teri apni key)'); if (sub) sub.textContent = 'Connected · ...' + j.last4; }
-    else if (j.serverKey) { say('cc-status', 'Teri key nahi hai, abhi server ki default key use ho rahi hai.'); if (sub) sub.textContent = 'Server key use ho rahi hai'; }
-    else { say('cc-status', 'Koi key nahi. Neeche apni sk-ant-... key daalo.'); if (sub) sub.textContent = 'Apni Anthropic key jodo'; }
-    if (!j.canStore) say('cc-msg', 'Server par SENTINEL_ENC_KEY set nahi hai — key save nahi ho payegi.', true);
-  }
-
-  async function saveClaude() {
-    if (needLogin()) return say('cc-msg', 'Pehle sign in karo.', true);
-    var key = $('cc-key').value.trim();
-    if (!key) {   // no new key typed: just change the model
-      var m = await api('/api/connectors/claude/model', 'POST', { model: $('cc-model').value });
-      say('cc-msg', m.ok ? 'Model badal diya.' : m.error, !m.ok); return;
-    }
-    say('cc-msg', 'Key test ho rahi hai…');
-    var j = await api('/api/connectors/claude', 'POST', { apiKey: key, model: $('cc-model').value });
-    if (j.ok) { $('cc-key').value = ''; say('cc-msg', 'Claude connect ho gaya ✓'); loadClaude(); }
-    else say('cc-msg', j.error, true);
-  }
-  async function testClaude() {
-    if (needLogin()) return say('cc-msg', 'Pehle sign in karo.', true);
-    say('cc-msg', 'Test ho raha hai…');
-    var j = await api('/api/connectors/claude/test', 'POST');
-    say('cc-msg', j.ok ? 'Chal raha hai ✓ (' + j.model + ', ' + j.ms + ' ms, ' + (j.source === 'user' ? 'teri key' : 'server key') + ')' : j.error, !j.ok);
-  }
-  async function removeClaude() {
-    if (needLogin()) return;
-    var j = await api('/api/connectors/claude', 'DELETE');
-    say('cc-msg', j.ok ? 'Key hata di.' : j.error, !j.ok); loadClaude();
-  }
-
-  /* ---------------- Claude Code (skills) ---------------- */
+  /* ---------------- Code mode (skills) ---------------- */
   function renderSkills(list) {
     var box = $('cs-list'); box.textContent = '';
     var cnt = $('cs-count'); if (cnt) cnt.textContent = list.length ? '(' + list.length + ')' : '';
@@ -99,23 +57,19 @@
     if (j.ok) { $('cs-url').value = ''; say('cs-msg', (j.installed || []).length + ' skill install ho gayi ✓'); loadSkills(); }
     else say('cs-msg', j.error, true);
   }
-  function useClaudeCode() {
+  function useCodeMode() {
     state.model = 'claudecode';
     try { localStorage.setItem('aureon_model', 'claudecode'); } catch (e) { /* blocked */ }
     var pill = $('model-pill'); if (pill && typeof MODEL_LABELS !== 'undefined') pill.textContent = MODEL_LABELS.claudecode;
-    say('cs-msg', 'Claude Code mode chalu ✓ — ab chat mein likho.');
+    say('cs-msg', 'Code mode chalu ✓ — ab chat mein likho.');
   }
 
   function wire() {
-    if (!$('cc-save') || $('cc-save').dataset.wired) return;
-    $('cc-save').dataset.wired = '1';
-    $('cc-save').addEventListener('click', saveClaude);
-    $('cc-test').addEventListener('click', testClaude);
-    $('cc-remove').addEventListener('click', removeClaude);
+    if (!$('cs-install') || $('cs-install').dataset.wired) return;
+    $('cs-install').dataset.wired = '1';
     $('cs-install').addEventListener('click', installSkill);
-    $('cs-use').addEventListener('click', useClaudeCode);
+    $('cs-use').addEventListener('click', useCodeMode);
     $('cs-url').addEventListener('keydown', function (e) { if (e.key === 'Enter') installSkill(); });
-    document.querySelectorAll('.list-row[data-open="claude"]').forEach(function (b) { b.addEventListener('click', loadClaude); });
     document.querySelectorAll('.list-row[data-open="claudecode"]').forEach(function (b) { b.addEventListener('click', loadSkills); });
   }
   document.addEventListener('DOMContentLoaded', wire);

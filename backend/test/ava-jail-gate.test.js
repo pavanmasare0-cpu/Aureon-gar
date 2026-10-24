@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const gate = require('../ava-jail-gate');
-const guard = fs.readFileSync(path.join(__dirname, '../public/ava-guard.js'), 'utf8');
+const guard = fs.readFileSync(path.join(__dirname, './fixtures/jail-sample.js'), 'utf8');
 
 const TOY = `(function(){'use strict';var s=document.createElement('div');s.textContent='\u{1F6E1}';document.body.appendChild(s);
 document.addEventListener('input',function(e){if(/</.test(e.target.value))e.target.style.border='1px solid red';});})();`;
@@ -14,7 +14,7 @@ test('toy shield widget is rejected', () => {
   assert.strictEqual(r.ok, false);
   assert.ok(r.reasons.some((x) => /too small/.test(x)));
 });
-test('real Ava Guard passes gate and self-test', () => {
+test('real widget passes gate and self-test', () => {
   assert.deepStrictEqual(gate.checkJailQuality(guard, 'security').reasons, []);
   assert.strictEqual(gate.runSelfTest(guard).ok, true);
 });

@@ -1068,7 +1068,7 @@ html, body {
 }
 #screen-chat .msg.error { align-self: stretch; max-width: 100%; border-radius: 14px; }
 
-/* ===== Settings: list of rows, tap to open (Claude-style) ===== */
+/* ===== Settings: list of rows, tap to open (chat-app style) ===== */
 .settings-head { gap: 6px; }
 .settings-back {
   width: 38px; height: 38px;
@@ -1161,7 +1161,7 @@ html, body {
 }
 .settings-card select option { color: #F2EEE3; background: #161512; }
 
-/* ===== Plain, simple message text (like the Claude app) ===== */
+/* ===== Plain, simple message text (like a modern chat app) ===== */
 #screen-chat .msg.ai strong { color: inherit; font-weight: 700; }
 .msg-heading { font-weight: 700; margin: 12px 0 4px; line-height: 1.35; }
 .msg-heading.h1 { font-size: 1.22em; }
@@ -1250,7 +1250,7 @@ code.inline-code {
 }
 .attach-name:empty { display: none; }
 
-/* ===== File cards (zip / pdf): plain and neutral, like the Claude app ===== */
+/* ===== File cards (zip / pdf): plain and neutral, like a modern chat app ===== */
 .file-card {
   gap: 12px;
   max-width: 340px;
@@ -1313,3 +1313,8 @@ code.inline-code {
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 .icon-btn{min-width:44px;min-height:44px}
 #screen-chat .msg img{max-width:100%;max-height:240px;object-fit:contain}
+
+/* v29: Apps & Automation pane */
+#ap-form.hidden, #au-form.hidden, #ap-hname.hidden, #ap-token.hidden, #au-every.hidden { display: none; }
+#ap-msg, #au-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+#au-text { resize: vertical; font-family: inherit; }

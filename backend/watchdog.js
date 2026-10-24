@@ -7,7 +7,7 @@
 // What it DOES do, same shape as a body's immune system — a fixed set of
 // pre-approved responses to known patterns, plus a signal to a human the
 // moment something doesn't match a known pattern:
-//   1. Tracks failures of each AI provider (gemini/groq/openai/claude). If
+//   1. Tracks failures of each AI provider (gemini/groq/openai/smart). If
 //      one is clearly degraded (repeated failures in a short window), it
 //      sends ONE Telegram alert (not a flood) saying so — "known pattern,
 //      already falling back automatically, FYI."

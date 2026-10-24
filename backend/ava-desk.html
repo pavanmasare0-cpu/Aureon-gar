@@ -305,7 +305,6 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
       <div class="r"><i style="background:#ff6b8b"></i>Pending upgrades<b id="stPend">—</b></div>
       <div class="r"><i style="background:#22e3a0"></i>Ava version<b id="stVer">—</b></div>
       <div class="r"><i style="background:#38d6ff"></i>Prototypes<b id="stProto">—</b></div>
-      <div class="r"><i style="background:#f472b6"></i>Ava Guard<b id="stGuard">—</b></div>
     </div>
   </aside>
 
@@ -425,7 +424,6 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 <div id="toast"></div>
 
 <script src="/api/ava/widget.js" defer></script>
-<script src="/api/sentinel/ava-desk/guard.js"></script>
 <script>
 (function () {
 'use strict';
@@ -523,13 +521,6 @@ function addFiles(list) {
     rd.onerror = function () { setMsg('File padh nahi paaye: ' + f.name, 'er'); };
     rd.readAsDataURL(f);
   });
-}
-function guardOk(text) {
-  if (!text || !window.AvaGuard) return true;
-  var g = window.AvaGuard.instance.check(text, { key: 'desk' });
-  if (g.redact) { $('#task').value = g.redacted; setMsg(g.reason, 'er'); return false; }
-  if (!g.allow) { setMsg(g.reason, 'er'); return false; }
-  return true;
 }
 
 /* ------------------------------------------------------------ status / messages */
@@ -642,7 +633,6 @@ function renderAll() { renderProject(); renderVars(); renderWork(); renderProg()
 function renderStats() {
   var s = S.state, np = pending().length;
   $('#stPend').textContent = s ? np : '—'; $('#stVer').textContent = s ? 'v' + s.version : '—'; $('#stProto').textContent = S.jail.length;
-  var g = $('#stGuard'); g.textContent = window.AvaGuard ? 'ON' : 'off'; g.style.color = window.AvaGuard ? 'var(--ok)' : 'var(--mu2)';
   var tg = $('#tgUps'); tg.style.display = np ? '' : 'none'; tg.textContent = np;
   $('#chAi b').textContent = s ? s.llm : '—'; $('#chVer b').textContent = s ? 'v' + s.version : 'v—';
 }
@@ -826,7 +816,7 @@ function run(label, doIt, after) {
 }
 function taskText(id) { return String(($(id) || {}).value || '').trim(); }
 function doUpgrade(src) {
-  var goal = taskText(src); if (!guardOk(goal)) return;
+  var goal = taskText(src);
   run('Ava apna code padh rahi hai aur upgrade likh rahi hai… (30–60 sec)', function () {
     return jpost(AVA + '/improve', { goal: goal }).then(function (r) {
       if (!r.ok) setMsg('❌ ' + (r.j.error || r.status), 'er'); else if (r.j.none) setMsg('Ava: ' + r.j.say); else setMsg('✅ Naya proposal taiyar — Approve/Reject karo.', 'ok'); return r;
@@ -834,7 +824,7 @@ function doUpgrade(src) {
   }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var p = pending()[0]; if (p) setFocus('p', p.id); });
 }
 function studioStart(kind, src, label, tgt, forced) {
-  var b = taskText(src); if (!guardOk(b)) return;
+  var b = taskText(src);
   setMsg(label); setBubble(label);
   var att = (S.att || []).map(function (a) { return { name: a.name, b64: a.b64 }; });
   jpost(ST + '/start', { kind: kind, brief: b, targetLines: forced || +(($(tgt) || {}).value) || 8000, attachments: att.length ? att : undefined }).then(function (r) {
@@ -845,7 +835,7 @@ function studioStart(kind, src, label, tgt, forced) {
 }
 function doProject(src, forced) { studioStart('project', src, 'Ava pura project plan karke file-by-file likh rahi hai… progress Code panel me live dikhega, background me chalta rahega.', src === '#task2' ? '#tgt2' : '#tgt', forced); }
 function doApk(src) {
-  var b = taskText(src); if (!guardOk(b)) return;
+  var b = taskText(src);
   if (b.length < 8) { setMsg('APK ke baare me thoda likho: kaisa app, kya features (kam se kam 8 akshar).', 'er'); return; }
   setMsg('📱 Ava app likh rahi hai, phir APK build hogi (5–10 min) — progress yahin dikhega.'); setBubble('APK ka kaam shuru!');
   jpost('/api/apk/generate', { prompt: b }).then(function (r) {
@@ -871,7 +861,7 @@ function intentOf(t) {
 }
 var INTENT_TX = { apk: '📱 Samjha: APK banana hai', project: '🏗 Samjha: pura project banana hai', ui: '🎨 Samjha: UI design banana hai', upgrade: '⚡ Samjha: apna upgrade likhna hai', prototype: '🧪 Samjha: prototype banana hai' };
 function doAuto(src) {
-  var t = taskText(src), k = intentOf(t); if (!guardOk(t)) return;
+  var t = taskText(src), k = intentOf(t);
   if (S.att && S.att.length && src === '#task') {   // zip / photo attached: build from it (never plain upgrade/prototype)
     var onlyImg = S.att.every(function (a) { return a.img; });
     k = (k === 'ui' || (onlyImg && k !== 'project' && !/\b(project|system|backend|api|app)\b/i.test(t))) ? 'ui' : 'project';
@@ -884,7 +874,7 @@ function doAuto(src) {
   else doProto(src);
 }
 function doProto(src, brief) {
-  var b = brief != null ? brief : taskText(src); if (!guardOk(b)) return;
+  var b = brief != null ? brief : taskText(src);
   run('Ava naya prototype design kar rahi hai… (30–60 sec)', function () {
     return jpost(AVA + '/jail/generate', { brief: b }).then(function (r) { if (r.ok) setMsg(r.j.queued ? '🕓 Queue me hai — Ava likh rahi hai, ready hote hi circle me aayega.' : '✅ Naya prototype circle me aa gaya.', 'ok'); else setMsg('❌ ' + (r.j.error || r.status), 'er'); return r; });
   }, function () { setBubble('Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.'); var j = protoList()[0]; if (j) setFocus('j', j.id); });
@@ -992,7 +982,7 @@ document.addEventListener('click', function (e) {
   if ((el = t.closest('[data-h]'))) { hist(el.getAttribute('data-h'), el.getAttribute('data-id')); return; }
   if ((el = t.closest('[data-restore]'))) { var n = el.getAttribute('data-restore'); if (confirm('Ava v' + n + ' par wapas jaana hai? Usse naye saare upgrades undo honge.')) jpost(AVA + '/versions/' + n + '/restore').then(function (r) { toast(r.ok ? '⏪ Ava v' + n + ' par wapas (server restart par chalega)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
   if ((el = t.closest('[data-pfsel]'))) return;
-  if ((el = t.closest('[data-apkrev]'))) { var ins = prompt('APK app me kya badalna hai?'); if (ins && guardOk(ins)) jpost('/api/apk/jobs/' + el.getAttribute('data-apkrev') + '/revise', { instruction: ins }).then(function (r) { toast(r.ok ? 'Badlav shuru' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
+  if ((el = t.closest('[data-apkrev]'))) { var ins = prompt('APK app me kya badalna hai?'); if (ins) jpost('/api/apk/jobs/' + el.getAttribute('data-apkrev') + '/revise', { instruction: ins }).then(function (r) { toast(r.ok ? 'Badlav shuru' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
   if ((el = t.closest('[data-pf]'))) { var pj2 = S.focus && jOf(S.focus.id); if (pj2) showFile(pj2, el.getAttribute('data-pf')); return; }
   if ((el = t.closest('[data-pv]'))) { openPreview(el.getAttribute('data-pv')); return; }
   if ((el = t.closest('[data-clone]'))) { jpost(ST + '/' + el.getAttribute('data-clone') + '/clone').then(function (r) { toast(r.ok ? '✅ Clone ban gaya (list me upar)' : '❌ ' + (r.j.error || r.status)); loadAll(); }); return; }
@@ -1103,7 +1093,7 @@ function renderProject() {
 function pjAddMsg(role, text, cls) { S.pj.chat.push({ role: role, text: text, cls: cls }); var b = $('#pjMsgs'); if (!b) return; var d = document.createElement('div'); d.className = 'pjm ' + role + (cls ? ' ' + cls : ''); d.textContent = text; b.appendChild(d); b.scrollTop = b.scrollHeight; }
 function pjSend(q) {
   var inp = $('#pjIn'), text = String(q || (inp && inp.value) || '').trim(); if (!text || S.pj.busy) return;
-  if (!guardOk(text)) return;
+ 
   if (inp) inp.value = ''; var hist = S.pj.chat.filter(function (m) { return !m.cls; }).slice(-8).map(function (m) { return { role: m.role, text: m.text }; });
   pjAddMsg('you', text); S.pj.busy = true; $('#pjSend').disabled = true; var j = pjCur();
   var tmp = document.createElement('div'); tmp.className = 'pjm ava'; tmp.textContent = 'Ava soch rahi hai…'; $('#pjMsgs').appendChild(tmp);
@@ -1112,7 +1102,7 @@ function pjSend(q) {
 }
 function pjMsg(t, cls) { var el = $('#pjMsg'); if (el) { el.textContent = t || ''; el.className = 'meta ' + (cls || ''); } }
 function pjStart() {
-  var kind = $('#pjKind').value, b = String($('#pjBrief').value || '').trim(); if (!guardOk(b)) return;
+  var kind = $('#pjKind').value, b = String($('#pjBrief').value || '').trim();
   var att = (S.att || []).map(function (a) { return { name: a.name, b64: a.b64 }; });
   if (!b && !att.length) { pjMsg('Pehle project ki detail likho (ya photo / zip do).', 'er'); return; }
   $('#pjGo').disabled = true;
