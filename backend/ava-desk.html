@@ -26,8 +26,9 @@ a{color:inherit}
 .foot{grid-area:foot;display:flex;align-items:center;justify-content:space-between;color:var(--mu2);font-size:11.5px}
 .foot b{color:#b9a8ff;font-weight:600}
 .view,.view.panel{display:none;height:100%;min-height:0}.view.on,.view.on.panel{display:grid}
-#home{gap:14px;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);grid-template-rows:minmax(0,1.3fr) minmax(0,.78fr)}
-.hero{grid-column:1;grid-row:1}.vars{grid-column:1;grid-row:2}.code{grid-column:2;grid-row:1}.ups{grid-column:2;grid-row:2}
+#home{gap:14px;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);grid-template-rows:minmax(0,1.3fr) minmax(0,.9fr) auto}
+.hero{grid-column:1;grid-row:1 / 3}.code{grid-column:2;grid-row:1}.ups{grid-column:2;grid-row:2}
+#home>.cmd{position:relative;left:auto;right:auto;bottom:auto;grid-column:1 / -1;grid-row:3;z-index:1}
 
 /* ---------- panels ---------- */
 .panel{position:relative;background:linear-gradient(160deg,var(--pn1),var(--pn2));border:1px solid var(--bd);border-radius:var(--r);box-shadow:0 14px 44px rgba(3,2,24,.55),inset 0 0 46px rgba(110,90,255,.06);min-height:0;display:flex;flex-direction:column;overflow:hidden}
@@ -81,7 +82,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 
 /* ---------- hero ---------- */
 .hero{background:linear-gradient(180deg,rgba(18,14,70,.6),rgba(7,8,32,.85))}
-.hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#brainFrame{position:absolute;left:0;top:0;width:100%;height:100%;border:0;display:block;z-index:0;background:#04060f;border-radius:var(--r)}
 .bubble{position:absolute;left:16px;top:14px;max-width:40%;z-index:3;padding:11px 15px;border-radius:18px 18px 18px 5px;background:rgba(14,16,62,.92);border:1.5px solid rgba(110,150,255,.65);box-shadow:0 0 22px rgba(80,120,255,.3);font-size:12.5px;line-height:1.5}
 .minds{position:absolute;right:14px;top:14px;z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .sats{position:absolute;inset:0;z-index:2;pointer-events:none}
@@ -92,7 +93,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 .sat.new{animation:pop .9s cubic-bezier(.2,1.4,.4,1) both}
 @keyframes pop{from{opacity:0;transform:translate(-50%,-50%) scale(.2)}}
 .sat.focus .o{box-shadow:0 0 0 2px #fff,0 0 24px var(--c)}
-.empty-orbit{position:absolute;left:50%;bottom:112px;transform:translateX(-50%);z-index:2;font-size:12px;color:var(--mu);text-align:center;width:70%}
+.empty-orbit{position:absolute;left:50%;bottom:58px;transform:translateX(-50%);z-index:2;font-size:12px;color:var(--mu);text-align:center;width:70%}
 .cmd{position:absolute;left:14px;right:14px;bottom:12px;z-index:3;padding:10px;border-radius:18px;background:rgba(14,16,62,.93);border:1.5px solid rgba(110,130,255,.5);box-shadow:0 0 26px rgba(80,100,255,.3)}
 .cmd .r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cmd input{flex:1 1 100%;min-width:0;background:rgba(8,10,40,.85);border:1px solid var(--bd);border-radius:12px;padding:10px 13px;font-size:13px;outline:0}
@@ -247,9 +248,9 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
   #app{height:auto;min-height:100vh;display:flex;flex-direction:column;padding:0 12px 16px}
   .top{flex-wrap:wrap;padding:10px 0}.brand{min-width:0}.top .chip.hide{display:none}
   .side{overflow:visible}.nav{flex-direction:row;flex-wrap:wrap}.nav button{padding:9px 12px}
-  #home{display:flex;flex-direction:column}.hero{height:560px}.vars{height:230px}.code{height:430px}.ups{height:auto;min-height:260px}
+  #home{display:flex;flex-direction:column}.hero{height:620px}.code{height:430px}.ups{height:auto;min-height:260px}
   .view{height:auto}.view.on.panel{min-height:520px}.two{grid-template-columns:1fr}
-  .bubble{max-width:85%;top:10px}.minds{top:auto;bottom:150px;right:10px}
+  .bubble{max-width:85%;top:10px}.minds{top:auto;bottom:64px;right:10px}
 }
 </style>
 </head>
@@ -278,6 +279,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
     <span class="chip hide" id="chAi">AI: <b>—</b></span>
     <span class="chip hide" id="chVer">Ava <b>v—</b></span>
     <a class="chip" href="/api/sentinel/dashboard">← Sentinel</a>
+    <button class="chip" id="langBtn" type="button" style="cursor:pointer;font:inherit" aria-label="Language">🌐 Hinglish</button>
     <div class="user"><span><i></i>Pavan</span></div>
   </header>
 
@@ -306,30 +308,12 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
     <!-- ================= HOME: Ava ki Duniya ================= -->
     <div class="view on" id="home">
       <section class="panel hero glow" id="pHero">
-        <canvas id="heroCv"></canvas>
+        <iframe id="brainFrame" src="/api/sentinel/ava-desk/brain" title="Ava ka brain" sandbox="allow-scripts allow-same-origin"></iframe>
         <div class="bubble" id="bubble">…</div>
         <div class="minds" id="minds"></div>
         <div class="sats" id="sats"></div>
-        <div class="empty-orbit" id="emptyOrbit" style="display:none">Abhi koi prototype nahi — neeche <b>🧪 Prototype</b> dabao, wo is circle ke around aa jayega.</div>
-        <div class="cmd" id="cmdbox">
-          <div class="atts" id="atts"></div>
-          <div class="r">
-            <input id="task" type="text" maxlength="600" placeholder="Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi" autocomplete="off">
-            <button class="btn" id="bGo"><svg class="ic"><use href="#i-bolt"/></svg>Kaam do</button>
-            <button class="btn g" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade</button>
-            <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
-            <select id="tgt" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
-            <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
-            <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
-            <button class="btn d" id="bStop" style="display:none">Roko</button>
-          </div>
-          <div class="m" id="msg"></div>
-        </div>
-      </section>
+        <div class="empty-orbit" id="emptyOrbit" style="display:none">Abhi koi prototype nahi — neeche <b>🧪 Prototype</b> dabao, wo brain ke around aa jayega.</div>
 
-      <section class="panel vars">
-        <div class="ph"><div><h3>Ava Variants</h3><small>Different moods. Clone dabao — Ava us mood ka naya variant banayegi, wo yahin neeche aa jaayega.</small></div></div>
-        <div class="vgrid" id="vgrid"></div>
       </section>
 
       <section class="panel code" id="pCode">
@@ -344,6 +328,22 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
         <div class="ph"><div><h3>Ava ke Upgrades</h3><small id="upsSub">Approve tumhare haath me</small></div><div class="grow"></div><button class="btn g s" data-go="ups">Sab dekho</button></div>
         <div class="pbody" id="upsBody"></div>
       </section>
+
+      <!-- command bar (moved down) -->
+        <div class="cmd" id="cmdbox">
+          <div class="atts" id="atts"></div>
+          <div class="r">
+            <input id="task" type="text" maxlength="600" placeholder="Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi" autocomplete="off">
+            <button class="btn" id="bGo"><svg class="ic"><use href="#i-bolt"/></svg>Kaam do</button>
+            <button class="btn g" id="bUp"><svg class="ic"><use href="#i-bolt"/></svg>Upgrade</button>
+            <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
+            <select id="tgt" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
+            <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
+            <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
+            <button class="btn d" id="bStop" style="display:none">Roko</button>
+          </div>
+          <div class="m" id="msg"></div>
+        </div>
     </div>
 
     <!-- ================= UPGRADES ================= -->
@@ -373,6 +373,10 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
     <section class="view panel" id="v-proto" style="grid-template-rows:auto minmax(0,1fr)">
       <div class="ph"><div><h3>Ava ki Duniya — Prototype Workshop</h3><small>Ava yahan khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Pasand aaye to code download karo.</small></div></div>
       <div class="vbody">
+        <section class="panel vars" style="grid-column:auto;grid-row:auto;height:240px;margin-bottom:14px;flex:none">
+        <div class="ph"><div><h3>Ava Variants</h3><small>Different moods. Clone dabao — Ava us mood ka naya variant banayegi, wo yahin neeche aa jaayega.</small></div></div>
+        <div class="vgrid" id="vgrid"></div>
+      </section>
         <div class="inrow"><input id="task2" type="text" maxlength="300" placeholder="(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi"><select id="tgt2" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj2"><svg class="ic"><use href="#i-code"/></svg>Pura project</button><button class="btn" id="bProto2"><svg class="ic"><use href="#i-flask"/></svg>Naya prototype</button></div>
         <div class="meta" id="msg2" style="min-height:17px;margin-bottom:10px"></div>
         <div id="pFail" style="margin:0 0 8px"></div>
@@ -415,6 +419,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
 <div id="modal"><div class="bar"><span id="mTitle">Preview</span><button class="btn g s" id="mClose">✖ Band</button></div><div id="mBody" style="flex:1;display:flex;min-height:0"></div></div>
 <div id="toast"></div>
 
+<script src="/api/ava/widget.js" defer></script>
 <script src="/api/sentinel/ava-desk/guard.js"></script>
 <script>
 (function () {
@@ -902,6 +907,7 @@ function closeModal() { $('#modal').classList.remove('on'); $('#mBody').innerHTM
 
 /* ------------------------------------------------------------ views */
 function openView(v) {
+  if (v === 'proj') v = 'project';   // alias used by the Ava chat brief cards
   S.view = v;
   $$('.view').forEach(function (el) { el.classList.remove('on'); });
   $(v === 'home' ? '#home' : '#v-' + v).classList.add('on');
@@ -955,7 +961,7 @@ function seed(w, h) {
   city = []; var x = -10; while (x < w + 10) { var bw = 14 + Math.random() * 30, bh = h * (.08 + Math.random() * .16); city.push({ x: x, w: bw, h: bh }); x += bw + 2 + Math.random() * 6; }
 }
 function drawHero(t) {
-  var cv = $('#heroCv'); if (!fit(cv)) return;
+  var cv = $('#heroCv'); if (!cv || !fit(cv)) return;   // the circle/orb canvas was replaced by the brain (iframe)
   var g = cv.getContext('2d'), w = cv.width / DPR, h = cv.height / DPR; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, w, h);
   if (hs !== w + 'x' + h) { hs = w + 'x' + h; seed(w, h); }
   var neb = g.createRadialGradient(w * .5, h * .46, 0, w * .5, h * .46, Math.max(w, h) * .65); neb.addColorStop(0, rgba(P().pal[0], .26)); neb.addColorStop(.6, rgba(P().pal[2], .08)); neb.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = neb; g.fillRect(0, 0, w, h);
@@ -1023,7 +1029,21 @@ $('#mClose').addEventListener('click', closeModal);
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 document.addEventListener('change', function (e) { var el = e.target; if (el && el.getAttribute && el.getAttribute('data-pfsel')) { var pj = S.focus && jOf(S.focus.id); if (pj) showFile(pj, el.value); } });
 window.addEventListener('resize', redraw);
-if (window.ResizeObserver) new ResizeObserver(redraw).observe($('#heroCv'));
+/* ---- Ava brain: the iframe is filled with Ava's real memories (Soch, Tark, Yaad, Dar, Bhavna, Drishti, Sapne) ---- */
+var brainFrame = $('#brainFrame'), brainReady = false;
+function sizeBrain() { /* brain fills the whole hero now; the command bar sits below */ }
+function pushBrain() {
+  if (!brainReady || !brainFrame.contentWindow) return;
+  jget(AVA + '/brain').then(function (d) { if (d && Array.isArray(d.items)) brainFrame.contentWindow.postMessage({ type: 'ava-brain-data', data: d }, location.origin); }).catch(function () { /* session / network: try again next round */ });
+}
+window.addEventListener('message', function (e) {
+  if (e.origin !== location.origin || e.source !== brainFrame.contentWindow || !e.data) return;
+  if (e.data.type === 'ava-brain-ready') { brainReady = true; sizeBrain(); pushBrain(); }
+});
+sizeBrain(); window.addEventListener('resize', sizeBrain);
+if (window.ResizeObserver && $('#cmdbox')) new ResizeObserver(sizeBrain).observe($('#cmdbox'));
+setInterval(function () { if (!document.hidden && S.view === 'home') pushBrain(); }, 30000);       // new memories -> new neurons
+setInterval(function () { if (brainReady && working() && brainFrame.contentWindow) brainFrame.contentWindow.postMessage({ type: 'ava-think' }, location.origin); }, 2500);   // signals fire while Ava works
 document.addEventListener('visibilitychange', function () { if (!document.hidden) loadAll(); });
 
 /* ------------------------------------------------------------ boot */
@@ -1073,6 +1093,7 @@ function renderProject() {
   if (S.view !== 'project') return;
   pjSide(j);
   var go = $('#pjGo'); if (go) go.disabled = !!working();
+  var ta = $('#pjBrief'), cn = $('#pjCnt'), ty = $('#pjKind'), tg = $('#pjTgt'); if (ta && cn) cn.textContent = ta.value.length + ' / 6000'; if (ty && tg) tg.style.display = ty.value === 'project' ? '' : 'none';
 }
 function pjAddMsg(role, text, cls) { S.pj.chat.push({ role: role, text: text, cls: cls }); var b = $('#pjMsgs'); if (!b) return; var d = document.createElement('div'); d.className = 'pjm ' + role + (cls ? ' ' + cls : ''); d.textContent = text; b.appendChild(d); b.scrollTop = b.scrollHeight; }
 function pjSend(q) {
@@ -1081,7 +1102,7 @@ function pjSend(q) {
   if (inp) inp.value = ''; var hist = S.pj.chat.filter(function (m) { return !m.cls; }).slice(-8).map(function (m) { return { role: m.role, text: m.text }; });
   pjAddMsg('you', text); S.pj.busy = true; $('#pjSend').disabled = true; var j = pjCur();
   var tmp = document.createElement('div'); tmp.className = 'pjm ava'; tmp.textContent = 'Ava soch rahi hai…'; $('#pjMsgs').appendChild(tmp);
-  jpost(ST + '/chat', { id: j && j.id, message: text, history: hist }).then(function (r) { tmp.remove(); if (!r.ok) pjAddMsg('ava', '❌ ' + (r.j.error || r.status), 'err'); else pjAddMsg('ava', r.j.reply || '…'); })
+  jpost(ST + '/chat', { id: j && j.id, message: text, history: hist, lang: window.AVA_LANG || 'hi' }).then(function (r) { tmp.remove(); if (!r.ok) pjAddMsg('ava', '❌ ' + (r.j.error || r.status), 'err'); else pjAddMsg('ava', r.j.reply || '…'); })
     .catch(function (e) { tmp.remove(); pjAddMsg('ava', '❌ ' + e.message, 'err'); }).then(function () { S.pj.busy = false; $('#pjSend').disabled = false; });
 }
 function pjMsg(t, cls) { var el = $('#pjMsg'); if (el) { el.textContent = t || ''; el.className = 'meta ' + (cls || ''); } }
@@ -1131,6 +1152,8 @@ function pjLaptop(id) {
 }
 (function pjInit() {
   var ta = $('#pjBrief'); ta.addEventListener('input', function () { $('#pjCnt').textContent = ta.value.length + ' / 6000'; });
+  function pjSync() { $('#pjCnt').textContent = ta.value.length + ' / 6000'; $('#pjTgt').style.display = $('#pjKind').value === 'project' ? '' : 'none'; }   // form may be filled by the Ava chat brief card (script sets .value, no events)
+  ta.addEventListener('focus', pjSync); setInterval(function () { if (S.view === 'project') pjSync(); }, 500);
   $('#pjGo').addEventListener('click', pjStart); $('#pjSend').addEventListener('click', function () { pjSend(); });
   $('#pjIn').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pjSend(); } });
   $('#pjPhoto').addEventListener('click', function () { $('#pjFile').accept = 'image/*'; $('#pjFile').click(); });
@@ -1213,6 +1236,307 @@ document.addEventListener('click', function (e) {
 (function poll() { setTimeout(function () { (document.hidden ? Promise.resolve() : loadAll()).then(poll, poll); }, working() ? 3000 : 15000); })();
 setInterval(redraw, 5000);
 requestAnimationFrame(loop);
+})();
+</script>
+<script>
+/* ---- Language: Hinglish (default) / English. Toggle in the top bar, remembered in this browser. ---- */
+(function () {
+'use strict';
+var KEY = 'avaDeskLang';
+function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { /* private mode: just no memory */ } return null; }
+var lang = ls(KEY) === 'en' ? 'en' : 'hi';
+window.AVA_LANG = lang;
+
+/* exact strings (whitespace-normalised) */
+var D = {
+  'Ava ki Duniya • Desktop': "Ava's World • Desktop",
+  'Ava ruki hui hai': 'Ava is idle',
+  'Ava ki Duniya': "Ava's World",
+  'Hey Pavan! Main yahin hoon.': "Hey Pavan! I'm right here.",
+  'Hey Pavan! Main yahin hoon 💙': "Hey Pavan! I'm right here 💙",
+  '“Hey Pavan! Main yahin hoon 💙”': "“Hey Pavan! I'm right here 💙”",
+  '🌙 Abhi Ava ki duniya khaali hai — pehla prototype banao!': "🌙 Ava's world is empty right now — make the first prototype!",
+  'Load ho raha hai…': 'Loading…',
+  'Ava ka project': "Ava's project",
+  'Koi project nahi': 'No project yet',
+  'Ava ki halat': "Ava's status",
+  'Abhi koi prototype nahi — neeche': 'No prototype yet — press',
+  'dabao, wo brain ke around aa jayega.': 'and it will appear around the brain.',
+  'Ava ka Code — live': "Ava's Code — live",
+  'Ava jo likhti hai, yahin dikhta hai': 'Whatever Ava writes shows up here',
+  'Ava ne abhi koi code nahi likha.': "Ava hasn't written any code yet.",
+  'Upgrade likho': 'Write an upgrade',
+  'ya 🧪': 'or press 🧪',
+  'dabao — uska code yahin live dikhega.': '— its code shows up here live.',
+  'Ava ke Upgrades': "Ava's Upgrades",
+  'Approve tumhare haath me': 'Approval is in your hands',
+  'Sab dekho': 'View all',
+  'Kaam do': 'Give a task',
+  'Pura project': 'Full project',
+  'APK banao': 'Build APK',
+  'Roko': 'Stop',
+  'Ava apna code khud padhti hai, upgrade likhti hai. Apply sirf tumhare Approve ke baad.': 'Ava reads her own code and writes upgrades. Applied only after your approval.',
+  'Ava abhi': 'Ava right now',
+  'Ava khud har': 'Ava on her own, every',
+  'ghante me upgrade likhe (proposal banta hai, tum Approve karte ho)': 'hours writes an upgrade (creates a proposal, you approve it)',
+  'Chhote': 'Let small',
+  'changes khud live ho jaayein': 'changes go live automatically',
+  'ghante me bina brief ke naya prototype banaye (gallery me, kahin apply nahi)': 'hours creates a new prototype without a brief (gallery only, never applied)',
+  'ghante me apni marzi ka best UI design banaye (3 design, khud judge, best rakhe — sirf gallery me)': 'hours designs a UI of her own choice (3 designs, judges them herself, keeps the best — gallery only)',
+  'ghante me naya project shuru kare (~30k lines, ek samay me ek hi job, sirf gallery me)': 'hours starts a new project (~30k lines, one job at a time, gallery only)',
+  'Surakshit files': 'Protected files',
+  'Ava ne khud ko kya upgrade kiya (history)': 'What Ava upgraded in herself (history)',
+  'Ava ki Duniya — Prototype Workshop': "Ava's World — Prototype Workshop",
+  'Ava yahan khud sochti, banati aur test karti hai — kabhi apply/deploy nahi hota. Pasand aaye to code download karo.': 'Ava thinks, builds and tests here on her own — nothing is ever applied or deployed. If you like one, download the code.',
+  'Different moods. Clone dabao — Ava us mood ka naya variant banayegi, wo yahin neeche aa jaayega.': 'Different moods. Press Clone — Ava will create a new variant of that mood and it will appear right below.',
+  'Naya prototype': 'New prototype',
+  'Naya project / app': 'New project / app',
+  'Project aur app ek hi cheez hai — poori detail likho, Ava pura code bana degi.': 'Project and app are the same thing — write the full details and Ava will build the whole code.',
+  'Kya banana hai?': 'What do you want to build?',
+  'App / Project (zip me code)': 'App / Project (code in a zip)',
+  'UI design (ek screen)': 'UI design (one screen)',
+  '⚡ Banao': '⚡ Build',
+  'Ava se chat': 'Chat with Ava',
+  'Pucho "kya bana rahi ho?" ya "ye bug kya hai?" — Ava sirf project dekh ke batati hai, kuch change nahi karti.': 'Ask "what are you building?" or "what is this bug?" — Ava only looks at the project and answers, she never changes anything.',
+  'Kya bana rahi ho?': 'What are you building?',
+  'Koi bug hai?': 'Any bugs?',
+  'Kitna ho gaya?': 'How much is done?',
+  'Bhejo': 'Send',
+  '✖ Band': '✖ Close',
+  'Ava jo project bana rahi hai — naam, features, chat': 'The project Ava is building — name, features, chat',
+  'Ava ka brain': "Ava's brain",
+  "Ava ko likho: 'APK banao ...', 'project banao ...', 'UI design ...', 'upgrade ...' — Ava khud samajh ke poora karegi": "Tell Ava: 'build an APK ...', 'make a project ...', 'UI design ...', 'upgrade ...' — Ava will understand and do it all",
+  'Project ka size (lines)': 'Project size (lines)',
+  'Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi': 'Give a zip (project) or a photo / screenshot — Ava will look at it and build exactly that',
+  "(optional) brief: jaise 'ek log-scanner security tool' ya 'chat screen' — khali chhodo to Ava khud sochegi": "(optional) brief: e.g. 'a log-scanner security tool' or 'chat screen' — leave it empty and Ava will decide herself",
+  'Poora project likho: naam, kya karega, features, kaun use karega, kaisa dikhna chahiye…': 'Describe the full project: name, what it does, features, who will use it, how it should look…',
+  'Kaisa app, kya features, kaisa dikhna chahiye (APK ke liye ~3000 akshar tak)…': 'What kind of app, which features, how it should look (up to ~3000 characters for an APK)…',
+  'Kaunsi screen, kaisa look, kya dikhna chahiye…': 'Which screen, what look, what it should show…',
+  'Ava se kuch pucho…': 'Ask Ava something…',
+  'Project ki details': 'Project details',
+  'Kya bana rahi ho abhi?': 'What are you building right now?',
+  'Is project me koi bug ya problem hai kya?': 'Are there any bugs or problems in this project?',
+  'Kitna kaam ho gaya aur kitna baaki hai?': 'How much work is done and how much is left?',
+  'Ava kaam kar rahi hai…': 'Ava is working…',
+  'Download ho gaya ✓': 'Downloaded ✓',
+  'Ek baar me 8 files tak.': 'Up to 8 files at a time.',
+  'Ava ne ye variant banaya — Details me poori jaankari dekho.': 'Ava made this variant — see Details for the full info.',
+  'Code dekho': 'View code',
+  'APK tayyar — download karo': 'APK ready — download it',
+  '(Ava ki apni soch)': "(Ava's own thought)",
+  'Ava apna code padh ke proposal bana rahi hai (30–60 sec)': 'Ava is reading her code and making a proposal (30–60 sec)',
+  '😴 Ava abhi kuch nahi kar rahi': '😴 Ava is doing nothing right now',
+  '(Ava Mind data abhi nahi)': '(No Ava Mind data yet)',
+  '(Gemini/Groq key set nahi)': '(Gemini/Groq key not set)',
+  '⏸ ruka hua': '⏸ stopped',
+  '⏳ ban raha hai': '⏳ building',
+  '⏳ Ban raha hai': '⏳ Building',
+  'Adhura': 'Incomplete',
+  'Ava apna code padh rahi hai aur upgrade likh rahi hai… (30–60 sec)': 'Ava is reading her code and writing an upgrade… (30–60 sec)',
+  'Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho.': "Pavan! Ava's World — an upgrade, UI or prototype, whatever you want written.",
+  'Pavan! Ava ki Duniya — upgrade, UI ya prototype, jo likhwana ho, neeche likho.': "Pavan! Ava's World — an upgrade, UI or prototype, whatever you want written — type it below.",
+  'Ava pura project plan karke file-by-file likh rahi hai… progress Code panel me live dikhega, background me chalta rahega.': 'Ava is planning the whole project and writing it file by file… progress shows live in the Code panel and keeps running in the background.',
+  'APK ke baare me thoda likho: kaisa app, kya features (kam se kam 8 akshar).': 'Write a little about the APK: what kind of app, which features (at least 8 characters).',
+  'APK ke baare me thoda likho: kaisa app, kya features.': 'Write a little about the APK: what kind of app, which features.',
+  '📱 Ava app likh rahi hai, phir APK build hogi (5–10 min) — progress yahin dikhega.': '📱 Ava is writing the app, then the APK will be built (5–10 min) — progress will show here.',
+  '📱 Samjha: APK banana hai': '📱 Got it: build an APK',
+  '🏗 Samjha: pura project banana hai': '🏗 Got it: build a full project',
+  '🎨 Samjha: UI design banana hai': '🎨 Got it: make a UI design',
+  '⚡ Samjha: apna upgrade likhna hai': '⚡ Got it: write my own upgrade',
+  '🧪 Samjha: prototype banana hai': '🧪 Got it: make a prototype',
+  'Ava naya prototype design kar rahi hai… (30–60 sec)': 'Ava is designing a new prototype… (30–60 sec)',
+  '🕓 Queue me hai — Ava likh rahi hai, ready hote hi circle me aayega.': '🕓 Queued — Ava is writing it and it will appear in the circle as soon as it is ready.',
+  '✅ Naya prototype circle me aa gaya.': '✅ The new prototype is in the circle.',
+  'Ye code file me likha jayega. Diff dekh liya? Approve?': 'This code will be written to the file. Have you checked the diff? Approve?',
+  'Is upgrade ko wapas undo karein?': 'Undo this upgrade?',
+  '↩ Rollback ho gaya (server restart par chalega)': '↩ Rolled back (takes effect on server restart)',
+  '✅ ho gaya': '✅ done',
+  '❌ save nahi hua': '❌ not saved',
+  '👁 Preview (sandbox — kuch bhi apply nahi hota)': '👁 Preview (sandbox — nothing is applied)',
+  'APK app me kya badalna hai?': 'What should change in the APK app?',
+  '✅ Clone ban gaya (list me upar)': '✅ Clone created (at the top of the list)',
+  'Ye APK build list se hata dein? (GitHub par jo ban chuka hai wo waisa hi rahega)': 'Remove this APK build from the list? (what is already built on GitHub stays as it is)',
+  'Ye abhi ban raha hai — rok ke hata dein?': 'This is being built right now — stop it and remove it?',
+  'Ye prototype gallery se hata dein?': 'Remove this prototype from the gallery?',
+  'Ava ki branch main me merge hogi aur Render naya code deploy karega. Diff dekh liya? Merge karein?': "Ava's branch will be merged into main and Render will deploy the new code. Have you checked the diff? Merge?",
+  '✅ Merge ho gaya — Render deploy shuru karega': '✅ Merged — Render will start deploying',
+  'Research ke baad features yahan aayenge…': 'Features will appear here after research…',
+  'Features ki list nahi bani.': 'No feature list was made.',
+  '▶ Wahin se shuru': '▶ Resume where it stopped',
+  '🔁 Naye sire se': '🔁 Start over',
+  'abhi koi upgrade pending nahi': 'no upgrade is pending right now',
+  'Pehle project ki detail likho (ya photo / zip do).': 'First write the project details (or give a photo / zip).',
+  'APK brief 3000 akshar tak jaata hai — baaki kaat diya.': 'The APK brief goes up to 3000 characters — the rest was cut.',
+  'Photo / zip padh rahi hai…': 'Reading the photo / zip…',
+  'Ava kaam shuru kar rahi hai…': 'Ava is starting work…',
+  '🎨 UI design shuru — side panel me live status dikhega.': '🎨 UI design started — live status will show in the side panel.',
+  '🏗 Project shuru — side panel me live status dikhega, background me chalta rahega.': '🏗 Project started — live status will show in the side panel and it keeps running in the background.',
+  'Demo image ban rahi hai…': 'Creating the demo image…',
+  '📸 Demo image — laptop par aisa dikhega': '📸 Demo image — this is how it will look on a laptop',
+  'PNG nahi ban payi — browser ne SVG nahi kholi': "Couldn't make the PNG — the browser couldn't open the SVG",
+  'Laptop preview khul raha hai…': 'Opening the laptop preview…',
+  '💻 Laptop preview (sandbox — kuch apply nahi hota)': '💻 Laptop preview (sandbox — nothing is applied)',
+  'Hi Pavan! Main Ava hoon. Pucho: "kya bana rahi ho?", "ye bug kya hai?" ya "kitna kaam baaki hai?".': 'Hi Pavan! I\'m Ava. Ask me: "what are you building?", "what is this bug?" or "how much work is left?".',
+  '(Ava ne description nahi likhi)': '(Ava did not write a description)',
+  '(Ava ne khud chuna)': '(Ava chose it herself)',
+  'Code load ho raha hai…': 'Loading code…',
+  'Is variant ka code ab store me nahi hai.': "This variant's code is no longer in the store.",
+  'Code load nahi hua.': 'Code did not load.',
+  '💻 Live panel me code dekho': '💻 View code in the live panel',
+  'Select karo': 'Select',
+  '✨ Is mood ka naya variant banao': '✨ Make a new variant of this mood',
+  'Same brief se naye sire se banayein? (Purana entry waisa hi rahega, quota ki AI calls lagengi.)': 'Build again from the same brief? (The old entry stays as it is and it uses AI quota calls.)',
+  '⏹ Roka ja raha hai… (checkpoint bacha rahega, "Wahin se shuru" se aage badhega)': '⏹ Stopping… (the checkpoint is kept; "Resume" continues from it)',
+  'Saari failed APK builds list se hata dein?': 'Remove all failed APK builds from the list?',
+  '2FA code (Authenticator ka 6-digit) daalo:': 'Enter the 2FA code (6-digit from Authenticator):',
+  'Kuch likho': 'Write something',
+  "Ava ka AI (Gemini ya Groq key) set nahi hai": "Ava's AI (Gemini or Groq key) is not set",
+  'Project nahi mila': 'Project not found',
+  'Abhi jawab nahi bana, dobara pucho.': 'No answer came out — please ask again.',
+  'Download shuru…': 'Starting download…',
+  'Koi line-diff nahi.': 'No line diff.',
+  '(code gaya — ye prototype ka code ab store me nahi hai)': "(code is gone — this prototype's code is no longer in the store)",
+  'Ava ka code load ho raha hai…': "Loading Ava's code…",
+  '⚠ Render reset: purana code wapas': '⚠ Render reset: the old code is back',
+  'Koi pending upgrade nahi.': 'No pending upgrade.',
+  'Kya badla:': 'What changed:',
+  'me nahi.': 'is not there.',
+  'Abhi tak Ava ne khud ko upgrade nahi kiya.': 'Ava has not upgraded herself yet.',
+  'Abhi koi project nahi hai': 'There is no project yet',
+  'Ye kya hai': 'What this is',
+  'Tumne kya bola tha': 'What you asked for',
+  'Kaisi hai': 'How it is',
+  'Wo kya bolti hai': 'What she says',
+  '(functions nahi mile)': '(no functions found)',
+  'APK ka kaam shuru!': 'APK job started!',
+  'APK build shuru': 'APK build started',
+  'Badlav shuru': 'Change started',
+  '📱 APK ka kaam shuru — 5–10 min, progress yahin dikhega.': '📱 APK job started — 5–10 min, progress will show here.',
+  'Left me project ki detail likho aur ⚡ Banao dabao — yahan uska naam, features aur live status dikhega.': 'On the left, write the project details and press ⚡ Build — its name, features and live status will show here.'
+};
+
+/* phrases inside longer, built-up strings (applied longest first) */
+var P = [
+  ['Ava upgrade likh rahi hai…', 'Ava is writing an upgrade…'],
+  ['Prototype queue me', 'Prototype in queue'],
+  ['AI quota ka wait', 'waiting for AI quota'],
+  ['AI ki quota / rate-limit khatam (Gemini ya Groq key ki limit)', 'AI quota / rate limit used up (Gemini or Groq key limit)'],
+  ['Wajah: AI ki quota khatam. Kuch der baad dobara "APK banao" dabao, ya Render me naya GEMINI_API_KEY / GROQ_API_KEY daalo.', 'Reason: AI quota is used up. Try "Build APK" again after a while, or add a new GEMINI_API_KEY / GROQ_API_KEY in Render.'],
+  ['… aur ', '… and '],
+  [' lines (poora file Code download me)', ' lines (full file in the Code download)'],
+  ['Ava ka final check', "Ava's final check"],
+  [' upgrade tumhare Approve ka intezaar kar raha hai', ' upgrade(s) waiting for your approval'],
+  ['Har upgrade tumhare Approve ke baad hi lagta hai.', 'Every upgrade is applied only after your approval.'],
+  ['Ava khud upgrade hoti rahe', 'Let Ava upgrade herself'],
+  ['GitHub me save', 'Save to GitHub'],
+  [' par wapas', ' — go back'],
+  ['Live code panel me', 'In the live code panel'],
+  ['Ava ki special branch:', "Ava's special branch:"],
+  [') — approve par upgrade yahin commit hota hai, ', ') — on approval the upgrade is committed here, '],
+  ['PR / diff dekho ↗', 'View PR / diff ↗'],
+  [' me merge (deploy)', ' — merge (deploy)'],
+  ['GitHub set nahi: Render env me', 'GitHub is not set: in the Render env set'],
+  ['(owner/repo) aur ', '(owner/repo) and '],
+  [' daalo, warna upgrade deploy par ud sakta hai', ' — otherwise the upgrade can vanish on a deploy'],
+  ['Wahin se shuru', 'Resume where it stopped'],
+  ['Naye sire se', 'Start over'],
+  ['likh rahi hai', 'is writing'],
+  ['ruki hui hai', 'is idle'],
+  ['File padh nahi paaye: ', 'Could not read file: '],
+  ['2FA/permission chahiye (', '2FA/permission needed ('],
+  ['Failed APK saaf karo (', 'Clear failed APKs ('],
+  ['MB se zyada nahi — chhoti zip/photo do.', 'MB at most — give a smaller zip/photo.'],
+  ['Ghante me ', 'Hourly limit: '],
+  [' chat messages ki limit', ' chat messages'],
+  ['Ava ka project', "Ava's project"],
+  ['Koi project nahi', 'No project yet'],
+  ['Playful aur friendly. Cute companion widget — pastel clouds aur soft bounce. Baat karne ka style halka-fulka, dost jaisa.', 'Playful and friendly. Cute companion widget — pastel clouds and a soft bounce. Light, friend-like way of talking.'],
+  ['Professional aur calm. Minimal, saaf assistant widget. Seedhi aur shant baat, kaam par focus.', 'Professional and calm. Minimal, clean assistant widget. Straight, quiet talk, focused on work.'],
+  ['Focused aur silent. Dark hacker-mode widget. Kam bolti hai aur command ka intezaar karti hai.', 'Focused and silent. Dark hacker-mode widget. Speaks little and waits for commands.'],
+  ['Strategic aur futuristic. Pro-mode widget jo insights deta hai. Aage ki planning par focus.', 'Strategic and futuristic. Pro-mode widget that gives insights. Focused on planning ahead.'],
+  [' · abhi Active ✓', ' · currently Active ✓']
+].sort(function (a, b) { return b[0].length - a[0].length; });
+
+var has = Object.prototype.hasOwnProperty;
+function tr(s) {
+  if (typeof s !== 'string' || !s) return s;
+  var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s), core = m[2].replace(/\s+/g, ' ');
+  if (!core) return s;
+  if (has.call(D, core)) return m[1] + D[core] + m[3];
+  var out = s, i;
+  for (i = 0; i < P.length; i++) { if (out.indexOf(P[i][0]) !== -1) out = out.split(P[i][0]).join(P[i][1]); }
+  return out.replace(/(🐞 bugs: \d+) mile · (\d+) theek/, '$1 found · $2 fixed');
+}
+window.avaTr = tr;
+
+/* ---- apply to the page ---- */
+var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, IFRAME: 1, CANVAS: 1, NOSCRIPT: 1 };
+var ATTRS = ['placeholder', 'title', 'aria-label', 'alt', 'data-pjq'];
+var TX = new WeakMap(), AT = new WeakMap();
+function skipEl(el) { return !el || SKIP[el.tagName] || (el.closest && el.closest('[data-noi18n],pre,code,svg')); }   // text: never touch code / user text areas
+function skipAttr(el) { return !el || (el.closest && el.closest('[data-noi18n]')); }
+function doText(n) {
+  var rec = TX.get(n);
+  if (rec && n.data === rec.t) return;
+  if (skipEl(n.parentElement)) return;
+  var o = n.data, t = tr(o);
+  if (t !== o) { TX.set(n, { o: o, t: t }); n.data = t; } else if (rec) TX.delete(n);
+}
+function doAttrs(el) {
+  if (skipAttr(el)) return;
+  var rec = AT.get(el) || {}, any = false;
+  ATTRS.forEach(function (a) {
+    if (!el.hasAttribute(a)) return;
+    var v = el.getAttribute(a), r = rec[a];
+    if (r && v === r.t) return;
+    var t = tr(v);
+    if (t !== v) { rec[a] = { o: v, t: t }; el.setAttribute(a, t); any = true; } else if (r) delete rec[a];
+  });
+  if (any) AT.set(el, rec);
+}
+function walk(root) {
+  if (root.nodeType === 3) { doText(root); return; }
+  if (root.nodeType !== 1) return;
+  doAttrs(root);
+  if (skipEl(root)) return;
+  for (var c = root.firstChild; c; c = c.nextSibling) walk(c);
+}
+function restore(root) {
+  if (root.nodeType === 3) { var r = TX.get(root); if (r && root.data === r.t) root.data = r.o; TX.delete(root); return; }
+  if (root.nodeType !== 1) return;
+  var ar = AT.get(root);
+  if (ar) { Object.keys(ar).forEach(function (a) { if (root.getAttribute(a) === ar[a].t) root.setAttribute(a, ar[a].o); }); AT.delete(root); }
+  for (var c = root.firstChild; c; c = c.nextSibling) restore(c);
+}
+
+var mo = new MutationObserver(function (ms) {
+  if (lang !== 'en') return;
+  mo.disconnect();                                   // our own writes must not re-trigger us
+  ms.forEach(function (m) {
+    if (m.type === 'characterData') doText(m.target);
+    else if (m.type === 'attributes') doAttrs(m.target);
+    else for (var i = 0; i < m.addedNodes.length; i++) walk(m.addedNodes[i]);
+  });
+  watch();
+});
+function watch() { mo.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS }); }
+
+/* native dialogs (confirm / prompt / alert) are built from the same Hinglish strings */
+['confirm', 'prompt', 'alert'].forEach(function (k) {
+  var f = window[k]; if (typeof f !== 'function') return;
+  window[k] = function () { var a = Array.prototype.slice.call(arguments); if (lang === 'en' && typeof a[0] === 'string') a[0] = tr(a[0]); return f.apply(window, a); };
+});
+
+var btn = document.getElementById('langBtn');
+function label() { if (btn) { btn.textContent = lang === 'en' ? '🌐 English' : '🌐 Hinglish'; btn.title = lang === 'en' ? 'Switch to Hinglish' : 'English me badlo'; btn.setAttribute('data-noi18n', '1'); } }
+function apply() {
+  window.AVA_LANG = lang; document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'hi'); label();
+  mo.disconnect();
+  if (lang === 'en') { walk(document.body); watch(); } else { restore(document.body); }
+}
+if (btn) btn.addEventListener('click', function () { lang = lang === 'en' ? 'hi' : 'en'; ls(KEY, lang); apply(); });
+label();
+if (lang === 'en') apply();
 })();
 </script>
 </body>
