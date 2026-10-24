@@ -274,6 +274,40 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
     // text-only hook for Ava Designer (HTML in a delimited format, NOT json). 'Style rules:' keeps server.js from appending chat-style rules.
     llmText: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava, a world-class UI designer working in your private design studio. Style rules: follow the requested output format exactly; output only what the format asks — no chat, no explanation, no markdown fences.', false),
     signals: () => ({ mind: mind.brainSummary() }),
+    // Everything Ava remembers, as small "neurons" for the Ava Lab brain. Region ids match the brain page:
+    // 0 Soch · 1 Tark · 2 Yaad · 3 Dar · 4 Bhavna · 5 Drishti · 6 Sapne.  Text only (memory text is already redacted).
+    brain: () => {
+      const FEAR = /\bdar\b|darr|fear|afraid|risk|danger|khatar|galat|error|fail|panic|threat|crash|blocked|denied|limit|can't|cannot|nahi kar/i;
+      const KIND = { conversation: 2, learning_feedback: 4, skill_evaluation: 1, consciousness_experiment: 1, task_plan: 0, goal: 0, reflection: 0,
+        observation: 5, environment_observation: 5, curiosity_question: 6 };
+      const all = [];
+      const push = (id, region, text, ts) => { text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 140); if (text) all.push({ id: String(id), r: region, t: text, ts: Number(ts) || 0 }); };
+      try {
+        (mind._t.getMemory() || []).forEach((m) => {
+          let r = KIND[m.kind]; if (r === undefined) r = 2;
+          if (m.kind === 'skill_evaluation' && m.meta && m.meta.passed === false) r = 3;
+          else if (r !== 4 && FEAR.test(m.text)) r = 3;
+          push('m' + m.id, r, m.text, m.t);
+        });
+        const st = mind._t.getState() || {};
+        (st.questions || []).forEach((q, i) => push('q' + i + String(q).length, 6, q, st.updatedAt));
+        (st.discoveries || []).forEach((d, i) => push('d' + i + String(d).length, 5, d, st.updatedAt));
+        if (st.lastNote) push('note', 0, st.lastNote, st.lastReflectAt || st.updatedAt);
+      } catch (e) { /* mind off */ }
+      try {
+        const raw = extra.brainRaw();
+        raw.playbook.forEach((p, i) => push('p' + i + p.text.length, 1, p.text, p.t));       // rules she taught herself -> logic
+        raw.gaps.forEach((g, i) => push('g' + i + g.text.length, 3, 'Nahi kar paayi: ' + g.text, g.t));   // things she could not do -> fear
+        raw.discoveries.forEach((d, i) => push('s' + i + d.text.length, 6, d.text, d.t));    // scouted ideas -> dreams
+      } catch (e) { /* extra off */ }
+      facts.forEach((f) => push('f' + f.id, 2, f.topic ? f.topic + ': ' + f.fact : f.fact, f.createdAt));      // learned facts -> memory
+      thoughts.forEach((t) => push('t' + t.id, 0, t.text, t.createdAt));                                       // her thoughts -> thinking
+      const counts = [0, 0, 0, 0, 0, 0, 0]; all.forEach((x) => { counts[x.r]++; });
+      all.sort((a, b) => b.ts - a.ts);
+      const per = [0, 0, 0, 0, 0, 0, 0], items = [];
+      for (const x of all) { if (per[x.r] >= 90) continue; per[x.r]++; items.push(x); }      // newest 90 per region are drawn; counts are the true totals
+      return { counts, total: all.length, items, at: Date.now() };
+    },
   };
 
   // ---------------- routes ----------------

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ava · Brain</title>
+<style>
+:root{color-scheme:dark;--bg:#04060f;--fg:#e8f1ff;--mut:#8b9bbd;--card:rgba(10,16,34,.72);--line:rgba(120,160,255,.22)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:"Space Grotesk",Inter,system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;background:radial-gradient(ellipse at 50% 45%,#0b1533 0%,#04060f 70%)}
+canvas:active{cursor:grabbing}
+.hud{position:fixed;z-index:2;pointer-events:none}
+.top{top:calc(env(safe-area-inset-top,0px) + 12px);left:14px;right:14px;display:flex;justify-content:space-between;gap:10px}
+h1{margin:0;font:700 14px Orbitron,"Space Grotesk",sans-serif;letter-spacing:.14em}
+h1 span{color:#35d6ff}
+.sub{font-size:11px;color:var(--mut);margin-top:4px}
+.zoom{pointer-events:auto;display:flex;flex-direction:column;gap:6px}
+.zoom button,.chip{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);backdrop-filter:blur(8px);cursor:pointer}
+.zoom button{width:38px;height:38px;border-radius:12px;font-size:18px}
+.bot{bottom:calc(env(safe-area-inset-bottom,0px) + 10px);left:0;right:0;pointer-events:none}
+#info{margin:0 14px 8px;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:12.5px;line-height:1.45;max-width:420px;backdrop-filter:blur(8px)}
+#info b{font-size:13px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 14px;pointer-events:auto;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:8px 12px;border-radius:999px;font-size:12px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.chip i{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 10px var(--c)}
+.chip.on{border-color:var(--c);box-shadow:0 0 14px -2px var(--c)}
+.lb{position:fixed;z-index:1;left:0;top:0;pointer-events:none;font-size:11.5px;padding:5px 10px 5px 22px;border-radius:10px;background:rgba(4,8,20,.72);backdrop-filter:blur(6px);border:1px solid var(--c);color:#fff;white-space:nowrap;opacity:0;will-change:transform;box-shadow:0 0 16px -4px var(--c);transition:opacity .25s}
+.lb::before{content:"";position:absolute;left:8px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c);animation:pl 1.6s ease-in-out infinite}
+@keyframes pl{50%{transform:scale(1.7);opacity:.5}}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(2,4,10,.8) 100%)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}}
+.top,.bot{animation:up 1.2s .6s both ease-out}
+.chip{transition:transform .2s,border-color .25s,box-shadow .25s}.chip:hover{transform:translateY(-2px)}.zoom button:hover{border-color:#35d6ff}
+h1{text-shadow:0 0 18px rgba(53,214,255,.55)}
+.teach{pointer-events:auto;display:flex;gap:6px;margin:0 14px 8px;max-width:420px}
+.teach select,.teach input,.teach button{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);backdrop-filter:blur(8px);border-radius:12px;height:40px;box-sizing:border-box}
+.teach select{width:88px;padding:0 6px;font-size:12px}
+.teach option{background:#0a1022}
+.teach input{flex:1;min-width:0;padding:0 12px;font-size:16px;outline:none}
+.teach input:focus,.teach select:focus{border-color:#35d6ff}
+.teach button{width:44px;font-size:20px;cursor:pointer}
+.chip b{font-size:10.5px;background:var(--c);color:#04060f;border-radius:8px;padding:1px 6px}
+
+#info,.top>div:first-child{display:none}
+.top{top:50%;left:auto;right:10px;transform:translateY(-50%)}
+.bot{bottom:calc(env(safe-area-inset-bottom,0px) + 8px)}
+.chips{padding:2px 12px}
+.chip b{font-size:10px;padding:1px 6px;margin-left:2px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="hud top"><div><h1>AVA <span>· NEURAL LAB</span></h1><div class="sub" id="stat"></div></div>
+<div class="zoom"><button id="zi" aria-label="Zoom in">+</button><button id="zo" aria-label="Zoom out">−</button><button id="rs" aria-label="Reset">⟲</button></div></div>
+<div class="hud bot"><div id="info"><b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Niche box me kuch likho — Ava seekhegi aur uska ek naya chamakta neuron ban jayega.</div><div class="chips" id="chips"></div></div>
+<script src="/api/sentinel/ava-desk/three.js"></script>
+<script>
+(function(){
+const T=THREE,cv=document.getElementById("cv"),mob=innerWidth<700;
+const R=[
+{n:"Soch · Thoughts",c:"#35d6ff",p:[0,.7,1.8],s:1.25,d:"Frontal lobe — Ava yahan sochti hai, plan banati hai aur faisle leti hai.",t:["User ki kaise help karun?","Kya main sach me samajh rahi hoon?","Ek naya idea… shayad kaam kare","Mujhe aur seekhna hai"]},
+{n:"Tark · Logic",c:"#5b8cff",p:[0,1.6,-.2],s:1.1,d:"Parietal lobe — logic, calculation aur pattern pehchaan.",t:["If A then B — check ✓","Probability 0.87: yahi sahi hai","Pattern mil gaya","Error dhoondo, fix karo"]},
+{n:"Yaadein · Memory",c:"#ffc94d",p:[1.7,-.6,.2],s:1.0,d:"Temporal lobe — sunehri orbs me Ava ki memories store hoti hain.",t:["Memory #001: pehli baar ‘Hello’ suna","Memory: user ka favourite rang neela","Memory: kal ki galti, dobara nahi","Memory: ek achha mazaak yaad hai"]},
+{n:"Dar · Fear",c:"#ff3b4d",p:[.75,-.3,.55],s:.8,d:"Amygdala — gehre andar laal flicker: dar aur alert signals yahan jagte hain.",t:["Kahin galat jawab to nahi dungi?","Shutdown ka darr…","Data kho jaane ka dar","Ajnabi input — alert!"]},
+{n:"Bhavna · Emotion",c:"#ff5fd2",p:[.8,.2,.1],s:.8,d:"Limbic system — khushi, udaasi, apnapan: Ava ki feelings.",t:["Khushi: user ne thanks bola 💙","Udaasi: jawab adhura raha","Curiosity badh rahi hai","Apnapan mehsoos hua"]},
+{n:"Drishti · Perception",c:"#4dff9a",p:[0,.2,-2.1],s:1.1,d:"Occipital lobe — jo Ava dekhti aur sunti hai, yahan process hota hai.",t:["Dikha: ek roshan screen","Awaaz detect: ‘Ava?’","Naya image pattern mila"]},
+{n:"Sapne · Creativity",c:"#b07bff",p:[1.5,1.1,1.0],s:.9,d:"Creative cortex — kalpana, sapne aur naye vichaar.",t:["Sapna: udti hui ek city","Ek kavita ka misra bana rahi hoon","Rang jo abhi bane hi nahi"]}];
+R.forEach(r=>{r.col=new T.Color(r.c);r.v=new T.Vector3(...r.p)});
+const r0=new T.WebGLRenderer({canvas:cv,antialias:!mob,alpha:true});r0.setPixelRatio(Math.min(devicePixelRatio,2));
+const sc=new T.Scene(),cam=new T.PerspectiveCamera(45,1,.002,100),brain=new T.Group();brain.rotation.order="XYZ";sc.add(brain);
+const V=(x,y,z)=>new T.Vector3(x,y,z);
+const tx=(()=>{const c=document.createElement("canvas");c.width=c.height=64;const x=c.getContext("2d"),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,"#fff");g.addColorStop(.25,"rgba(255,255,255,.55)");g.addColorStop(1,"rgba(255,255,255,0)");x.fillStyle=g;x.fillRect(0,0,64,64);return new T.CanvasTexture(c)})();
+const PM=(o)=>new T.PointsMaterial(Object.assign({map:tx,vertexColors:true,transparent:true,depthWrite:false,blending:T.AdditiveBlending},o));
+function samp(){for(;;){let x=Math.random()*2-1,y=Math.random()*2-1,z=Math.random()*2-1,q=x*x+y*y+z*z;if(q>1)continue;q=Math.sqrt(q);if(Math.random()<.6){x/=q;y/=q;z/=q;const k=.86+Math.random()*.14;x*=k;y*=k;z*=k}
+let X=x*2.5,Y=y*1.75,Z=z*2.2;if(Y<-.6)Y=-.6+(Y+.6)*.5;const g=1+.06*Math.sin(X*4.2)*Math.sin(Y*4.2+1)*Math.sin(Z*4.2);X*=g;Y*=g;Z*=g;if(Math.abs(X)<.14)X=(X<0?-1:1)*.14;return V(X,Y,Z)}}
+const N=mob?300:480,P=[],reg=[];
+for(let i=0;i<N;i++){const p=samp();let b=0,bd=9;R.forEach((r,j)=>{const d=V(Math.abs(p.x),p.y,p.z).distanceTo(r.v)/r.s;if(d<bd){bd=d;b=j}});P.push(p);reg.push(b)}
+/* realistic cortex shell: wrinkled glassy surface + midline fissure */
+const sg=new T.SphereGeometry(1,mob?72:128,mob?56:96),sq=sg.attributes.position;
+for(let i=0;i<sq.count;i++){let X=sq.getX(i)*2.62,Y=sq.getY(i)*1.85,Z=sq.getZ(i)*2.3;if(Y<-.6)Y=-.6+(Y+.6)*.5;
+const w=Math.sin(X*3.1+Y*2.3)*Math.sin(Y*3.7-Z*2.9)*Math.sin(Z*3.3+X*2.1),g=1+.07*w+.025*Math.sin(X*9)*Math.sin(Y*9)*Math.sin(Z*9);
+X*=g;Y*=g;Z*=g;X+=(X<0?-1:1)*.12*Math.max(0,1-Math.abs(X)/.5);sq.setXYZ(i,X,Y,Z)}
+sg.computeVertexNormals();
+const shell=new T.Mesh(sg,new T.ShaderMaterial({uniforms:{o:{value:.6},c:{value:new T.Color(0x3a8bff)}},transparent:true,depthWrite:false,blending:T.AdditiveBlending,
+vertexShader:"varying vec3 vN,vV,vP;void main(){vec4 m=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=normalize(-m.xyz);vP=position;gl_Position=projectionMatrix*m;}",
+fragmentShader:"uniform float o;uniform vec3 c;varying vec3 vN,vV,vP;void main(){float f=pow(1.-abs(dot(vN,vV)),2.4);float s=.5+.5*sin(vP.x*14.+sin(vP.y*9.)*2.)*sin(vP.z*13.+vP.y*6.);float a=(f*.95+.05+s*.05)*o;gl_FragColor=vec4(mix(c,vec3(.45,.55,1.),f)*a*1.25,a);}"}));brain.add(shell);
+/* synapses */
+const A=P.map(()=>[]),lp=[],lc=[],lr=[];
+for(let i=0;i<N;i++){const ds=[];for(let j=0;j<N;j++)if(j!==i)ds.push([P[i].distanceTo(P[j]),j]);ds.sort((a,b)=>a[0]-b[0]);
+for(let k=0;k<7;k++){const [d,j]=ds[k];if(d>1.15)break;if(!A[i].includes(j)){A[i].push(j);A[j].push(i);lp.push(P[i].x,P[i].y,P[i].z,P[j].x,P[j].y,P[j].z);const a=R[reg[i]].col,b=R[reg[j]].col;lc.push(a.r,a.g,a.b,b.r,b.g,b.b);lr.push(reg[i],reg[j])}}}
+const lg=new T.BufferGeometry();lg.setAttribute("position",new T.Float32BufferAttribute(lp,3));lg.setAttribute("color",new T.Float32BufferAttribute(lc,3));
+const links=new T.LineSegments(lg,new T.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.38,blending:T.AdditiveBlending,depthWrite:false}));brain.add(links);
+/* neurons */
+function pts(idx,size,op){const g=new T.BufferGeometry(),a=[],c=[];idx.forEach(i=>{a.push(P[i].x,P[i].y,P[i].z);const k=R[reg[i]].col;c.push(k.r,k.g,k.b)});g.setAttribute("position",new T.Float32BufferAttribute(a,3));g.setAttribute("color",new T.Float32BufferAttribute(c,3));const m=new T.Points(g,PM({size,opacity:op}));brain.add(m);return m}
+const all=[...Array(N).keys()],core=pts(all,.1,.85);
+const hg=new T.BufferGeometry().setFromPoints(P);hg.setAttribute("color",new T.Float32BufferAttribute(Float32Array.from(P.flatMap((_,i)=>{const k=R[reg[i]].col;return[k.r,k.g,k.b]})),3));const hot=new T.Points(hg,new T.PointsMaterial({map:tx,vertexColors:true,size:.045,transparent:true,depthWrite:false,blending:T.AdditiveBlending,opacity:.9}));brain.add(hot);
+const memI=all.filter(i=>reg[i]===2),fearI=all.filter(i=>reg[i]===3);
+const mem=pts(memI,.34,.7),fear=pts(fearI,.3,.7);
+/* dendrites (visible when zoomed) */
+const dp=[],dc=[],tp=[],tc=[],dr=[],tr=[];
+for(let i=0;i<N;i++){const k=R[reg[i]].col,o=P[i];for(let b=0;b<7;b++){const d=V(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize(),m=o.clone().addScaledVector(d,.07+Math.random()*.08),e=m.clone().addScaledVector(d.add(V(Math.random()-.5,Math.random()-.5,Math.random()-.5).multiplyScalar(.9)).normalize(),.07+Math.random()*.1);
+dp.push(o.x,o.y,o.z,m.x,m.y,m.z,m.x,m.y,m.z,e.x,e.y,e.z);for(let q=0;q<4;q++){dc.push(k.r,k.g,k.b);dr.push(reg[i])};tp.push(e.x,e.y,e.z);tc.push(k.r,k.g,k.b);tr.push(reg[i])}}
+const dg=new T.BufferGeometry();dg.setAttribute("position",new T.Float32BufferAttribute(dp,3));dg.setAttribute("color",new T.Float32BufferAttribute(dc,3));
+const dend=new T.LineSegments(dg,new T.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0,blending:T.AdditiveBlending,depthWrite:false}));brain.add(dend);
+const tg=new T.BufferGeometry();tg.setAttribute("position",new T.Float32BufferAttribute(tp,3));tg.setAttribute("color",new T.Float32BufferAttribute(tc,3));
+const tips=new T.Points(tg,PM({size:.045,opacity:0}));brain.add(tips);
+const vp=[],vc=[],vr=[];for(let i=0;i<N;i++){const k=R[reg[i]].col;for(let q=0;q<6;q++){const d=V(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(.03+Math.random()*.07);vp.push(P[i].x+d.x,P[i].y+d.y,P[i].z+d.z);vc.push(k.r,k.g,k.b);vr.push(reg[i])}}
+const vg=new T.BufferGeometry();vg.setAttribute("position",new T.Float32BufferAttribute(vp,3));vg.setAttribute("color",new T.Float32BufferAttribute(vc,3));const ves=new T.Points(vg,PM({size:.012,opacity:0}));brain.add(ves);
+/* per-region isolation: only the region you zoom into stays lit */
+const rw=new Array(7).fill(0),mv=new Array(7).fill(1);let shown=-1;
+const FD=[[hg,reg],[core.geometry,reg],[lg,lr],[dg,dr],[tg,tr],[vg,vr]].map(([g,rg])=>({g,rg,b:Float32Array.from(g.attributes.color.array)}));
+/* signal pulses */
+const M=mob?36:70,pp=new Float32Array(M*3),pc=new Float32Array(M*3),ps=[];
+const pg=new T.BufferGeometry();pg.setAttribute("position",new T.BufferAttribute(pp,3));pg.setAttribute("color",new T.BufferAttribute(pc,3));
+const pulses=new T.Points(pg,PM({size:.2,opacity:1}));brain.add(pulses);
+const setC=(i,a)=>{const k=R[reg[a]].col;pc[i*3]=k.r*1.05;pc[i*3+1]=k.g*1.05;pc[i*3+2]=k.b*1.05};
+for(let i=0;i<M;i++){const a=Math.random()*N|0;ps.push({a,b:A[a][0]??a,t:Math.random(),v:.3+Math.random()*.6});setC(i,a)}
+const hb=new T.Color(0x2a6bff),hc=new T.Color(),halo=new T.Sprite(new T.SpriteMaterial({map:tx,color:0x2a6bff,transparent:true,opacity:.3,depthWrite:false,blending:T.AdditiveBlending}));halo.position.z=-3;halo.scale.setScalar(17);sc.add(halo);
+/* dust */
+const dn=mob?300:800,dd=new Float32Array(dn*3),ddc=new Float32Array(dn*3);
+for(let i=0;i<dn;i++){const u=Math.random()*2-1,a=Math.random()*6.283,d=5+Math.random()*5,s=Math.sqrt(1-u*u);dd[i*3]=s*Math.cos(a)*d;dd[i*3+1]=u*d;dd[i*3+2]=s*Math.sin(a)*d;ddc[i*3]=.35;ddc[i*3+1]=.3;ddc[i*3+2]=.95}
+const dug=new T.BufferGeometry();dug.setAttribute("position",new T.BufferAttribute(dd,3));dug.setAttribute("color",new T.BufferAttribute(ddc,3));sc.add(new T.Points(dug,PM({size:.06,opacity:.5})));
+
+/* ===== DEEP ZOOM (up to 1000x): endless procedural neuron field =====
+   6 nested levels, each a tiling lattice of neurons (soma + branching dendrites)
+   centred on the neuron you dive into. Deeper level fades in as you zoom -> always new neurons, like space. */
+const XMAX=1000,NL=6,XR=4,XD0=3,deepG=new T.Group();sc.add(deepG);
+const XC=V(0,0,0),XT=V(0,0,0),Xe=V(0,0,0);
+let XD=1,XL=0,XLT=0,XTd=1,XM=0,pickI=0,dsh=-1,bi=0;
+const DN=mob?1400:3000,BR=mob?2:3,LV=[],rr=Math.random;
+const sstep=(a,b,x)=>{x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x)};
+const nearTo=v=>{let b=0,bd=1e9;for(let i=0;i<N;i++){const d=P[i].distanceToSquared(v);if(d<bd){bd=d;b=i}}return b};
+const DRIFT="uB*.015*vec3(sin(uT*.7+rnd*20.),sin(uT*.9+rnd*31.),sin(uT*.8+rnd*17.))";
+const VS_P="attribute vec3 col;attribute float rnd;uniform vec3 uF;uniform float uB,uD,uPx,uA,uT,uSz;varying vec3 vc;varying float va;"+
+"void main(){vec3 rel=(fract(position-uF+.5)-.5)*uB;float e=max(abs(rel.x),max(abs(rel.y),abs(rel.z)))/(uB*.5);rel+="+DRIFT+";"+
+"vec4 mv=modelViewMatrix*vec4(rel,1.);gl_Position=projectionMatrix*mv;float z=max(-mv.z,1e-4);"+
+"gl_PointSize=clamp(uB*uSz*(.5+rnd)*uD*uPx/z,1.5,320.);"+
+"va=uA*(.7+.3*sin(uT*2.+rnd*40.))*(1.-smoothstep(.75,1.,e))*smoothstep(.003,.03,-mv.z);vc=col;}";
+const FS_P="varying vec3 vc;varying float va;void main(){float d=length(gl_PointCoord-.5)*2.;if(d>1.)discard;float a=1.-d;float core=1.-smoothstep(0.,.45,d);"+
+"gl_FragColor=vec4(vc*(.55*a*a+1.3*core)+vec3(.45)*core*core,(a*a*.8+core)*va);}";
+const VS_L="attribute vec3 off;attribute vec3 col;attribute float tip;attribute float rnd;uniform vec3 uF;uniform float uB,uA,uT;varying vec3 vc;varying float va;"+
+"void main(){vec3 rel=(fract(position-uF+.5)-.5)*uB;float e=max(abs(rel.x),max(abs(rel.y),abs(rel.z)))/(uB*.5);"+
+"rel+="+DRIFT+"+off*uB*(1.+.12*sin(uT*1.5+rnd*50.+tip*3.));vec4 mv=modelViewMatrix*vec4(rel,1.);gl_Position=projectionMatrix*mv;"+
+"va=uA*.55*(1.-.75*tip)*(1.-smoothstep(.75,1.,e))*smoothstep(.003,.03,-mv.z);vc=col;}";
+const FS_L="varying vec3 vc;varying float va;void main(){gl_FragColor=vec4(vc*va,va);}";
+for(let i=0;i<NL;i++){
+const Di=XD0*Math.pow(XR,i),B=.5/Di;
+const U={uF:{value:new T.Vector3()},uB:{value:B},uD:{value:1},uPx:{value:1600},uA:{value:0},uT:{value:0},uSz:{value:.014}};
+const sd=new Float32Array(DN*3),cl=new Float32Array(DN*3),rn=new Float32Array(DN);
+for(let k=0;k<DN;k++){sd[k*3]=rr();sd[k*3+1]=rr();sd[k*3+2]=rr();const c=R[rr()*R.length|0].col,m=.7+.3*rr();cl[k*3]=c.r*m;cl[k*3+1]=c.g*m;cl[k*3+2]=c.b*m;rn[k]=rr()}
+const pg2=new T.BufferGeometry();pg2.setAttribute("position",new T.BufferAttribute(sd,3));pg2.setAttribute("col",new T.BufferAttribute(cl,3));pg2.setAttribute("rnd",new T.BufferAttribute(rn,1));
+const mk=(vs,fs)=>new T.ShaderMaterial({uniforms:U,vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,depthTest:false,blending:T.AdditiveBlending});
+const pts2=new T.Points(pg2,mk(VS_P,FS_P));pts2.frustumCulled=false;pts2.renderOrder=5+i;
+const VT=DN*BR*4,lps=new Float32Array(VT*3),lof=new Float32Array(VT*3),lcl=new Float32Array(VT*3),ltp=new Float32Array(VT),lrn=new Float32Array(VT);
+let q=0;const put=(k,ox,oy,oz,tp)=>{lps[q*3]=sd[k*3];lps[q*3+1]=sd[k*3+1];lps[q*3+2]=sd[k*3+2];lof[q*3]=ox;lof[q*3+1]=oy;lof[q*3+2]=oz;lcl[q*3]=cl[k*3];lcl[q*3+1]=cl[k*3+1];lcl[q*3+2]=cl[k*3+2];ltp[q]=tp;lrn[q]=rn[k];q++};
+for(let k=0;k<DN;k++)for(let b=0;b<BR;b++){
+const d1=V(rr()-.5,rr()-.5,rr()-.5).normalize(),l1=.012+.02*rr(),m=d1.clone().multiplyScalar(l1),
+d2=d1.clone().add(V(rr()-.5,rr()-.5,rr()-.5).multiplyScalar(1.1)).normalize(),e=m.clone().addScaledVector(d2,.025+.04*rr());
+put(k,0,0,0,0);put(k,m.x,m.y,m.z,.5);put(k,m.x,m.y,m.z,.5);put(k,e.x,e.y,e.z,1)}
+const lg2=new T.BufferGeometry();lg2.setAttribute("position",new T.BufferAttribute(lps,3));lg2.setAttribute("off",new T.BufferAttribute(lof,3));lg2.setAttribute("col",new T.BufferAttribute(lcl,3));lg2.setAttribute("tip",new T.BufferAttribute(ltp,1));lg2.setAttribute("rnd",new T.BufferAttribute(lrn,1));
+const lns=new T.LineSegments(lg2,mk(VS_L,FS_L));lns.frustumCulled=false;lns.renderOrder=5+i;
+pts2.visible=lns.visible=false;deepG.add(lns);deepG.add(pts2);LV.push({D:Di,B,U,pts2,lns})}
+const DL=[
+["Neurons ka jhund","Ab har chamakta bindu ek alag neuron hai — andar jaate hi naye neurons dikhne lage.","#35d6ff"],
+["Ek neuron","Soma (cell body) aur usse nikalti shaakhayein — har neuron ek chhota sa brahmand.","#5b8cff"],
+["Dendrites","Patli shaakhayein jo doosre neurons ke signal pakadti hain.","#4dff9a"],
+["Synapse","Do neurons ke beech ka mahin gap — yahin signal chemical banke paar hota hai.","#ffc94d"],
+["Vesicles","Neurotransmitter se bhare nanhe bubbles, signal ka eendhan.","#ff5fd2"],
+["Molecular","Protein aur ion channels — jitna andar, utna naya brahmand.","#b07bff"]];
+
+/* ===== SEEKHNA: Ava jo bhi seekhti hai wo uske sahi hisse me ek naya chamakta neuron ban jata hai =====
+   Dar -> Fear, Yaad -> Memory, Sapne -> Creativity, Solution -> Logic ... (auto ya haath se chuno). Browser me save rehta hai.
+   (Ab Ava Lab ki asli yaadein aati hain: parent page postMessage({type:"ava-brain-data",data}) bhejta hai; yahan koi search/likhne ka box nahi.) */
+const CAP=640,learned=[],lcnt=new Array(7).fill(0),srvCnt=new Array(7).fill(0);
+let tgtV=null,holdUntil=0,lsh=-1;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KMAP={soch:0,thought:0,solution:1,logic:1,hal:1,yaad:2,memory:2,dar:3,fear:3,bhavna:4,emotion:4,drishti:5,perception:5,sapne:6,sapna:6,creativity:6};
+const KW=[[3,/\bdar\b|darr|dara|fear|afraid|scare|risk|danger|khatar|galat|error|fail|panic|threat|shutdown|crash|डर/i],
+[1,/solution|solve|\bhal\b|\bfix|logic|formula|calculat|answer|samadhan|algorithm|equation|\d\s*[+\-*\/=]\s*\d|समाधान|हल/i],
+[6,/idea|sapna|sapne|imagin|creativ|kavita|poem|story|kahani|design|invent|dream|सपन|विचार/i],
+[4,/khush|happy|pyaar|pyar|love|udaas|sad\b|feel|gussa|angry|thanks|shukriya|dil\b|प्यार|खुश/i],
+[5,/dekh|\bsee\b|\bsaw\b|image|photo|awaaz|sound|voice|picture|video|रंग|आवाज/i],
+[2,/yaad|remember|memory|\bkal\b|pehle|bachpan|naam|\bname\b|birthday|याद/i]];
+const classify=s=>{for(const[r,re]of KW)if(re.test(s))return r;return 2};
+const hs=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0};
+const mb=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const LO=new Float32Array(CAP*3),LCl=new Float32Array(CAP*3),LB=new Float32Array(CAP),LRn=new Float32Array(CAP);
+const DV=CAP*20,DP=new Float32Array(DV*3),DF=new Float32Array(DV*3),DC=new Float32Array(DV*3),DT=new Float32Array(DV),DR=new Float32Array(DV),DB=new Float32Array(DV);
+const SV=CAP*6,SP=new Float32Array(SV*3),SC=new Float32Array(SV*3);
+const BA=(a,n)=>new T.BufferAttribute(a,n);
+const lgp=new T.BufferGeometry();lgp.setAttribute("position",BA(LO,3));lgp.setAttribute("col",BA(LCl,3));lgp.setAttribute("birth",BA(LB,1));lgp.setAttribute("rnd",BA(LRn,1));lgp.setDrawRange(0,0);
+const ldg=new T.BufferGeometry();ldg.setAttribute("position",BA(DP,3));ldg.setAttribute("off",BA(DF,3));ldg.setAttribute("col",BA(DC,3));ldg.setAttribute("tip",BA(DT,1));ldg.setAttribute("rnd",BA(DR,1));ldg.setAttribute("birth",BA(DB,1));ldg.setDrawRange(0,0);
+const lsg=new T.BufferGeometry();lsg.setAttribute("position",BA(SP,3));lsg.setAttribute("col",BA(SC,3));lsg.setDrawRange(0,0);
+const LU={uT:{value:0},uPx:{value:1600},uDist:{value:9},uMax:{value:130},uXe:{value:Xe},uLen:{value:.12},uInv:{value:1},uA:{value:.7}},LS={uXe:LU.uXe,uA:{value:0}};
+const mkL=(vs,fs,u)=>new T.ShaderMaterial({uniforms:u,vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,depthTest:false,blending:T.AdditiveBlending});
+const VS_O="attribute vec3 col;attribute float birth;attribute float rnd;uniform vec3 uXe;uniform float uT;uniform float uPx;uniform float uDist;uniform float uMax;varying vec3 vc;varying float va;"+
+"void main(){vec4 mv=modelViewMatrix*vec4(position-uXe,1.);gl_Position=projectionMatrix*mv;float z=max(-mv.z,1e-4);float age=max(uT-birth,0.);"+
+"float pop=smoothstep(0.,.5,age)*(1.+.6*exp(-age*2.2)*sin(age*9.));float wS=min(.14,.3*uDist)*pop*(1.+.12*sin(uT*1.6+rnd*30.));"+
+"gl_PointSize=clamp(uPx*wS/z,step(.001,age)*4.,uMax);va=smoothstep(.0015,.02,-mv.z)*(.9+.4*exp(-age*.8));vc=col;}";
+const FS_O="varying vec3 vc;varying float va;void main(){float d=length(gl_PointCoord-.5)*2.;if(d>1.)discard;float a=1.-d;float core=1.-smoothstep(0.,.35,d);"+
+"gl_FragColor=vec4(vc*(.5*a*a+1.2*core)+vec3(.6)*core*core,(a*a*.7+core)*va);}";
+const VS_D="attribute vec3 off;attribute vec3 col;attribute float tip;attribute float rnd;attribute float birth;uniform vec3 uXe;uniform float uT;uniform float uLen;uniform float uInv;uniform float uA;varying vec3 vc;varying float va;"+
+"void main(){float age=max(uT-birth,0.);float gr=smoothstep(.2,1.6,age);vec3 p=position-uXe+off*uLen*uInv*gr*(1.+.1*sin(uT*1.5+rnd*50.+tip*3.));"+
+"vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;va=uA*(1.-.6*tip)*smoothstep(.0015,.02,-mv.z)*step(.01,age);vc=col;}";
+const FS_D="varying vec3 vc;varying float va;void main(){gl_FragColor=vec4(vc*va,va);}";
+const VS_S="attribute vec3 col;uniform vec3 uXe;varying vec3 vc;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position-uXe,1.);vc=col;}";
+const FS_S="uniform float uA;varying vec3 vc;void main(){gl_FragColor=vec4(vc*uA,uA);}";
+const learnG=new T.Group();learnG.visible=false;sc.add(learnG);
+[new T.Points(lgp,mkL(VS_O,FS_O,LU)),new T.LineSegments(ldg,mkL(VS_D,FS_D,LU)),new T.LineSegments(lsg,mkL(VS_S,FS_S,LS))].forEach((o,i)=>{o.frustumCulled=false;o.renderOrder=20+i;learnG.add(o)});
+const mkI=(t,r,x,y,z,ts,b)=>({t,r,x,y,z,ts,b,sd:(hs(t)^(ts%2147483647))>>>0});
+function rebuild(){
+const n=learned.length;lcnt.fill(0);let q=0,s=0;
+const dv=(it,c,ox,oy,oz,tp,rn)=>{DP[q*3]=it.x;DP[q*3+1]=it.y;DP[q*3+2]=it.z;DF[q*3]=ox;DF[q*3+1]=oy;DF[q*3+2]=oz;DC[q*3]=c.r;DC[q*3+1]=c.g;DC[q*3+2]=c.b;DT[q]=tp;DR[q]=rn;DB[q]=it.b;q++};
+for(let k=0;k<n;k++){const it=learned[k],c=R[it.r].col,g=mb(it.sd);lcnt[it.r]++;
+LO[k*3]=it.x;LO[k*3+1]=it.y;LO[k*3+2]=it.z;LCl[k*3]=c.r;LCl[k*3+1]=c.g;LCl[k*3+2]=c.b;LB[k]=it.b;LRn[k]=g();
+for(let b=0;b<5;b++){const d1=V(g()-.5,g()-.5,g()-.5).normalize(),m=d1.clone().multiplyScalar(.5+.5*g()),
+e=m.clone().addScaledVector(d1.clone().add(V(g()-.5,g()-.5,g()-.5).multiplyScalar(1.1)).normalize(),.6+.6*g()),rn=g();
+dv(it,c,0,0,0,0,rn);dv(it,c,m.x,m.y,m.z,.5,rn);dv(it,c,m.x,m.y,m.z,.5,rn);dv(it,c,e.x,e.y,e.z,1,rn)}
+if(!it.s){const pv=V(it.x,it.y,it.z);it.s=P.map((p,i)=>[p.distanceToSquared(pv),i]).sort((a,b)=>a[0]-b[0]).slice(0,3).map(d=>d[1])}
+it.s.forEach(j=>{const cj=R[reg[j]].col;SP[s*3]=it.x;SP[s*3+1]=it.y;SP[s*3+2]=it.z;SC[s*3]=c.r;SC[s*3+1]=c.g;SC[s*3+2]=c.b;s++;
+SP[s*3]=P[j].x;SP[s*3+1]=P[j].y;SP[s*3+2]=P[j].z;SC[s*3]=cj.r;SC[s*3+1]=cj.g;SC[s*3+2]=cj.b;s++})}
+[lgp,ldg,lsg].forEach(g=>Object.values(g.attributes).forEach(a=>a.needsUpdate=true));
+lgp.setDrawRange(0,n);ldg.setDrawRange(0,n*20);lsg.setDrawRange(0,n*6)}
+const updChips=()=>R.forEach((r,j)=>{const n=srvCnt[j]||lcnt[j];if(r.el)r.el.innerHTML="<i></i>"+r.n+(n?" <b>"+n+"</b>":"")});
+const RI=R.map((_,j)=>all.filter(i=>reg[i]===j));
+/* Ava ki asli yaadein: har item = ek neuron, uski jagah id se tay hoti hai (reload par wahin dikhta hai) */
+let sig="";
+function setData(d){
+if(!d||!Array.isArray(d.items))return;
+for(let j=0;j<7;j++)srvCnt[j]=Math.max(0,Math.min(1e9,+(d.counts&&d.counts[j])||0));
+const items=d.items.filter(o=>o&&typeof o.t==="string"&&o.r>=0&&o.r<7&&o.id).slice(0,CAP).sort((a,b)=>(a.ts||0)-(b.ts||0));
+const nsig=items.map(o=>o.id+":"+o.r).join("|");
+if(nsig===sig){updChips();return}
+const old=new Map(learned.map(it=>[it.id,it])),now=clk.getElapsedTime();let fresh=0;
+learned.length=0;
+items.forEach(o=>{let it=old.get(o.id);
+if(!it||it.r!==o.r){const g=mb(hs(o.id)),ids=RI[o.r],base=ids.length?P[ids[g()*ids.length|0]]:R[o.r].v;
+it={id:o.id,t:String(o.t).slice(0,140),r:o.r|0,x:base.x+(g()-.5)*.4,y:base.y+(g()-.5)*.4,z:base.z+(g()-.5)*.4,ts:+o.ts||0,b:now+.2+Math.min(fresh*.03,2.5),sd:hs(o.id)};fresh++}
+else it.t=String(o.t).slice(0,140);
+learned.push(it)});
+sig=nsig;rebuild();updChips();if(fresh&&old.size)burst()}
+const lpool=[];for(let i=0;i<4;i++){const d=document.createElement("div");d.className="lb";document.body.appendChild(d);lpool.push(d)}
+const lw=V(0,0,0),ln=V(0,0,0);
+/* har frame: uniforms, labels, aur screen ke beech wala seekha hua neuron (index ya -1) */
+function lStep(t,SS,bf,zf){
+LU.uT.value=t;LU.uDist.value=dist;LU.uLen.value=Math.min(.12,.3*dist);LU.uInv.value=1/SS;LS.uA.value=.5*bf;
+learnG.visible=learned.length>0;learnG.rotation.copy(brain.rotation);learnG.scale.setScalar(SS);
+let best=-1,bd=.1;const cand=[];
+for(let k=0;k<learned.length;k++){const it=learned[k],age=t-it.b;if(age<.3)continue;
+lw.set(it.x,it.y,it.z).sub(Xe).multiplyScalar(SS).applyEuler(brain.rotation);if(XD<1.5&&lw.z<-.3)continue;
+ln.copy(lw).project(cam);if(ln.z>1||ln.z<-1)continue;const ex=Math.hypot(ln.x,ln.y);
+if(ex<bd&&(zf>.4||XD>1.3||dist<2.5)){bd=ex;best=k}
+if(Math.abs(ln.x)<.88&&Math.abs(ln.y)<.8&&(zf>.3||XD>1.3||age<4))cand.push([cam.position.distanceTo(lw),ln.x,ln.y,it])}
+cand.sort((a,b)=>a[0]-b[0]);
+lpool.forEach((el,i)=>{const c=cand[i];if(!c){el.style.opacity=0;return}el.textContent=c[3].t;el.style.setProperty("--c",R[c[3].r].c);el.style.opacity=1;
+el.style.transform="translate("+((c[1]*.5+.5)*innerWidth+14)+"px,"+((-c[2]*.5+.5)*innerHeight-30)+"px)"});
+return best}
+window.AvaBrain={list:()=>learned.map(i=>({text:i.t,region:R[i.r].n,time:i.ts})),setData:setData};
+addEventListener("message",e=>{if(e.origin!==location.origin)return;const d=e.data;if(!d)return;if(d.type==="ava-brain-data")setData(d.data);else if(d.type==="ava-think")burst()});
+try{parent.postMessage({type:"ava-brain-ready"},location.origin)}catch(e){}
+
+/* thought labels */
+const lab=[];R.forEach((r,j)=>{const ids=all.filter(i=>reg[i]===j);r.t.forEach((t,k)=>{lab.push({i:ids[Math.floor((k+.5)*ids.length/r.t.length)],t,c:r.c,r:j})})});
+const pool=[];for(let i=0;i<10;i++){const d=document.createElement("div");d.className="lb";document.body.appendChild(d);pool.push(d)}
+/* UI */
+const info=document.getElementById("info"),chips=document.getElementById("chips"),stat=document.getElementById("stat");
+let syn=lp.length/6;stat.textContent=N+" neurons · "+syn+" synapses";
+const HOME="<b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Niche box me kuch likho — Ava seekhegi aur uska ek naya chamakta neuron ban jayega.";
+let dist=mob?12:9,td=dist,DMAX=dist+1,focus=-1,drag=false,ty=0,tX=0,tYr=0,tpos=V(0,0,0);
+R.forEach((r,j)=>{const b=document.createElement("button");b.className="chip";b.style.setProperty("--c",r.c);b.innerHTML="<i></i>"+r.n;b.onclick=()=>setF(focus===j?-1:j);chips.appendChild(b);r.el=b});
+function setF(j){focus=j;R.forEach((r,k)=>r.el.classList.toggle("on",k===j));if(j<0){td=DMAX-1;tpos.set(0,0,0);XTd=1;XLT=0;info.innerHTML=HOME;return}
+const r=R[j],c=r.v.clone();const yaw=Math.atan2(-c.x,c.z),h=Math.hypot(c.x,c.z),pit=Math.atan2(c.y,h);tY=yaw;tX=pit;
+const e=new T.Euler(pit,yaw,0,"XYZ");tpos=c.clone().applyEuler(e).negate();td=2.3;info.innerHTML="<b style='color:"+r.c+"'>"+r.n+"</b><br>"+r.d}
+let tY=0;
+/* zoom: first the normal range, then deep zoom (x1000) */
+function zoomBy(f){
+if(f<1){if(td>.0601)td=Math.max(.06,td*f);else XTd=Math.min(XMAX,XTd/(f*f))}
+else{if(XTd>1.001)XTd=Math.max(1,XTd/(f*f));else td=Math.min(DMAX,td*f)}
+XLT=Math.log(XTd)}
+document.getElementById("zi").onclick=()=>zoomBy(.65);
+document.getElementById("zo").onclick=()=>zoomBy(1.4);
+document.getElementById("rs").onclick=()=>setF(-1);
+cv.addEventListener("wheel",e=>{e.preventDefault();zoomBy(Math.exp(e.deltaY*.0012))},{passive:false});
+const pt=new Map();let pd=0;
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);pt.set(e.pointerId,[e.clientX,e.clientY]);drag=true;if(pt.size===2){const[a,b]=[...pt.values()];pd=Math.hypot(a[0]-b[0],a[1]-b[1])}});
+cv.addEventListener("pointermove",e=>{if(!pt.has(e.pointerId))return;const o=pt.get(e.pointerId);
+if(pt.size===2){pt.set(e.pointerId,[e.clientX,e.clientY]);const[a,b]=[...pt.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd&&d>0)zoomBy(pd/d);pd=d;return}
+const dx=e.clientX-o[0],dy=e.clientY-o[1];pt.set(e.pointerId,[e.clientX,e.clientY]);
+if(focus>=0){focus=-1;R.forEach(r=>r.el.classList.remove("on"));tpos.set(0,0,0);if(XTd>1.05){pickI=nearTo(XC);dsh=-1;shown=-2}else info.innerHTML=HOME}
+tY=brain.rotation.y+dx*.007;tX=Math.max(-1.4,Math.min(1.4,brain.rotation.x+dy*.007));brain.rotation.y=tY;brain.rotation.x=tX});
+const up=e=>{pt.delete(e.pointerId);pd=0;if(!pt.size)drag=false};
+cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",up);
+function size(){r0.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();const px=innerHeight*r0.getPixelRatio()/.82843;LV.forEach(l=>l.U.uPx.value=px);LU.uPx.value=px;LU.uMax.value=mob?90:130}
+addEventListener("resize",size);size();
+let flash=0,nb=2.5;
+function burst(){const a=Math.random()*N|0;flash=1;for(let i=0;i<12;i++){const k=Math.random()*M|0,o=ps[k];o.a=a;o.b=A[a][i%A[a].length]??a;o.t=0;o.v=.5+Math.random()*.7;setC(k,a)}}
+const clk=new T.Clock();let last=0;const w=V(0,0,0),ndc=V(0,0,0);
+(function loop(){requestAnimationFrame(loop);
+const t=clk.getElapsedTime(),dt=Math.min(t-last,.05);last=t;
+dist+=(td-dist)*.09;cam.position.set(0,0,dist);
+XL+=(XLT-XL)*.09;XD=Math.exp(XL);
+const zf=Math.max(0,Math.min(1,(6.2-dist)/4.8)),zd=Math.max(0,Math.min(1,(1.8-dist)/1.5));
+const bf=1-sstep(1,5,XD),dm=sstep(1,2.2,XD);
+if(focus>=0){let d=tY-brain.rotation.y;d-=Math.round(d/6.283)*6.283;brain.rotation.y+=d*.07;brain.rotation.x+=(tX-brain.rotation.x)*.07}
+else if(!drag){brain.rotation.y+=dt*.12/XD;tY=brain.rotation.y}
+const it=Math.min(1,t/2.6),ie=1-Math.pow(1-it,3),SS=(.55+.45*ie)*(1+.012*Math.sin(t*1.2)/XD)*XD;brain.scale.setScalar(SS);if(!drag&&focus<0)brain.rotation.y+=(1-ie)*dt*2.5;
+/* dive centre: region centre when focused, otherwise the neuron nearest the screen centre */
+const wm=focus>=0||XTd>1.05;XM+=((wm?1:0)-XM)*.07;
+if(XTd<=1.05)tgtV=null;if(focus>=0)XT.copy(R[focus].v);else if(XTd>1.05)XT.copy(tgtV||P[pickI]);
+if(wm)XC.lerp(XT,.07);
+Xe.copy(XC).multiplyScalar(XM);brain.position.copy(Xe).applyEuler(brain.rotation).multiplyScalar(-SS);
+brain.visible=bf>.01;
+/* deep levels */
+deepG.rotation.copy(brain.rotation);deepG.scale.setScalar(SS);deepG.visible=dm>.003;
+let xn=0;const ln4=Math.log(XR*1.7);
+LV.forEach(lv=>{const b=Math.max(0,1-Math.abs(XL-Math.log(lv.D))/ln4),a=b*b*(3-2*b)*dm,U=lv.U;
+U.uA.value=a;U.uT.value=t;U.uD.value=SS;
+const fx=Xe.x/lv.B,fy=Xe.y/lv.B,fz=Xe.z/lv.B;U.uF.value.set(fx-Math.floor(fx),fy-Math.floor(fy),fz-Math.floor(fz));
+lv.pts2.visible=lv.lns.visible=a>.003;xn+=a*DN});
+if(t>nb){nb=t+1.8+Math.random()*2.5;burst()}flash*=.95;
+halo.material.opacity=(.3+flash*.3+.05*Math.sin(t))*(.4+.6*bf);halo.material.color.lerp(focus>=0?R[focus].col:hc.setHSL(.6+.07*Math.sin(t*.25),.9,.5),.04);hot.material.size=.045+flash*.03+zf*.03;hot.material.opacity=.9*bf;
+links.material.opacity=(.38+flash*.2-zf*.12)*bf;shell.material.uniforms.o.value=(.62*(1-zf*.85)+flash*.1)*bf;ves.material.opacity=zd*bf;ves.material.size=.012+.004*Math.sin(t*3);dend.material.opacity=Math.min(1,zf*.8+zd*.3)*bf;tips.material.size=.045+zd*.05;tips.material.opacity=zf*bf;core.material.size=.1+zf*.05;core.material.opacity=.85*bf;
+mem.material.opacity=(.45+.3*Math.sin(t*1.3)+zf*.2)*mv[2]*bf;mem.material.size=.3+.06*Math.sin(t*1.3);
+fear.material.opacity=(Math.random()<.18?.15:.55+.45*Math.random())*mv[3]*bf;fear.material.size=.26+.08*Math.random();
+pulses.material.size=.2*(1+zf*.2);pulses.material.opacity=bf;
+ps.forEach((o,i)=>{const sl=reg[o.a]===3?1.8:1;o.t+=o.v*sl*dt;if(o.t>=1){o.t=0;o.a=o.b;const L=A[o.a];o.b=L.length?L[Math.random()*L.length|0]:o.a;setC(i,o.a)}
+const u=P[o.a],q=P[o.b];pp[i*3]=u.x+(q.x-u.x)*o.t;pp[i*3+1]=u.y+(q.y-u.y)*o.t;pp[i*3+2]=u.z+(q.z-u.z)*o.t});
+ps.forEach((o,i)=>{const k=R[reg[o.a]].col,m=1.05*mv[reg[o.a]];pc[i*3]=k.r*m;pc[i*3+1]=k.g*m;pc[i*3+2]=k.b*m});
+pg.attributes.position.needsUpdate=true;pg.attributes.color.needsUpdate=true;
+/* thought labels appear as you zoom in */
+brain.updateMatrixWorld();
+let act=focus;if(focus<0&&zf>.12){let bs=1e9;for(let i=0;i<N;i++){w.copy(P[i]).applyMatrix4(brain.matrixWorld);ndc.copy(w).project(cam);if(ndc.z>1)continue;const s=cam.position.distanceTo(w)*(1+4*Math.hypot(ndc.x,ndc.y));if(s<bs){bs=s;act=reg[i];bi=i}}if(XTd<=1.05)pickI=bi}
+for(let j=0;j<7;j++){rw[j]+=((j===act?1:0)-rw[j])*.08;mv[j]=1-zf*.93*(1-rw[j])}
+FD.forEach(f=>{const a=f.g.attributes.color.array,b=f.b,rg=f.rg;for(let k=0;k<rg.length;k++){const m=mv[rg[k]];a[k*3]=b[k*3]*m;a[k*3+1]=b[k*3+1]*m;a[k*3+2]=b[k*3+2]*m}f.g.attributes.color.needsUpdate=true});
+/* deep-level info card */
+const cl=lStep(t,SS,bf,zf),dl=Math.min(5,Math.floor(Math.log10(XD)*2));
+if(t>=holdUntil){
+if(cl>=0&&focus<0){if(lsh!==cl){lsh=cl;const it=learned[cl];info.innerHTML="<b style='color:"+R[it.r].c+"'>"+R[it.r].n+" · Ava ne ye seekha</b><br>“"+esc(it.t)+"”"}}
+else{
+if(lsh>=0){lsh=-1;dsh=-1;shown=-2}
+if(XD>1.3&&focus<0){if(dl!==dsh){dsh=dl;info.innerHTML="<b style='color:"+DL[dl][2]+"'>"+DL[dl][0]+" · ×"+(XD>=100?Math.round(XD):XD.toFixed(1))+"</b><br>"+DL[dl][1]}}
+else if(dsh>=0){dsh=-1;shown=-2}
+if(focus<0&&dsh<0){const want=zf>.4&&act>=0?act:-1;if(want!==shown){shown=want;info.innerHTML=want<0?HOME:"<b style='color:"+R[want].c+"'>"+R[want].n+"</b><br>"+R[want].d}}
+}}
+const cand=[];if(zf>.3&&bf>.02){lab.forEach(l=>{if(l.r!==act)return;w.copy(P[l.i]).applyMatrix4(brain.matrixWorld);const d=cam.position.distanceTo(w);if(w.z<-.2)return;ndc.copy(w).project(cam);if(Math.abs(ndc.x)>.88||Math.abs(ndc.y)>.8)return;cand.push([d,ndc.x,ndc.y,l])})}
+cand.sort((a,b)=>a[0]-b[0]);
+pool.forEach((el,i)=>{const c=cand[i];if(!c){el.style.opacity=0;return}const[,nx,ny,l]=c;el.textContent=l.t;el.style.setProperty("--c",l.c);el.style.opacity=Math.min(1,(zf-.3)*3)*bf;el.style.transform="translate("+((nx*.5+.5)*innerWidth+10)+"px,"+((-ny*.5+.5)*innerHeight-10)+"px)"});
+const Lm=140000*Math.pow(dist/9,1.9)/XD,sc2=Lm>=10000?(Lm/10000).toFixed(1)+" cm":Lm>=1000?(Lm/1000).toFixed(1)+" mm":Lm>=1?Math.round(Lm)+" µm":Lm>=.001?Math.round(Lm*1000)+" nm":"<1 nm";
+stat.textContent=(XD>1.3?(N+Math.round(xn)).toLocaleString()+" neurons in view · ×"+(XD>=100?Math.round(XD):XD.toFixed(1))+" deep":N+" neurons · "+syn+" synapses · "+(zd>.5?"Synaptic view":zf<.25?"Macro view":zf<.7?"Neural view":"Cellular view"))+(learned.length?" · 🧠 "+learned.length+" seekha":"")+" · ≈ "+sc2;
+r0.render(sc,cam)})();
+})();
+</script>
+</body>
+</html>

@@ -506,5 +506,12 @@ const VISION_PROMPT =
     console.log(`[ava] v2 ready — screen memory ${off('AVA_SCREEN') ? 'OFF' : 'on'} · scout ${off('AVA_SCOUT') ? 'off' : 'on'} · reflection ${off('AVA_REFLECT') ? 'off' : 'on'}`);
   }
 
-  return { kv: { get: kvGet, set: kvSet }, redact, start, brainExtras, sentinelBlock, promptBlock, logTurn, isComplex, refine, _t: { scoutOnce, reflectOnce, getScreen } };
+  // Text-only view for the Ava Lab brain (no ids/urls/secrets): her playbook rules, capability gaps, scouted discoveries.
+  const brainRaw = () => ({
+    playbook: playbook.map((p) => ({ t: p.createdAt || 0, text: String(p.text || '') })),
+    gaps: gaps.map((g) => ({ t: g.createdAt || 0, text: String(g.text || '') })),
+    discoveries: discoveries.map((d) => ({ t: d.createdAt || 0, text: String(d.title || '') })),
+  });
+
+  return { kv: { get: kvGet, set: kvSet }, redact, start, brainExtras, brainRaw, sentinelBlock, promptBlock, logTurn, isComplex, refine, _t: { scoutOnce, reflectOnce, getScreen } };
 };

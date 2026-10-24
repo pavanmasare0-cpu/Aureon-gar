@@ -296,6 +296,14 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     });
   });
 
+  // Ava Lab brain: Ava's memories / fears / thoughts as neurons (read-only, text only).
+  router.get('/brain', (req, res) => {
+    try {
+      const hook = global.__avaSelf;
+      res.json(hook && typeof hook.brain === 'function' ? hook.brain() : { counts: [0, 0, 0, 0, 0, 0, 0], total: 0, items: [], at: Date.now() });
+    } catch (e) { res.status(500).json({ error: 'brain data nahi bana' }); }
+  });
+
   router.post('/improve', async (req, res) => {
     if (!auth.stepUp(req, res)) return;
     auth.action(req, 'ava-lab improve');
