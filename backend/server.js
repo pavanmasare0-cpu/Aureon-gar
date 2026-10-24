@@ -419,7 +419,12 @@ function envKeys(base) {
   const list = [];
   const add = v => { const k = (v || '').trim(); if (k && !list.includes(k)) list.push(k); };
   add(process.env[base]);
-  ['_2', '_3', '_4'].forEach(s => add(process.env[base + s]));
+  // Any number of numbered keys: BASE_2, BASE_3 ... BASE_99 (sorted by number)
+  Object.keys(process.env)
+    .map(n => { const m = n.match(new RegExp('^' + base + '_(\\d+)$')); return m ? [parseInt(m[1], 10), n] : null; })
+    .filter(Boolean)
+    .sort((a, b) => a[0] - b[0])
+    .forEach(([, n]) => add(process.env[n]));
   (process.env[base + 'S'] || '').split(',').forEach(v => add(v));
   return list;
 }
@@ -998,17 +1003,23 @@ const PROVIDERS = { openai: callOpenAI, claude: callSmart, gemini: callGemini, g
 
 async function embedText(text) {
   if (!firstGeminiKey()) throw new Error('GEMINI_API_KEY is not set — needed for embeddings too.');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${firstGeminiKey()}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: { parts: [{ text }] } })
-    }
-  );
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Embedding request failed');
-  return data.embedding.values;
+  let lastErr;
+  for (const embKey of geminiKeys()) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${embKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: { parts: [{ text }] } })
+        }
+      );
+      const data = await res.json();
+      if (res.ok) return data.embedding.values;
+      lastErr = new Error(data.error?.message || 'Embedding request failed');
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('Embedding request failed');
 }
 
 function chunkText(text, chunkSize = 1200, overlap = 150) {
@@ -1456,16 +1467,24 @@ app.post('/api/generate-image', verifyAuth, async (req, res) => {
       parts.push({ inlineData: { mimeType: sourceImage.mimeType, data: sourceImage.dataBase64 } });
     }
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${firstGeminiKey()}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts }] })
-      }
-    );
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Image generation failed');
+    // Every Gemini key is tried in turn; a failing/limited key hands over to the next.
+    let response, data, imgErr;
+    for (const imgKey of geminiKeys()) {
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${imgKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ role: 'user', parts }] })
+          }
+        );
+        data = await response.json();
+        if (response.ok) { imgErr = null; break; }
+        imgErr = new Error(data.error?.message || 'Image generation failed');
+      } catch (e) { imgErr = e; }
+    }
+    if (imgErr) throw imgErr;
 
     const resultParts = data.candidates?.[0]?.content?.parts || [];
     const imagePart = resultParts.find(p => p.inlineData && p.inlineData.data);
@@ -2117,5 +2136,8 @@ app.use('/api/apk', require('./apk-maker')({
   auth: require('./dash-auth'),
   store: require('./persist'),
 }));
+
+// ---------- AI video generation (Veo) — all Gemini keys, auto switch ----------
+app.use('/api/generate-video', require('./video-gen')({ express, verifyAuth }));
 
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));

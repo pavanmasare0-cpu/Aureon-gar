@@ -29,12 +29,17 @@ function extractUrls(text) {
 }
 
 async function aiOpinion(text, summary) {
-  const key = process.env.GROQ_API_KEY; if (!key) return null;
-  try {
-    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', temperature: 0.2, max_tokens: 220, messages: [{ role: 'user', content: `Neeche ek message hai jo kisi ko mila. Batao ki ye scam lagta hai ya nahi, 3 chhoti Hinglish lines mein (kyun, aur kya karna chahiye). Automatic checker ne ye bataya: ${summary}\n\nMESSAGE:\n${String(text).slice(0, 1500)}` }] }) });
-    const j = await r.json(); return (j.choices && j.choices[0] && j.choices[0].message.content || '').trim().slice(0, 700) || null;
-  } catch (e) { return null; }
+  const keys = require('../keys').groqKeys(); if (!keys.length) return null;
+  for (const key of keys) {   // ek key fail/limit ho to agli
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', temperature: 0.2, max_tokens: 220, messages: [{ role: 'user', content: `Neeche ek message hai jo kisi ko mila. Batao ki ye scam lagta hai ya nahi, 3 chhoti Hinglish lines mein (kyun, aur kya karna chahiye). Automatic checker ne ye bataya: ${summary}\n\nMESSAGE:\n${String(text).slice(0, 1500)}` }] }) });
+      const j = await r.json();
+      const out = (j.choices && j.choices[0] && j.choices[0].message.content || '').trim().slice(0, 700);
+      if (r.ok && out) return out;
+    } catch (e) { /* next key */ }
+  }
+  return null;
 }
 
 async function analyzeText(text, opts) {

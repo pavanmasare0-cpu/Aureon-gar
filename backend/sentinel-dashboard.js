@@ -469,14 +469,20 @@ function buildPatchProposal(server, source, name, explanation, oldFile, newConte
 
 // ---- shared AI helpers --------------------------------------------------
 async function callLLM(prompt) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
-  });
-  const data = await res.json();
+  const keys = require('./keys').groqKeys();
+  if (!keys.length) return null;
+  let data = null;
+  for (const apiKey of keys) {   // ek key fail/limit ho to agli
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.2 }),
+      });
+      const d = await res.json();
+      if (res.ok && d && d.choices) { data = d; break; }
+    } catch (e) { /* next key */ }
+  }
   let raw = (data?.choices?.[0]?.message?.content || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
   try { return JSON.parse(raw); } catch (e) {
     const m = raw.match(/\{[\s\S]*\}/); // model added chatter around the JSON

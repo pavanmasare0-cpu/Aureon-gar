@@ -17,7 +17,8 @@ const csv = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolea
 function collect(base) {
   const out = []; const add = (v) => csv(v).forEach((k) => { if (!out.includes(k)) out.push(k); });
   add(process.env[base]); add(process.env[base + 'S']);
-  for (let i = 1; i <= 9; i++) add(process.env[base + '_' + i]);
+  Object.keys(process.env).map((n) => { const m = n.match(new RegExp('^' + base + '_(\\d+)$')); return m ? [parseInt(m[1], 10), n] : null; })
+    .filter(Boolean).sort((a, b) => a[0] - b[0]).forEach(([, n]) => add(process.env[n]));
   return out;
 }
 const geminiKeys = () => collect('GEMINI_API_KEY');
