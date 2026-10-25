@@ -193,37 +193,36 @@ body:has(#sheet-summary:not(.hidden)) #ava-root,
 body:has(#sheet-projects:not(.hidden)) #ava-root { visibility: hidden; }
 .sheet-settings .settings-card > .setting-row:first-child { border-top: 0; }
 
-/* ---------- Transparent glass look (settings, menu, popups) ----------
-   Keeps the see-through feel of the original design. Colours still come from the
-   active theme (--p-surface / --p-card), only the opacity is lowered and blurred.
-   The first line of each pair is the solid fallback for very old WebViews. */
+/* ---------- Transparent look (settings, side menu, popups) ----------
+   Same see-through feel as the original design: the glowing background shows through,
+   with no heavy blur. Colours still come from the active theme (--p-surface / --p-card);
+   only the opacity is lowered. If a very old WebView lacks color-mix(), the solid rules
+   above stay in place as the fallback. */
+.drawer .drawer-body {
+  background: color-mix(in srgb, var(--p-surface) 38%, transparent);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
 .sheet-settings .sheet-body,
 html:not([data-theme]) .sheet-settings .sheet-body,
 html[data-theme="light"] .sheet-settings .sheet-body {
-  background: var(--p-surface);
-  background: color-mix(in srgb, var(--p-surface) 72%, transparent);
-  -webkit-backdrop-filter: blur(22px) saturate(140%); backdrop-filter: blur(22px) saturate(140%);
+  background: color-mix(in srgb, var(--p-surface) 50%, transparent);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
 .sheet-settings .list-group,
 .sheet-settings .settings-card,
 .sheet-settings .theme-opt {
-  background: var(--p-card);
-  background: color-mix(in srgb, var(--p-card) 42%, transparent);
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--p-card) 34%, transparent);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 .sheet-settings .text-input, .sheet-settings .settings-card textarea,
 .sheet-settings #pg-key {
-  background: color-mix(in srgb, var(--p-bg) 38%, transparent) !important;
+  background: color-mix(in srgb, var(--p-bg) 30%, transparent) !important;
 }
 .sheet-settings .settings-footer {
-  background: color-mix(in srgb, var(--p-surface) 60%, transparent);
-  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-}
-.drawer .drawer-body {
-  background: color-mix(in srgb, var(--p-surface) 80%, transparent);
-  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  background: color-mix(in srgb, var(--p-surface) 45%, transparent);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
 .chat-menu, .pm-card {
-  background: color-mix(in srgb, var(--p-surface) 82%, transparent);
-  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--p-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
