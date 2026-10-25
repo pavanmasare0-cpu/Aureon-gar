@@ -1219,6 +1219,7 @@ async function buildSystemPrompt() {
   if (memory.trim()) {
     prompt += `\n\nThings to remember about this user (stated by them):\n${memory.trim()}`;
   }
+  try { if (window.aureonReplyLangRule) prompt += window.aureonReplyLangRule(); } catch (e) { /* language rule is optional */ }
   return prompt;
 }
 

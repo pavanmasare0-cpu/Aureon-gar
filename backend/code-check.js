@@ -140,4 +140,24 @@ async function verifyAndFix(answer, regenerate) {
   return text.replace(/\s+$/, '') + footer(results, fixed);
 }
 
-module.exports = { verifyAndFix, checkAnswer, extractBlocks, footer, _cleanEnv: CLEAN_ENV };
+// ---- Review rounds: after the syntax check, the model re-reads its own answer like a strict reviewer, up to N times. ----
+const REVIEW_PROMPT = 'Now REVIEW your previous answer like a strict senior code reviewer. Look for REAL bugs only: wrong logic, off-by-one, undefined or missing variables/imports, wrong library/API usage, async/await mistakes, unhandled errors, edge cases (empty/null input), security holes. '
+  + 'If you find NO real bugs, reply with exactly: NO_BUGS. '
+  + 'If you find bugs, reply with the COMPLETE corrected answer (same format, every code block in full, no placeholders), and make the first line: "Fixed: <short list of what you fixed>".';
+const errCount = (rs) => rs.filter((r) => r.status === 'error').length;
+async function reviewRounds(answer, regenerate, rounds) {
+  const max = rounds === undefined ? Number(process.env.AUREON_CODE_REVIEW_ROUNDS === undefined ? 2 : process.env.AUREON_CODE_REVIEW_ROUNDS) : rounds;
+  let text = answer;
+  if (!(max > 0) || typeof regenerate !== 'function' || typeof text !== 'string') return text;
+  if (extractBlocks(text).reduce((n, b) => n + b.code.length, 0) < 300) return text;   // tiny snippets: not worth an extra AI call
+  for (let i = 0; i < max; i++) {
+    let out;
+    try { out = await regenerate(REVIEW_PROMPT, text); } catch (e) { break; }
+    if (!out || typeof out !== 'string' || /^\s*NO_BUGS\b/i.test(out) || !out.includes(FENCE)) break;
+    try { if (errCount(await checkAnswer(out)) > errCount(await checkAnswer(text))) break; } catch (e) { break; }   // never accept a version with more syntax errors
+    text = out;
+  }
+  return text;
+}
+
+module.exports = { verifyAndFix, reviewRounds, checkAnswer, extractBlocks, footer, _cleanEnv: CLEAN_ENV };

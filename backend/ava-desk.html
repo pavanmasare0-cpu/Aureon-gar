@@ -487,7 +487,7 @@ function delUrl(j) { return j.apk ? '/api/apk/jobs/' + j.jobId : (j.studio ? ST 
 /* ------------------------------------------------------------ api */
 function af(url, opts) {
   opts = opts || {}; opts.credentials = 'same-origin';
-  opts.headers = Object.assign({ 'x-csrf': '1' }, opts.body ? { 'Content-Type': 'application/json' } : {}, opts.headers);
+  opts.headers = Object.assign({ 'x-csrf': '1', 'x-ava-lang': (window.AVA_LANG === 'en' ? 'en' : 'hi') }, opts.body ? { 'Content-Type': 'application/json' } : {}, opts.headers);
   return fetch(url, opts).then(function (r) {
     if (r.status === 403) {
       return r.clone().json().catch(function () { return {}; }).then(function (j) {

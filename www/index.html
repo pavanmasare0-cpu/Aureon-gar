@@ -377,6 +377,14 @@
             <label class="switch"><input type="checkbox" id="toggle-lang" checked><span class="slider"></span></label>
           </div>
           <div class="setting-row">
+            <span>Reply language (Aureon + Ava)</span>
+            <select id="reply-lang-select" class="text-input" style="width:auto;padding:6px 10px;">
+              <option value="auto">Auto (jaisa main likhu)</option>
+              <option value="hinglish">Hinglish</option>
+              <option value="english">English</option>
+            </select>
+          </div>
+          <div class="setting-row">
             <span>Voice language</span>
             <select id="voice-lang-select" class="text-input" style="width:auto;padding:6px 10px;">
           <option value="auto">Auto (phone language)</option>
@@ -447,6 +455,7 @@
   <script src="skills-hub.js"></script>
   <script src="connect-hub.js"></script>
   <script src="theme.js"></script>
+  <script src="lang-ui.js"></script>
   <script src="video-ui.js"></script>
   <script src="ava-bot.js"></script>
 </body>

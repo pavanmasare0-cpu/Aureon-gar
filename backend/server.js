@@ -1739,10 +1739,12 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
       if (typeof reply === 'string' && reply.length > 0) {
         try {
           const cc = require('./code-check');
-          reply = await cc.verifyAndFix(reply, async (errPrompt, prev) => {
+          const regen = async (errPrompt, prev) => {
             const again = await provider([...workingMessages, { role: 'assistant', content: prev }, { role: 'user', content: errPrompt }], activePrompt, false);
             return typeof again === 'string' ? again : '';
-          });
+          };
+          if (model === 'claudecode') reply = await cc.reviewRounds(reply, regen);   // Code mode: model re-reviews its own code (AUREON_CODE_REVIEW_ROUNDS, default 2, 0 = off)
+          reply = await cc.verifyAndFix(reply, regen);
         } catch (e) { console.warn('verifyAndFix skipped:', e && e.message); }
       }
       return res.json({ reply });
@@ -2123,11 +2125,20 @@ app.post('/api/proactive-message', verifyAuth, async (req, res) => {
 });
 
 // ---------- Ava: flying assistant (chat for Sentinel, self-learning brain) ----------
+// Ava reply language: clients send header x-ava-lang: en | hi. 'en' = Ava's AI calls get an English-only rule appended.
+const { AsyncLocalStorage } = require('async_hooks');
+const avaLangStore = new AsyncLocalStorage();
+const AVA_EN_RULE = '\n\nIMPORTANT LANGUAGE RULE: The owner chose ENGLISH. Write your whole reply in simple, clear English (no Hinglish, no Hindi words), even if the user writes in Hindi/Hinglish.';
+const withAvaLang = (fn) => (messages, systemPrompt, ...rest) => fn(messages, avaLangStore.getStore() === 'en' ? String(systemPrompt || '') + AVA_EN_RULE : systemPrompt, ...rest);
+app.use('/api/ava', (req, res, next) => {
+  const h = String(req.headers['x-ava-lang'] || '').toLowerCase();
+  avaLangStore.run(h === 'en' || h === 'english' ? 'en' : 'hi', next);
+});
 app.use('/api/ava', require('./ava')({
   getDb: () => db,
   admin,
-  callGemini,
-  callGroq,
+  callGemini: withAvaLang(callGemini),
+  callGroq: withAvaLang(callGroq),
 }));
 
 // ---------- v12: APK Studio (AI writes the app, GitHub Actions builds the APK; same owner lock as Sentinel) ----------

@@ -6,8 +6,8 @@ const AdmZip = require('adm-zip');
 const MAX_ZIP_BYTES = 25 * 1024 * 1024;   // whole repo download
 const MAX_ENTRIES = 5000;                 // zip-bomb guard (file count)
 const MAX_SKILL_BYTES = 60 * 1024;        // one SKILL.md
-const MAX_PER_REPO = 10;
-const MAX_PER_USER = 30;
+const MAX_PER_REPO = 1000;      // zip ke andar ki file-count guard (MAX_ENTRIES) phir bhi laga hai
+const MAX_PER_USER = 100000;    // practically no limit
 const MAX_CONTEXT_CHARS = 16000;          // per skill added to the prompt
 const FETCH_TIMEOUT_MS = 30000;
 const CACHE_MS = 60 * 1000;
@@ -174,7 +174,7 @@ function lastUserText(messages) {
 }
 
 // Text to append to the system prompt ('' when nothing matches).
-async function buildContext({ db, uid, messages, max = 2 }) {
+async function buildContext({ db, uid, messages, max = Number(process.env.AUREON_SKILLS_PER_PROMPT || 2) }) {
   if (!db || !uid) return '';
   const msg = lastUserText(messages);
   if (!msg) return '';
@@ -202,16 +202,44 @@ async function buildIndex({ db, uid }) {
 }
 
 // "<github link> skill install karo" typed (or spoken) in chat. Returns a reply string, or null to let the normal AI answer.
+// Finds a GitHub source in a chat message. Understands: github.com links, raw.githubusercontent.com links,
+// git@github.com:owner/repo.git, and terminal-style commands (npx skills add owner/repo, git clone <url>, gh repo clone owner/repo).
+// Nothing is ever executed — the text is only parsed into a github.com URL, which is then downloaded as a zip.
+function sourceFrom(text) {
+  const t = String(text || '');
+  let m = t.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\/(?:tree|blob)\/[\w.\/-]+)?/i);
+  if (m) return m[0];
+  m = t.match(/https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/([\w.\/-]+)/i);
+  if (m) return `https://github.com/${m[1]}/${m[2]}/${/SKILL\.md$/i.test(m[4]) ? 'blob' : 'tree'}/${m[3]}/${m[4]}`;
+  m = t.match(/git@github\.com:([\w.-]+\/[\w.-]+?)(?:\.git)?(?:\s|$)/i);
+  if (m) return 'https://github.com/' + m[1];
+  m = t.match(/(?:npx|pnpm\s+dlx|bunx|yarn\s+dlx)\s+(?:-y\s+|--yes\s+)?[@\w.\/-]*skill[\w.\/-]*\s+(?:add|install|i)\s+([\w.-]+\/[\w.-]+)/i);
+  if (m) return 'https://github.com/' + m[1].replace(/\.git$/, '');
+  m = t.match(/gh\s+repo\s+clone\s+([\w.-]+\/[\w.-]+)/i);
+  if (m) return 'https://github.com/' + m[1].replace(/\.git$/, '');
+  if (/skill/i.test(t) && t.length <= 160) {   // "owner/repo skill install karo"
+    m = t.match(/(?:^|\s)([A-Za-z0-9_.-]{2,60}\/[A-Za-z0-9_.-]{2,100})(?=\s|$)/);
+    if (m && !/^(and|or|yes\/no|he|she|his|her)\//i.test(m[1])) return 'https://github.com/' + m[1].replace(/\.git$/, '');
+  }
+  return null;
+}
+
 async function handleInstallMessage({ db, uid, messages, fetchImpl }) {
   const users = messages.filter(m => m && m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content);
   if (!users.length) return null;
   const last = users[users.length - 1];
-  const ghRe = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\/(?:tree|blob)\/[\w.\/-]+)?/i;
-  const wantsInstall = /(skill|install)/i.test(last) && (ghRe.test(last) || last.length <= 80);
-  const linkJustSent = ghRe.test(last) && last.trim().length <= 200 && users.some(t => t !== last && /(skill|install)/i.test(t));
-  if (!(wantsInstall || linkJustSent)) return null;
+  const lastSrc = sourceFrom(last);
+  const wantsInstall = !!lastSrc && /(skill|install|clone|npx|add)/i.test(last) && (/(skill|install|npx|clone)/i.test(last)) && (/https:\/\/|git@|npx|bunx|dlx|gh\s+repo|clone/i.test(last) || last.length <= 80);
+  const linkJustSent = !!lastSrc && last.trim().length <= 200 && users.some(t => t !== last && /(skill|install)/i.test(t));
+  if (!(wantsInstall || linkJustSent)) {
+    // Someone asked to install a skill from a non-GitHub link: say so instead of silently chatting about it.
+    if (/skill/i.test(last) && /(install|add|sikh|seekh|learn)/i.test(last) && /https?:\/\/(?!github\.com|raw\.githubusercontent\.com)\S+/i.test(last)) {
+      return 'Abhi skill sirf GitHub se install hoti hai: github.com ka repo/folder/SKILL.md link, raw.githubusercontent.com link, ya "npx skills add owner/repo" jaisa command likho. Doosri website ka link seedha install nahi hota — uska SKILL.md GitHub par daalke uska link bhejo.';
+    }
+    return null;
+  }
   let url = null;
-  for (let i = users.length - 1; i >= 0 && !url; i--) { const m = users[i].match(ghRe); if (m) url = m[0]; }
+  for (let i = users.length - 1; i >= 0 && !url; i--) url = sourceFrom(users[i]);
   if (!url) return null;
   try {
     const done = await installFromGithub({ db, uid, url, fetchImpl });
@@ -248,4 +276,4 @@ function createRouter({ express, verifyAuth, getDb }) {
   return r;
 }
 
-module.exports = { createRouter, buildContext, buildIndex, handleInstallMessage, installFromGithub, extractSkills, parseGithubUrl, parseSkillMd };
+module.exports = { _sourceFrom: sourceFrom, createRouter, buildContext, buildIndex, handleInstallMessage, installFromGithub, extractSkills, parseGithubUrl, parseSkillMd };

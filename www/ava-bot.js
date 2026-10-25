@@ -439,6 +439,7 @@ html.ava-panel body>*:not(#ava-root){display:none!important}';
       if (typeof state === 'undefined' || !state.user) throw new Error('Pehle login karo.');
       base = state.backendUrl.replace(/\/$/, ''); headers = await authHeaders();
     }
+    try { headers = Object.assign({}, headers, { 'x-ava-lang': (localStorage.getItem('aureon_reply_lang') === 'english' ? 'en' : 'hi') }); } catch (e) { /* header is optional */ }
     var r = await fetch(base + path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined });
     if (!r.ok) { var d = {}; try { d = await r.json(); } catch (e) {} throw new Error(d.error || ('Server ' + r.status)); }
     return r.json();
