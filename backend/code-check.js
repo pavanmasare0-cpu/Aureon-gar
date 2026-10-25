@@ -111,6 +111,16 @@ async function checkAnswer(text) {
   return results;
 }
 
+// Summary steps for the app (shown in the Summary sheet). trace is an optional array that gets entries pushed.
+function traceResults(results, trace) {
+  if (!Array.isArray(trace)) return;
+  for (const r of results) {
+    if (r.status === 'ok') trace.push({ icon: 'terminal', label: 'Syntax check: Block ' + r.n + ' (' + r.lang + ')', detail: 'OK, no syntax error', status: 'ok' });
+    else if (r.status === 'error') trace.push({ icon: 'terminal', label: 'Syntax check: Block ' + r.n + ' (' + r.lang + ')', detail: (r.line ? 'line ' + r.line + ': ' : '') + r.message, status: 'error' });
+    else trace.push({ icon: 'terminal', label: 'Block ' + r.n + ' (' + r.lang + ') check nahi hua', detail: r.note, status: 'skip' });
+  }
+}
+
 function footer(results, fixed) {
   if (!results.length) return '';
   const L = results.map((r) => r.status === 'ok' ? `- Block ${r.n} (${r.lang}): OK`
@@ -128,13 +138,17 @@ function errorPrompt(results) {
 }
 
 // regenerate(errorPrompt, previousAnswer) must return the new full answer text ('' if it cannot)
-async function verifyAndFix(answer, regenerate) {
+async function verifyAndFix(answer, regenerate, trace) {
   let text = answer, results = await checkAnswer(text), fixed = false;
+  traceResults(results, trace);
   if (results.some((r) => r.status === 'error') && typeof regenerate === 'function') {
     const again = await regenerate(errorPrompt(results), text);
     if (again && typeof again === 'string' && again.includes(FENCE)) {
       const r2 = await checkAnswer(again);
-      if (r2.filter((r) => r.status === 'error').length <= results.filter((r) => r.status === 'error').length) { text = again; results = r2; fixed = true; }
+      if (r2.filter((r) => r.status === 'error').length <= results.filter((r) => r.status === 'error').length) {
+        text = again; results = r2; fixed = true;
+        if (Array.isArray(trace)) { trace.push({ icon: 'wrench', label: 'Syntax error mila, code dobara likhwaya', status: 'ok' }); traceResults(r2, trace); }
+      } else if (Array.isArray(trace)) trace.push({ icon: 'wrench', label: 'Auto-fix try hua par naya version behtar nahi tha, purana rakha', status: 'skip' });
     }
   }
   return text.replace(/\s+$/, '') + footer(results, fixed);
@@ -145,7 +159,7 @@ const REVIEW_PROMPT = 'Now REVIEW your previous answer like a strict senior code
   + 'If you find NO real bugs, reply with exactly: NO_BUGS. '
   + 'If you find bugs, reply with the COMPLETE corrected answer (same format, every code block in full, no placeholders), and make the first line: "Fixed: <short list of what you fixed>".';
 const errCount = (rs) => rs.filter((r) => r.status === 'error').length;
-async function reviewRounds(answer, regenerate, rounds) {
+async function reviewRounds(answer, regenerate, rounds, trace) {
   const max = rounds === undefined ? Number(process.env.AUREON_CODE_REVIEW_ROUNDS === undefined ? 3 : process.env.AUREON_CODE_REVIEW_ROUNDS) : rounds;
   let text = answer;
   if (!(max > 0) || typeof regenerate !== 'function' || typeof text !== 'string') return text;
@@ -153,8 +167,12 @@ async function reviewRounds(answer, regenerate, rounds) {
   for (let i = 0; i < max; i++) {
     let out;
     try { out = await regenerate(REVIEW_PROMPT, text); } catch (e) { break; }
-    if (!out || typeof out !== 'string' || /^\s*NO_BUGS\b/i.test(out) || !out.includes(FENCE)) break;
-    try { if (errCount(await checkAnswer(out)) > errCount(await checkAnswer(text))) break; } catch (e) { break; }   // never accept a version with more syntax errors
+    if (!out || typeof out !== 'string' || /^\s*NO_BUGS\b/i.test(out) || !out.includes(FENCE)) {
+      if (Array.isArray(trace)) trace.push({ icon: 'search', label: 'Code review ' + (i + 1) + ': koi asli bug nahi mila', status: 'ok' });
+      break;
+    }
+    try { if (errCount(await checkAnswer(out)) > errCount(await checkAnswer(text))) { if (Array.isArray(trace)) trace.push({ icon: 'search', label: 'Code review ' + (i + 1) + ': naya version reject (zyada syntax errors)', status: 'skip' }); break; } } catch (e) { break; }   // never accept a version with more syntax errors
+    if (Array.isArray(trace)) { const fx = (out.match(/^\s*Fixed:\s*(.+)$/m) || [])[1]; trace.push({ icon: 'search', label: 'Code review ' + (i + 1) + ': bug mile, code theek kiya', detail: fx ? fx.slice(0, 200) : '', status: 'ok' }); }
     text = out;
   }
   return text;

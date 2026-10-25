@@ -1,20 +1,20 @@
-// www/video-ui.js — 🎬 button: type a description, tap 🎬, AI video banta hai (backend /api/generate-video, saari Gemini keys).
+// www/video-ui.js — video button: type a description, tap it, AI video banta hai (backend /api/generate-video, saari Gemini keys).
 (function () {
   function init() {
     const img = document.getElementById('btn-generate-image');
     if (!img || document.getElementById('btn-generate-video')) return;
     const b = document.createElement('button');
-    b.className = img.className; b.id = 'btn-generate-video'; b.textContent = '🎬';
+    b.className = img.className; b.id = 'btn-generate-video'; b.innerHTML = ic('video');
     b.title = 'Type a description, then tap to generate a video';
     b.setAttribute('aria-label', 'Generate video');
     img.parentNode.insertBefore(b, img.nextSibling);
     b.onclick = async () => {
       const input = $('chat-input');
       const prompt = input.value.trim();
-      if (!prompt) { alert('Pehle likho ki kaisa video chahiye, phir 🎬 dabao.'); return; }
+      if (!prompt) { alert('Pehle likho ki kaisa video chahiye, phir video button dabao.'); return; }
       input.value = '';
       const base = state.backendUrl.replace(/\/$/, '');
-      addMessage('user', `🎬 Video: ${prompt}`);
+      addMessage('user', `Video: ${prompt}`);
       $('typing-indicator').classList.remove('hidden');
       try {
         const start = await fetch(`${base}/api/generate-video`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ prompt }) });

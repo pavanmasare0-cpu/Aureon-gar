@@ -1,4 +1,4 @@
-const STYLE_RULES = require('./style-rules');
+const STYLE_RULES = require('./style-rules') + '\n- Never use emojis or emoticons in any reply. Keep the tone clean and professional.';
 // Aureon AI — backend chat proxy (MVP)
 // Keeps API keys server-side. The Android app never sees them.
 
@@ -1736,6 +1736,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
 
       if (!(reply && typeof reply === 'object' && reply.functionCall)) {
         /* aureon-verify-chat */
+      let steps = null;
       if (typeof reply === 'string' && reply.length > 0) {
         try {
           const cc = require('./code-check');
@@ -1743,11 +1744,13 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
             const again = await provider([...workingMessages, { role: 'assistant', content: prev }, { role: 'user', content: errPrompt }], activePrompt, false);
             return typeof again === 'string' ? again : '';
           };
-          if (model === 'claudecode') reply = await cc.reviewRounds(reply, regen);   // Code mode: model re-reviews its own code (AUREON_CODE_REVIEW_ROUNDS, default 2, 0 = off)
-          reply = await cc.verifyAndFix(reply, regen);
+          const trace = [{ icon: 'sparkle', label: 'Jawab / code likha', detail: 'Model: ' + (model || 'default'), status: 'ok' }];
+          if (model === 'claudecode') reply = await cc.reviewRounds(reply, regen, undefined, trace);   // Code mode: model re-reviews its own code (AUREON_CODE_REVIEW_ROUNDS, default 2, 0 = off)
+          reply = await cc.verifyAndFix(reply, regen, trace);
+          if (trace.length > 1) steps = trace;   // only replies that have code blocks get a Summary
         } catch (e) { console.warn('verifyAndFix skipped:', e && e.message); }
       }
-      return res.json({ reply });
+      return res.json(steps ? { reply, steps } : { reply });
       }
 
       const { name, args = {} } = reply.functionCall;
@@ -1784,6 +1787,34 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     console.error(err);
     watchdog.recordError('api_chat_fatal', err); // both Gemini and the Groq fallback failed
     res.status(500).json({ error: err.message || 'Something went wrong' });
+  }
+});
+
+// ---------- Code sandbox run (Approve button in the app's Summary sheet) ----------
+// Owner only, JavaScript only, one run at a time. Python is NOT enabled: it has no fs sandbox here.
+// Node's --permission flag limits file access to a temp folder and blocks child processes, but network is not blocked.
+const _codeRunBusy = new Set();
+app.post('/api/code/run', verifyAuth, async (req, res) => {
+  const uid = req.verifiedUid;
+  try {
+    const ownerDoc = await db.collection('users').doc(uid).collection('profile').doc('owner').get();
+    if (!(ownerDoc.exists && ownerDoc.data() && ownerDoc.data().isOwner)) return res.status(403).json({ error: 'Sandbox run sirf owner ke liye hai.' });
+    const lang = String((req.body && req.body.lang) || '').toLowerCase();
+    if (!['js', 'javascript', 'node'].includes(lang)) return res.status(400).json({ error: 'Abhi sirf JavaScript chalti hai.' });
+    const code = String((req.body && req.body.code) || '');
+    if (!code.trim()) return res.status(400).json({ error: 'Code khaali hai.' });
+    if (code.length > 20000) return res.status(413).json({ error: 'Code bahut bada hai (max 20000 chars).' });
+    if (parseInt(process.versions.node, 10) < 20) return res.status(501).json({ error: 'Server ka Node purana hai (--permission sandbox nahi), isliye run band hai.' });
+    if (_codeRunBusy.has(uid)) return res.status(429).json({ error: 'Pehla run abhi chal raha hai.' });
+    _codeRunBusy.add(uid);
+    try {
+      const cr = require('./code-run');
+      const r = await cr.runCode({ lang: 'js', code });
+      res.json({ ...r, report: cr.buildReport(r) });
+    } finally { _codeRunBusy.delete(uid); }
+  } catch (err) {
+    console.error('code run failed:', err);
+    res.status(500).json({ error: err.message || 'Run failed' });
   }
 });
 

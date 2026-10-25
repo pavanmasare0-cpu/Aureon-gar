@@ -33,7 +33,7 @@
       var d = document.createElement('div'); d.style.cssText = 'font-size:12px;opacity:.75;line-height:1.4;margin-top:2px;overflow-wrap:anywhere'; d.textContent = s.description || '(description nahi hai)';
       var src = document.createElement('div'); src.style.cssText = 'font-size:11px;opacity:.5;margin-top:2px;overflow-wrap:anywhere'; src.textContent = s.source || '';
       txt.appendChild(n); txt.appendChild(d); txt.appendChild(src);
-      var del = document.createElement('button'); del.textContent = '✕'; del.setAttribute('aria-label', 'Remove ' + s.name);
+      var del = document.createElement('button'); del.innerHTML = ic('x'); del.setAttribute('aria-label', 'Remove ' + s.name);
       del.style.cssText = 'background:none;border:0;color:inherit;font-size:16px;padding:6px 8px;opacity:.7';
       del.addEventListener('click', async function () {
         var j = await api('/api/skills/' + encodeURIComponent(s.name), 'DELETE');
@@ -54,14 +54,14 @@
     if (!/^https:\/\/github\.com\//i.test(url)) return say('cs-msg', 'Sirf https://github.com/... ka link chalega.', true);
     say('cs-msg', 'Install ho rahi hai…');
     var j = await api('/api/skills/install', 'POST', { url: url });
-    if (j.ok) { $('cs-url').value = ''; say('cs-msg', (j.installed || []).length + ' skill install ho gayi ✓'); loadSkills(); }
+    if (j.ok) { $('cs-url').value = ''; say('cs-msg', (j.installed || []).length + ' skill install ho gayi'); loadSkills(); }
     else say('cs-msg', j.error, true);
   }
   function useCodeMode() {
     state.model = 'claudecode';
     try { localStorage.setItem('aureon_model', 'claudecode'); } catch (e) { /* blocked */ }
     var pill = $('model-pill'); if (pill && typeof MODEL_LABELS !== 'undefined') pill.textContent = MODEL_LABELS.claudecode;
-    say('cs-msg', 'Code mode chalu ✓ — ab chat mein likho.');
+    say('cs-msg', 'Code mode chalu — ab chat mein likho.');
   }
 
   function wire() {

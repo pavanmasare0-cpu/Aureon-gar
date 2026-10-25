@@ -6,11 +6,51 @@
 <title>Aureon AI</title>
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="themes.css" />
+<link rel="stylesheet" href="pro-ui.css" />
 <script>(function(){try{var t=localStorage.getItem("aureon_theme")||"nebula";if(t!=="classic")document.documentElement.setAttribute("data-theme",t);}catch(e){document.documentElement.setAttribute("data-theme","nebula");}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-9 9"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+<symbol id="i-chat-plus" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M12 9v6M9 12h6"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 7 3 3v2H7v-2l3-3z"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+<symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2L3 14h8l-1 8 10-12h-8z"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></symbol>
+<symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2.2h12.4a1.5 1.5 0 0 0 1.3-2.2L14 9V3M7.5 15h9"/></symbol>
+<symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5L21 12.6 12.6 21a2.1 2.1 0 0 1-3-3L18 9.6"/><path d="M14.7 6.3L17 4l3 3-2.3 2.3"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V5M7 9l5-5 5 5M5 20h14"/></symbol>
+<symbol id="i-pin-off" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 7 3 3v2H7v-2l3-3zM3 3l18 18"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+</defs></svg>
 
   <!-- ===== SPLASH / STARTING ANIMATION ===== -->
   <section id="screen-splash" class="screen active splash-screen">
@@ -56,7 +96,7 @@
   <!-- ===== VERIFY EMAIL NOTICE SCREEN ===== -->
   <section id="screen-verify" class="screen auth-screen">
     <div class="auth-body">
-      <span class="hero-mark">✉️</span>
+      <span class="auth-ic"><svg class="ic" aria-hidden="true"><use href="#i-mail"/></svg></span>
       <h1 class="auth-title">Verify your email</h1>
       <p class="auth-sub">We sent a verification link to <span id="verify-email-addr">your email</span>. Open it, then tap below.</p>
       <button class="primary-btn" id="btn-ive-verified">I've verified — Continue</button>
@@ -68,7 +108,7 @@
   <!-- ===== FORGOT PASSWORD SCREEN ===== -->
   <section id="screen-forgot" class="screen auth-screen">
     <div class="auth-body">
-      <span class="hero-mark">🔑</span>
+      <span class="auth-ic"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg></span>
       <h1 class="auth-title">Reset password</h1>
       <p class="auth-sub">Enter your email — we'll send a reset link</p>
       <div id="forgot-error" class="auth-error hidden"></div>
@@ -81,7 +121,7 @@
   <!-- ===== HOME / DASHBOARD SCREEN ===== -->
   <section id="screen-home" class="screen">
     <header class="topbar topbar-minimal">
-      <button class="icon-btn" id="btn-menu" aria-label="Menu">☰</button>
+      <button class="icon-btn" id="btn-menu" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
     </header>
 
     <div class="home-body">
@@ -94,10 +134,10 @@
     <div class="composer-dock">
       <input id="home-input" type="text" placeholder="Ask anything..." autocomplete="off" />
       <div class="composer-actions">
-        <button class="icon-btn plain" id="btn-attach" aria-label="Attach file">➕</button>
+        <button class="icon-btn plain" id="btn-attach" aria-label="Attach file"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <div class="composer-spacer"></div>
-        <button class="icon-btn circle" id="btn-mic" aria-label="Voice input">🎤</button>
-        <button class="icon-btn circle send" id="btn-send-home" aria-label="Send">➤</button>
+        <button class="icon-btn circle" id="btn-mic" aria-label="Voice input"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></button>
+        <button class="icon-btn circle send" id="btn-send-home" aria-label="Send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></button>
       </div>
     </div>
   </section>
@@ -106,15 +146,51 @@
   <div id="drawer" class="drawer hidden">
     <div class="drawer-backdrop"></div>
     <div class="drawer-body">
-      <button class="primary-btn" id="btn-new-chat">+ New Chat</button>
-      <div class="section-label" style="margin-top:18px;">Recent chats</div>
-      <div id="drawer-recent-list" class="recent-list">
-        <div class="empty-hint">No chats yet — start one below.</div>
+      <div class="dr-head">
+        <span class="dr-brand">Aureon</span>
+        <button class="icon-btn" id="btn-drawer-close" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
-      <div class="drawer-footer">
-        <button class="drawer-link" id="btn-drawer-knowledge">📚 My Documents</button>
-        <button class="drawer-link" id="btn-drawer-settings">⚙ Settings</button>
+      <nav class="dr-nav">
+        <button class="dr-item" id="btn-drawer-projects"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span>Projects</span></button>
+        <button class="dr-item" id="btn-drawer-knowledge"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>My Documents</span></button>
+        <button class="dr-item" id="btn-drawer-settings"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span></button>
+      </nav>
+      <div class="dr-scroll">
+        <div id="drawer-pinned-wrap" class="hidden">
+          <div class="dr-sec">Pinned</div>
+          <div id="drawer-pinned-list" class="recent-list"></div>
+        </div>
+        <div class="dr-sec">Recents</div>
+        <div id="drawer-recent-list" class="recent-list">
+          <div class="empty-hint">No chats yet — start one below.</div>
+        </div>
       </div>
+      <div class="dr-foot">
+        <button class="dr-avatar" id="dr-avatar" aria-label="Account">A</button>
+        <button class="dr-new" id="btn-new-chat"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><span>New chat</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PROJECTS SHEET ===== -->
+  <div id="sheet-projects" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body">
+      <div class="sheet-handle"></div>
+      <div class="sum-head"><span class="sum-sp"></span><div class="sum-title">Projects</div><button class="sum-x" id="proj-close" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+      <button class="dr-new proj-new" id="btn-project-new"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><span>New project</span></button>
+      <div id="projects-list" class="proj-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== SUMMARY SHEET (coding steps) ===== -->
+  <div id="sheet-summary" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body summary-body">
+      <div class="sheet-handle"></div>
+      <div class="sum-head"><button class="sum-x" id="sum-close" aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button><div class="sum-title">Summary</div><span class="sum-sp"></span></div>
+      <div id="sum-list" class="sum-list"></div>
+      <div id="sum-actions" class="sum-actions"></div>
     </div>
   </div>
 
@@ -127,7 +203,7 @@
       <p class="setting-hint">Upload PDFs, Word docs, or text files — Aureon will read them and use them to answer your questions.</p>
 
       <input type="file" id="knowledge-file-input" accept=".pdf,.docx,.txt,.zip,application/pdf,application/zip,application/x-zip-compressed,application/octet-stream" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
-      <button class="primary-btn" id="btn-upload-knowledge">+ Upload Document</button>
+      <button class="primary-btn" id="btn-upload-knowledge"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg> Upload Document</button>
       <div id="knowledge-upload-status" class="setting-hint hidden"></div>
 
       <div class="section-label" style="margin-top:18px;">Uploaded</div>
@@ -145,12 +221,12 @@
   <!-- ===== CHAT SCREEN ===== -->
   <section id="screen-chat" class="screen">
     <header class="topbar">
-      <button class="icon-btn" id="btn-back" aria-label="Back">←</button>
+      <button class="icon-btn" id="btn-back" aria-label="Open sidebar"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
       <div class="chat-title">
         <span id="chat-title-text">New chat</span>
         <span class="model-pill" id="model-pill">Fast</span>
       </div>
-      <button class="icon-btn" id="btn-model-switch" aria-label="Switch model">🤖</button>
+      <div class="topbar-right"><button class="icon-btn" id="btn-model-switch" aria-label="Switch model"><svg class="ic" aria-hidden="true"><use href="#i-cpu"/></svg></button><button class="icon-btn" id="btn-chat-new" aria-label="New chat"><svg class="ic" aria-hidden="true"><use href="#i-chat-plus"/></svg></button></div>
     </header>
 
     <div id="messages" class="messages"></div>
@@ -164,20 +240,20 @@
         <div class="attach-card">
           <img id="image-preview-thumb" class="image-preview-thumb hidden" />
           <span id="file-preview-label" class="attach-file-icon hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-          <button id="btn-remove-image" class="attach-remove-btn" aria-label="Remove attachment">✕</button>
+          <button id="btn-remove-image" class="attach-remove-btn" aria-label="Remove attachment"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
         </div>
         <span id="attach-name" class="attach-name"></span>
       </div>
       <input id="chat-input" type="text" placeholder="Message Aureon..." autocomplete="off" />
       <div class="composer-actions">
-        <button class="icon-btn plain" id="btn-attach-2" aria-label="Attach file">➕</button>
+        <button class="icon-btn plain" id="btn-attach-2" aria-label="Attach file"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>
         <input id="image-input" type="file" accept="image/*" multiple style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
         <input id="file-input" type="file" accept="video/*,.pdf,.doc,.docx,.txt,.zip,application/pdf,application/zip,application/x-zip-compressed,application/octet-stream,text/plain" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" />
-        <button class="icon-btn plain" id="btn-generate-image" aria-label="Generate or edit image" title="Type a description, then tap to generate — or attach a photo first to edit it">🎨</button>
-        <button class="icon-btn plain" id="btn-love-camera" aria-label="Love Camera" title="Point your camera at a question to get a live answer">📷</button>
+        <button class="icon-btn plain" id="btn-generate-image" aria-label="Generate or edit image" title="Type a description, then tap to generate — or attach a photo first to edit it"><svg class="ic" aria-hidden="true"><use href="#i-sparkle"/></svg></button>
+        <button class="icon-btn plain" id="btn-love-camera" aria-label="Love Camera" title="Point your camera at a question to get a live answer"><svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg></button>
         <div class="composer-spacer"></div>
-        <button class="icon-btn circle" id="btn-mic-2" aria-label="Voice input">🎤</button>
-        <button class="icon-btn circle send" id="btn-send-chat" aria-label="Send">➤</button>
+        <button class="icon-btn circle" id="btn-mic-2" aria-label="Voice input"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></button>
+        <button class="icon-btn circle send" id="btn-send-chat" aria-label="Send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></button>
       </div>
     </div>
   </section>
@@ -188,13 +264,13 @@
     <div class="sheet-body">
       <div class="sheet-handle"></div>
       <div class="section-label">AI Model</div>
-      <button class="sheet-option" data-model="openai">⚡ OpenAI — Fast</button>
-      <button class="sheet-option" data-model="claude">🧠 Smart</button>
-      <button class="sheet-option" data-model="gemini">🔬 Gemini — Research</button>
-      <button class="sheet-option" data-model="groq">🚀 Groq — Fastest</button>
-      <button class="sheet-option" data-model="claudecode">🧑‍💻 Code mode — skills + coding</button>
-      <button class="sheet-option" data-model="coding">💻 Coding — all keys, chat + actions</button>
-      <button class="sheet-option" data-model="local">🔒 Local — Private</button>
+      <button class="sheet-option" data-model="openai"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg><span class="so-t"><b>OpenAI</b><i>Fast</i></span></button>
+      <button class="sheet-option" data-model="claude"><svg class="ic" aria-hidden="true"><use href="#i-sparkle"/></svg><span class="so-t"><b>Smart</b><i>Best answers</i></span></button>
+      <button class="sheet-option" data-model="gemini"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><span class="so-t"><b>Gemini</b><i>Research</i></span></button>
+      <button class="sheet-option" data-model="groq"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg><span class="so-t"><b>Groq</b><i>Fastest</i></span></button>
+      <button class="sheet-option" data-model="claudecode"><svg class="ic" aria-hidden="true"><use href="#i-code"/></svg><span class="so-t"><b>Code mode</b><i>Skills + coding</i></span></button>
+      <button class="sheet-option" data-model="coding"><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg><span class="so-t"><b>Coding</b><i>All keys, chat + actions</i></span></button>
+      <button class="sheet-option" data-model="local"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span class="so-t"><b>Local</b><i>Private</i></span></button>
     </div>
   </div>
 
@@ -204,7 +280,7 @@
     <div class="sheet-body">
       <div class="sheet-handle"></div>
       <div class="settings-head">
-        <button class="settings-back hidden" id="settings-back" aria-label="Back">
+        <button class="settings-back" id="settings-back" aria-label="Back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <div class="settings-title" id="settings-title">Settings</div>
@@ -301,7 +377,7 @@
           <p class="card-sub">Koi bhi app jodo — <b>MCP server</b>, <b>REST API</b> ya <b>Webhook</b> (Slack, Discord, Zapier, Make, n8n...). Phir Aureon ko seedhi bhasha me kaam batao, wo apne aap us app ko chalayegi. Token server par encrypt hoke rehta hai, app ko wapas kabhi nahi aata.</p>
           <div class="section-label" style="margin-top:12px">Jude hue apps <span id="ap-count"></span></div>
           <div id="ap-list"></div>
-          <button class="primary-btn" id="ap-toggle" style="width:100%;margin:8px 0">➕ App jodo</button>
+          <button class="primary-btn" id="ap-toggle" style="width:100%;margin:8px 0">App jodo</button>
           <div id="ap-form" class="hidden">
             <select id="ap-preset" class="text-input"></select>
             <input id="ap-name" class="text-input" style="margin-top:8px" placeholder="Naam (jaise Notion, GitHub, Slack)" maxlength="40" autocomplete="off">
@@ -321,7 +397,7 @@
 
           <div class="section-label" style="margin-top:18px">Automations <span id="au-count"></span></div>
           <div id="au-list"></div>
-          <button class="primary-btn" id="au-toggle" style="width:100%;margin:8px 0">➕ Nayi automation</button>
+          <button class="primary-btn" id="au-toggle" style="width:100%;margin:8px 0">Nayi automation</button>
           <div id="au-form" class="hidden">
             <input id="au-name" class="text-input" placeholder="Naam (jaise Roz subah summary)" maxlength="60" autocomplete="off">
             <textarea id="au-text" class="text-input" rows="4" style="margin-top:8px" maxlength="2000" placeholder="Kya karna hai? Jaise: Mere GitHub repos me naye issues dekho aur Slack pe summary bhejo."></textarea>
@@ -360,6 +436,10 @@
         </section>
 
         <section class="settings-card settings-pane hidden" data-pane="general" data-title="General">
+          <div class="setting-row">
+            <span>English interface <small style="display:block;opacity:.6;font-size:12px">Turn off to show settings in Hinglish</small></span>
+            <label class="switch"><input type="checkbox" id="toggle-ui-en" checked><span class="slider"></span></label>
+          </div>
           <div class="setting-row">
             <span>Response streaming</span>
             <label class="switch"><input type="checkbox" id="toggle-stream" checked><span class="slider"></span></label>
@@ -457,6 +537,7 @@
   <script src="theme.js"></script>
   <script src="lang-ui.js"></script>
   <script src="video-ui.js"></script>
+  <script src="settings-i18n.js"></script>
   <script src="ava-bot.js"></script>
 </body>
 </html>

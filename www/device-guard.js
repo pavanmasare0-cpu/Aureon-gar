@@ -15,8 +15,8 @@
     el.innerHTML = '<div style="padding:12px;border-radius:12px;border:1px solid var(--border-gold);background:var(--cream);font-size:13px;line-height:1.5' + (cls ? ';color:' + cls : '') + '">' + msg + '</div>';
   }
   function levelLine(r) {
-    var icon = r.level === 'GOOD' ? '✅' : r.level === 'ATTENTION' ? '⚠️' : '🚨';
-    return icon + ' <b>Score ' + r.score + '/100 — ' + esc(r.level) + '</b><br>' + r.findings + ' issue(s) mile. Details dekhne ke liye Security dashboard → My Phone kholo.';
+    var lv = r.level === 'GOOD' ? 'good' : r.level === 'ATTENTION' ? 'warn' : 'bad';
+    return '<span class="dg-dot dg-' + lv + '"></span><b>Score ' + r.score + '/100 — ' + esc(r.level) + '</b><br>' + r.findings + ' issue(s) mile. Details dekhne ke liye Security dashboard → My Phone kholo.';
   }
   function renderLast() {
     var sub = $('sub-phoneguard'), raw = get(LAST), r = null;

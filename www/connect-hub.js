@@ -40,9 +40,9 @@
       row.appendChild(btn('Test', async function () {
         say('ap-msg', a.name + ' test ho raha hai…');
         var j = await api('/apps/' + encodeURIComponent(a.id) + '/test', 'POST');
-        say('ap-msg', j.ok ? a.name + ': chal raha hai ✓' + (j.info && j.info.tools != null ? ' (' + j.info.tools + ' tools)' : '') : a.name + ': ' + j.error, !j.ok);
+        say('ap-msg', j.ok ? a.name + ': chal raha hai' + (j.info && j.info.tools != null ? ' (' + j.info.tools + ' tools)' : '') : a.name + ': ' + j.error, !j.ok);
       }));
-      row.appendChild(btn('✕', async function () {
+      row.appendChild(btn('Hatao', async function () {
         var j = await api('/apps/' + encodeURIComponent(a.id), 'DELETE');
         if (j.ok) loadAll(); else say('ap-msg', j.error, true);
       }, 'padding:6px 9px'));
@@ -64,11 +64,11 @@
     var names = {}; S.apps.forEach(function (a) { names[a.id] = a.name; });
     S.autos.forEach(function (a) {
       var card = el('div', 'padding:10px 0;border-top:1px solid rgba(255,255,255,.1)');
-      card.appendChild(el('div', 'font-weight:600;font-size:14px', (a.enabled ? '🟢 ' : '⚪ ') + a.name));
+      card.appendChild(el('div', 'font-weight:600;font-size:14px', (a.enabled ? 'Chalu · ' : 'Band · ') + a.name));
       card.appendChild(el('div', 'font-size:12px;opacity:.75;margin-top:2px;overflow-wrap:anywhere', a.instruction));
       card.appendChild(el('div', 'font-size:11px;opacity:.55;margin-top:3px', trigTxt(a.trigger) + ' · ' + (a.appIds || []).map(function (i) { return names[i] || '?'; }).join(', ') + (a.allowWrite ? ' · changes allowed' : ' · read-only')));
       if (a.lastRun) {
-        var lr = el('div', 'font-size:12px;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.06);overflow-wrap:anywhere', (a.lastRun.ok ? '✓ ' : '✗ ') + a.lastRun.text);
+        var lr = el('div', 'font-size:12px;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.06);overflow-wrap:anywhere', (a.lastRun.ok ? 'OK · ' : 'Fail · ') + a.lastRun.text);
         card.appendChild(lr);
         card.appendChild(el('div', 'font-size:10.5px;opacity:.5;margin-top:2px', agoTxt(a.lastRun.at) + ' · ' + (a.lastRun.steps || []).length + ' tool calls'));
       }
@@ -79,11 +79,11 @@
         if (!j.ok) say('au-msg', j.error, true); loadAll();
       }));
       bar.appendChild(btn(a.enabled ? 'Band karo' : 'Chalu karo', async function () { await api('/automations/' + encodeURIComponent(a.id), 'PATCH', { enabled: !a.enabled }); loadAll(); }));
-      if (a.trigger.type === 'webhook') bar.appendChild(btn('🔗 Naya link', async function () {
+      if (a.trigger.type === 'webhook') bar.appendChild(btn('Naya link', async function () {
         var j = await api('/automations/' + encodeURIComponent(a.id) + '/hook-reset', 'POST');
         say('au-msg', j.ok ? 'Webhook link (sirf abhi dikhega, copy kar lo):\n' + j.hookUrl : j.error, !j.ok);
       }));
-      bar.appendChild(btn('🗑', async function () { var j = await api('/automations/' + encodeURIComponent(a.id), 'DELETE'); if (j.ok) loadAll(); else say('au-msg', j.error, true); }));
+      bar.appendChild(btn('Delete', async function () { var j = await api('/automations/' + encodeURIComponent(a.id), 'DELETE'); if (j.ok) loadAll(); else say('au-msg', j.error, true); }));
       card.appendChild(bar); box.appendChild(card);
     });
   }
@@ -117,7 +117,7 @@
     var j = await api('/apps', 'POST', { name: $('ap-name').value, kind: preset.kind, url: $('ap-url').value, authType: $('ap-auth').value, headerName: $('ap-hname').value, token: $('ap-token').value, headers: extra });
     if (j.ok) {
       $('ap-token').value = ''; $('ap-form').classList.add('hidden');
-      say('ap-msg', 'Jud gaya ✓' + (j.info && j.info.tools != null ? ' (' + j.info.tools + ' tools mile)' : '')); loadAll();
+      say('ap-msg', 'Jud gaya' + (j.info && j.info.tools != null ? ' (' + j.info.tools + ' tools mile)' : '')); loadAll();
     } else say('ap-msg', j.error, true);
   }
   async function saveAuto() {
@@ -128,7 +128,7 @@
     var j = await api('/automations', 'POST', { name: $('au-name').value, instruction: $('au-text').value, appIds: ids, allowWrite: $('au-write').checked, trigger: { type: type, everyMin: Number($('au-every').value) } });
     if (j.ok) {
       $('au-name').value = ''; $('au-text').value = ''; $('au-form').classList.add('hidden');
-      say('au-msg', j.hookUrl ? 'Ban gayi ✓ Webhook link (sirf abhi dikhega, copy kar lo):\n' + j.hookUrl : 'Ban gayi ✓'); loadAll();
+      say('au-msg', j.hookUrl ? 'Ban gayi. Webhook link (sirf abhi dikhega, copy kar lo):\n' + j.hookUrl : 'Ban gayi'); loadAll();
     } else say('au-msg', j.error, true);
   }
 

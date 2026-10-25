@@ -38,6 +38,42 @@ function isAgentOn() {
 const MODEL_LABELS = { openai: 'Fast', claude: 'Smart', gemini: 'Research', groq: 'Fastest', coding: 'Coding', claudecode: 'Code mode', local: 'Private' };
 
 const $ = (id) => document.getElementById(id);
+// Line-icon helper (sprite lives at the top of index.html). Usage: el.innerHTML = ic('pin') + ' Pin'
+function ic(name, cls) { return '<svg class="ic' + (cls ? ' ' + cls : '') + '" aria-hidden="true"><use href="#i-' + name + '"/></svg>'; }
+const escHtml = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// In-app dialogs: window.prompt/confirm are unreliable in the Android WebView, so Rename / Delete / New project use these.
+function askText(title, value, placeholder, okLabel) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'pro-modal';
+    wrap.innerHTML = '<div class="pm-card"><div class="pm-title">' + escHtml(title) + '</div>'
+      + '<input class="pm-input" type="text" maxlength="60" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="' + escHtml(placeholder || '') + '">'
+      + '<div class="pm-row"><button class="pm-btn" data-r="no">Cancel</button><button class="pm-btn pm-primary" data-r="ok">' + escHtml(okLabel || 'Save') + '</button></div></div>';
+    document.body.appendChild(wrap);
+    const inp = wrap.querySelector('.pm-input'); inp.value = value || '';
+    const done = (v) => { wrap.remove(); resolve(v); };
+    wrap.querySelector('[data-r=ok]').onclick = () => done(inp.value.trim());
+    wrap.querySelector('[data-r=no]').onclick = () => done(null);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(inp.value.trim()); if (e.key === 'Escape') done(null); });
+    setTimeout(() => { inp.focus(); inp.select(); }, 60);
+  });
+}
+function askConfirm(title, body, okLabel, danger) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'pro-modal';
+    wrap.innerHTML = '<div class="pm-card"><div class="pm-title">' + escHtml(title) + '</div>'
+      + (body ? '<div class="pm-body">' + escHtml(body) + '</div>' : '')
+      + '<div class="pm-row"><button class="pm-btn" data-r="no">Cancel</button><button class="pm-btn ' + (danger ? 'pm-danger' : 'pm-primary') + '" data-r="ok">' + escHtml(okLabel || 'OK') + '</button></div></div>';
+    document.body.appendChild(wrap);
+    const done = (v) => { wrap.remove(); resolve(v); };
+    wrap.querySelector('[data-r=ok]').onclick = () => done(true);
+    wrap.querySelector('[data-r=no]').onclick = () => done(false);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(false); });
+  });
+}
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -54,12 +90,15 @@ $('btn-drawer-settings').onclick = () => { closeDrawer(); openSheet('sheet-setti
 // ---------- Side drawer (☰ menu) ----------
 function openDrawer() {
   $('drawer').classList.remove('hidden');
+  const av = $('dr-avatar'); if (av) av.textContent = ((state.user && (state.user.displayName || state.user.email)) || 'A').trim().charAt(0).toUpperCase();
+  renderRecent();
   // Voice conversations are saved from the native side while the app may
   // be closed — pull the latest so they show up without a restart.
   if (typeof loadChatsFromCloud === 'function') loadChatsFromCloud();
 }
 function closeDrawer() { $('drawer').classList.add('hidden'); }
 $('btn-menu').onclick = openDrawer;
+$('btn-drawer-close').onclick = closeDrawer;
 document.querySelector('#drawer .drawer-backdrop').onclick = closeDrawer;
 $('btn-new-chat').onclick = () => { closeDrawer(); startChatFrom(''); };
 
@@ -92,7 +131,11 @@ function startChatFrom(text) {
 }
 
 // ---------- Chat screen ----------
-$('btn-back').onclick = () => { renderRecent(); showScreen('screen-home'); };
+$('btn-back').onclick = openDrawer;
+$('btn-chat-new').onclick = () => startChatFrom('');
+$('btn-drawer-projects').onclick = () => { closeDrawer(); renderProjects(); openSheet('sheet-projects'); };
+$('dr-avatar').onclick = () => { closeDrawer(); openSheet('sheet-settings'); };
+$('proj-close').onclick = () => closeSheet('sheet-projects');
 $('btn-send-chat').onclick = sendMessage;
 
 $('btn-generate-image').onclick = async () => {
@@ -107,7 +150,7 @@ $('btn-generate-image').onclick = async () => {
 
   const input = $('chat-input');
   const prompt = input.value.trim();
-  if (!prompt) { alert('Type a description first, then tap 🎨 to generate an image from it.'); return; }
+  if (!prompt) { alert('Type a description first, then tap the sparkle button to generate an image from it.'); return; }
   input.value = '';
 
   const editingImage = state.pendingImage && state.pendingImage.mimeType && state.pendingImage.mimeType.startsWith('image/')
@@ -118,7 +161,7 @@ $('btn-generate-image').onclick = async () => {
     $('chat-title-text').textContent = prompt.slice(0, 28) + (prompt.length > 28 ? '…' : '');
   }
 
-  addMessage('user', editingImage ? `✏️ Edit: ${prompt}` : `🎨 Generate: ${prompt}`);
+  addMessage('user', editingImage ? `Edit: ${prompt}` : `Generate: ${prompt}`);
   if (editingImage) {
     state.pendingImages = []; renderImageStrip();
     state.pendingImage = null;
@@ -160,7 +203,7 @@ $('owner-photo-input').addEventListener('change', (e) => {
       const actions = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AureonActions;
       if (!actions || !actions.saveOwnerPhoto) throw new Error('Only available in the Aureon app.');
       await actions.saveOwnerPhoto({ base64 });
-      statusEl.textContent = `✓ Saved — Love Camera will now recognize you.`;
+      statusEl.textContent = `Saved — Love Camera will now recognize you.`;
     } catch (err) {
       statusEl.textContent = `Couldn't save: ${err.message || err}`;
     }
@@ -308,7 +351,7 @@ function buildCodeBlock(lang, code) {
   copyBtn.textContent = 'Copy';
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(code).then(() => {
-      copyBtn.textContent = 'Copied ✓';
+      copyBtn.textContent = 'Copied';
       setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
     }).catch(() => {
       copyBtn.textContent = "Couldn't copy";
@@ -394,6 +437,7 @@ function messagesForBackendText(messages) {
   messages.forEach((m, i) => {
     if (m && m.role === 'user' && typeof m.content === 'string' && m.content.includes(ATTACH_MARK)) last = i;
   });
+  messages = messages.map((m) => (m && m.steps) ? (({ steps, ...r }) => r)(m) : m);
   return messages.map((m, i) => {
     if (m && m.role === 'user' && typeof m.content === 'string' && i !== last && m.content.includes(ATTACH_MARK)) {
       const { text, file } = splitAttachment(m.content);
@@ -473,7 +517,7 @@ function addMessage(role, text, wantsPdf = false, imageDataUrl = null, videoData
   if (role === 'ai' && wantsPdf) {
     const pdfBtn = document.createElement('button');
     pdfBtn.className = 'pdf-export-btn';
-    pdfBtn.textContent = '📄 Save as PDF';
+    pdfBtn.innerHTML = ic('download') + '<span>Save as PDF</span>';
     pdfBtn.onclick = () => exportMessageAsPdf(text);
     div.appendChild(document.createElement('br'));
     div.appendChild(pdfBtn);
@@ -554,8 +598,8 @@ function showAttachSheet(beforeOpen) {
     b.style.cssText = 'display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:none;border:0;color:inherit;font:inherit;padding:14px 10px;border-radius:12px;cursor:pointer';
     b.innerHTML = '<span style="font-size:22px;width:28px;text-align:center">' + icon + '</span><span><div>' + label + '</div><div style="font-weight:500;font-size:12px;color:#A69C87;margin-top:2px">' + sub + '</div></span>';
     b.onclick = () => { close(); if (beforeOpen) beforeOpen(); setTimeout(fn, 0); }; sheet.appendChild(b); };
-  row('🖼️', 'Photos', 'Ek saath kai photos chuno', () => $('image-input').click());
-  row('📄', 'Files', 'PDF, zip, doc, txt, video', () => $('file-input').click());
+  row(ic('image'), 'Photos', 'Ek saath kai photos chuno', () => $('image-input').click());
+  row(ic('file'), 'Files', 'PDF, zip, doc, txt, video', () => $('file-input').click());
   wrap.onclick = (e) => { if (e.target === wrap) close(); };
   wrap.appendChild(sheet); document.body.appendChild(wrap);
   requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
@@ -619,7 +663,7 @@ $('image-input')?.addEventListener('change', (e) => {
       state.pendingImage = { mimeType, data }; // same field the backend already forwards as inlineData
       $('image-preview-thumb').classList.add('hidden');
       $('file-preview-label').classList.remove('hidden');
-      $('attach-name').textContent = `🎬 ${file.name}`;
+      $('attach-name').textContent = `${file.name}`;
       $('image-preview-bar').classList.remove('hidden');
     };
     reader.readAsDataURL(file);
@@ -712,16 +756,16 @@ async function handleVideoEdit(pendingVideo) {
     const end = prompt('End time in seconds (e.g. 15)');
     if (end === null) return;
     params = { startSeconds: Number(start) || 0, endSeconds: end ? Number(end) : null };
-    label = `✂️ Trim ${params.startSeconds}s–${params.endSeconds ?? '…'}s`;
+    label = `Trim ${params.startSeconds}s–${params.endSeconds ?? '…'}s`;
   } else if (op === 'caption') {
     const text = prompt('Caption text to burn into the video:');
     if (!text) return;
     params = { text };
-    label = `✂️ Caption: ${text}`;
+    label = `Caption: ${text}`;
   } else if (op === 'convert') {
     const format = (prompt('Target format (mp4 or webm):', 'mp4') || 'mp4').trim().toLowerCase();
     params = { format };
-    label = `✂️ Convert to .${format}`;
+    label = `Convert to .${format}`;
   } else {
     alert('Unrecognized option — type exactly: trim, caption, or convert.');
     return;
@@ -841,7 +885,7 @@ async function sendMessage() {
     } else {
       const m = err.message || '';
       if (/failed to fetch|networkerror|load failed|network request failed/i.test(m)) {
-        addMessage('error', `Couldn't reach the AI backend. ${m}\n\nCheck your internet and the backend URL in Settings (⚙).`);
+        addMessage('error', `Couldn't reach the AI backend. ${m}\n\nCheck your internet and the backend URL in Settings (Settings).`);
       } else {
         addMessage('error', `AI backend ne error diya. ${m}`);
       }
@@ -993,8 +1037,10 @@ async function runAgentTurn(wantsPdf, depth = 0) {
 
   $('typing-indicator').classList.add('hidden');
   const reply = result.reply || '(empty response)';
-  addMessage('ai', reply, wantsPdf);
-  state.currentMessages.push({ role: 'assistant', content: reply });
+  const replyDiv = addMessage('ai', reply, wantsPdf);
+  const aiMsg = { role: 'assistant', content: reply };
+  if (Array.isArray(result.steps) && result.steps.length) { aiMsg.steps = result.steps; attachSummaryChip(replyDiv, aiMsg.steps, aiMsg); }
+  state.currentMessages.push(aiMsg);
   saveChatSnapshot();
 }
 
@@ -1174,27 +1220,27 @@ async function executeAgentAction(name, args) {
 
 function describeAgentAction(name, args, result) {
   switch (name) {
-    case 'get_battery': return `🔋 Battery: ${result.level}%${result.charging ? ' (charging)' : ''}`;
-    case 'open_app': return `📱 Opened ${result.opened || args.app_name}`;
-    case 'open_love_camera': return `📷 Opened Love Camera`;
-    case 'make_call': return `📞 Calling ${args.number}…`;
-    case 'send_sms': return `✉️ Sent to ${args.number}`;
-    case 'set_alarm': return `⏰ Alarm set for ${result.alarmSet || `${args.hour}:${args.minute}`}`;
-    case 'search_web': return `🔎 Searching: ${args.query}`;
-    case 'open_url': return `🔗 Opened ${result.opened || args.url}`;
-    case 'play_music': return `🎵 Playing: ${args.query}`;
-    case 'play_youtube': return `▶️ Playing on YouTube: ${args.query}`;
-    case 'compose_email': return `📧 Opened email draft: "${args.subject}"`;
-    case 'send_whatsapp_message': return `💬 Opened WhatsApp to ${args.contact_name || args.number} — tap Send to deliver it`;
-    case 'send_instagram_message': return `📩 Sent Instagram DM to ${args.contact_name}`;
-    case 'read_instagram_message': return `📖 Checked Instagram chat with ${args.contact_name}`;
-    case 'send_whatsapp_live_location': return `📍 Shared live location with ${args.contact_name} via WhatsApp`;
-    case 'fill_application_form': return result.loginRequired ? `🔐 Ye login page hai — pehle khud login karo, phir "form bhar do" bolo` : `📝 ${result.filled} field${result.filled === 1 ? '' : 's'} bhare${result.skipped && result.skipped.length ? `, ${result.skipped.length} tumhare liye chhode` : ''} — review karke Apply/Submit khud dabana`;
-    case 'start_job_applications': if (result.auto) return result.paused ? `⏸️ Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `✅ Auto-apply poora: ${result.appliedCount} apply hui`; return `🧑‍💼 ${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
-    case 'next_job_application': if (result.auto) return result.paused ? `⏸️ Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `✅ Auto-apply poora: ${result.appliedCount} apply hui`; return result.done ? `✅ Saari jobs ho gayi` : `➡️ Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
-    case 'job_application_report': return `📋 Applied: ${result.applied.length} · Skipped: ${result.skipped.length} · Baaki: ${result.pending.length}`;
-    case 'create_zip': return `🗜️ Zip ban gayi: ${result.zipped} (${result.fileCount} file${result.fileCount === 1 ? '' : 's'})`;
-    default: return '✅ Done';
+    case 'get_battery': return `Battery: ${result.level}%${result.charging ? ' (charging)' : ''}`;
+    case 'open_app': return `Opened ${result.opened || args.app_name}`;
+    case 'open_love_camera': return `Opened Love Camera`;
+    case 'make_call': return `Calling ${args.number}…`;
+    case 'send_sms': return `Sent to ${args.number}`;
+    case 'set_alarm': return `Alarm set for ${result.alarmSet || `${args.hour}:${args.minute}`}`;
+    case 'search_web': return `Searching: ${args.query}`;
+    case 'open_url': return `Opened ${result.opened || args.url}`;
+    case 'play_music': return `Playing: ${args.query}`;
+    case 'play_youtube': return `Playing on YouTube: ${args.query}`;
+    case 'compose_email': return `Opened email draft: "${args.subject}"`;
+    case 'send_whatsapp_message': return `Opened WhatsApp to ${args.contact_name || args.number} — tap Send to deliver it`;
+    case 'send_instagram_message': return `Sent Instagram DM to ${args.contact_name}`;
+    case 'read_instagram_message': return `Checked Instagram chat with ${args.contact_name}`;
+    case 'send_whatsapp_live_location': return `Shared live location with ${args.contact_name} via WhatsApp`;
+    case 'fill_application_form': return result.loginRequired ? `Ye login page hai — pehle khud login karo, phir "form bhar do" bolo` : `${result.filled} field${result.filled === 1 ? '' : 's'} bhare${result.skipped && result.skipped.length ? `, ${result.skipped.length} tumhare liye chhode` : ''} — review karke Apply/Submit khud dabana`;
+    case 'start_job_applications': if (result.auto) return result.paused ? `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `Auto-apply poora: ${result.appliedCount} apply hui`; return `${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
+    case 'next_job_application': if (result.auto) return result.paused ? `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `Auto-apply poora: ${result.appliedCount} apply hui`; return result.done ? `Saari jobs ho gayi` : `Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
+    case 'job_application_report': return `Applied: ${result.applied.length} · Skipped: ${result.skipped.length} · Baaki: ${result.pending.length}`;
+    case 'create_zip': return `Zip ban gayi: ${result.zipped} (${result.fileCount} file${result.fileCount === 1 ? '' : 's'})`;
+    default: return 'Done';
   }
 }
 
@@ -1310,7 +1356,7 @@ async function handleImagePick(files) {
   $('image-preview-bar').classList.remove('hidden');
   let n = 0;
   for (const f of files) {
-    $('attach-name').textContent = `🗜️ photos tayyar ho rahi hain… ${++n}/${files.length}`;
+    $('attach-name').textContent = `Photos tayyar ho rahi hain… ${++n}/${files.length}`;
     try { state.pendingImages.push(await prepareImage(f, spec)); } catch (e) { console.error('photo skipped:', e); }
   }
   state.pendingImage = state.pendingImages[0] || null;
@@ -1328,12 +1374,12 @@ function renderImageStrip() {
   imgs.forEach((im, i) => {
     const w = document.createElement('div'); w.className = 'strip-item';
     const t = document.createElement('img'); t.src = im.thumb || `data:${im.mimeType};base64,${im.data}`; w.appendChild(t);
-    const x = document.createElement('button'); x.type = 'button'; x.className = 'strip-x'; x.textContent = '✕'; x.setAttribute('aria-label', 'Remove photo');
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'strip-x'; x.innerHTML = ic('x'); x.setAttribute('aria-label', 'Remove photo');
     x.onclick = () => { state.pendingImages.splice(i, 1); state.pendingImage = state.pendingImages[0] || null; if (!state.pendingImages.length) bar.classList.add('hidden'); renderImageStrip(); };
     w.appendChild(x); strip.appendChild(w);
   });
   if (imgs.length) { const more = document.createElement('button'); more.type = 'button'; more.className = 'strip-add'; more.textContent = '＋'; more.setAttribute('aria-label', 'Add more photos'); more.onclick = () => $('image-input').click(); strip.appendChild(more); }
-  $('attach-name').textContent = imgs.length ? `📷 ${imgs.length} photo${imgs.length > 1 ? 's' : ''}` : '';
+  $('attach-name').textContent = imgs.length ? `${imgs.length} photo${imgs.length > 1 ? 's' : ''}` : '';
 }
 
 function addUserPhotosMessage(text, imgs) {
@@ -1371,19 +1417,16 @@ function saveChatSnapshot() {
   const title = (existingIdx >= 0 && state.chats[existingIdx].title)
     ? state.chats[existingIdx].title
     : state.currentMessages[0].content.slice(0, 40);
-  const snapshot = { id: state.activeChatId || `${Date.now()}`, title, messages: slimForStorage(state.currentMessages) };
+  const prev = existingIdx >= 0 ? state.chats[existingIdx] : null;
+  const snapshot = { id: state.activeChatId || `${Date.now()}`, title, messages: slimForStorage(state.currentMessages), pinned: !!(prev && prev.pinned), projectId: (prev && prev.projectId) || null };
   state.activeChatId = snapshot.id;
   if (existingIdx >= 0) state.chats[existingIdx] = snapshot;
   else state.chats.unshift(snapshot);
-  state.chats = state.chats.slice(0, 30);
-  try { localStorage.setItem('aureon_chats', JSON.stringify(state.chats)); }
-  catch (e) { try { state.chats = state.chats.slice(0, 10); localStorage.setItem('aureon_chats', JSON.stringify(state.chats)); } catch (e2) { console.warn('chat cache is full:', e2.message); } }
+  cacheChatsLocal();   // phone keeps only the latest few; the cloud keeps every chat
   saveChatToCloud(snapshot);
 }
 
-// Small floating menu next to a chat's ⋮ button. Fixed-positioned on
-// <body> (not inside the list) so the drawer list's own scrolling can't
-// clip it.
+// Small floating menu next to a chat's menu button. Fixed-positioned on <body> so the drawer list's own scrolling can't clip it.
 function openChatMenu(chat, anchorBtn) {
   closeChatMenu();
   const backdrop = document.createElement('div');
@@ -1394,28 +1437,28 @@ function openChatMenu(chat, anchorBtn) {
   const menu = document.createElement('div');
   menu.id = 'chat-menu';
   menu.className = 'chat-menu';
-
-  const renameBtn = document.createElement('button');
-  renameBtn.textContent = '✏️ Rename';
-  renameBtn.onclick = () => { closeChatMenu(); renameChat(chat); };
-  const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'danger';
-  deleteBtn.textContent = '🗑 Delete';
-  deleteBtn.onclick = () => { closeChatMenu(); deleteChat(chat); };
-  menu.appendChild(renameBtn);
-  menu.appendChild(deleteBtn);
+  const item = (icon, label, fn, cls) => {
+    const b = document.createElement('button');
+    if (cls) b.className = cls;
+    b.innerHTML = ic(icon) + '<span>' + label + '</span>';
+    b.onclick = () => { closeChatMenu(); fn(); };
+    menu.appendChild(b);
+  };
+  item('pencil', 'Rename', () => renameChat(chat));
+  item(chat.pinned ? 'pin-off' : 'pin', chat.pinned ? 'Unpin' : 'Pin', () => togglePinChat(chat));
+  item('folder', chat.projectId ? 'Change project' : 'Add to project', () => pickProjectForChat(chat));
+  item('trash', 'Delete', () => deleteChat(chat), 'danger');
 
   document.body.appendChild(backdrop);
   document.body.appendChild(menu);
 
   const rect = anchorBtn.getBoundingClientRect();
-  const menuWidth = 170;
+  const menuWidth = 228;
   menu.style.width = menuWidth + 'px';
   menu.style.left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)) + 'px';
-  // Open downward, unless there's no room below — then flip upward.
-  const menuHeight = 96;
+  const menuHeight = 4 * 52 + 12;
   const opensUp = rect.bottom + menuHeight + 8 > window.innerHeight;
-  menu.style.top = (opensUp ? rect.top - menuHeight : rect.bottom + 4) + 'px';
+  menu.style.top = Math.max(8, (opensUp ? rect.top - menuHeight : rect.bottom + 4)) + 'px';
 }
 
 function closeChatMenu() {
@@ -1425,31 +1468,47 @@ function closeChatMenu() {
   if (m) m.remove();
 }
 
+function persistChats() { cacheChatsLocal(); }
+
+/* The phone's own storage is small (~5 MB), so it only caches the newest chats + pinned ones for fast start.
+   Every chat lives in the cloud with no limit and is loaded page by page while scrolling. */
+function cacheChatsLocal() {
+  const pick = (n) => { let seen = 0; return state.chats.filter(c => c.pinned || (++seen <= n)); };
+  for (const n of [30, 10, 3]) {
+    try { localStorage.setItem('aureon_chats', JSON.stringify(pick(n))); return; } catch (e) { /* quota: try fewer */ }
+  }
+  console.warn('chat cache is full');
+}
+async function cloudPatchChat(chat, fields) {
+  if (!state.user) return;
+  try { await db.collection('users').doc(state.user.uid).collection('chats').doc(chat.id).update(fields); }
+  catch (err) { console.error('Failed to sync chat change to cloud:', err); }
+}
+
 async function renameChat(chat) {
-  const input = prompt('Rename chat', chat.title || '');
+  const input = await askText('Rename chat', chat.title || '', 'Chat name', 'Save');
   if (input === null) return; // cancelled
   const newTitle = input.trim().slice(0, 60);
   if (!newTitle || newTitle === chat.title) return;
-
   chat.title = newTitle;
-  localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  persistChats();
   if (chat.id === state.activeChatId) $('chat-title-text').textContent = newTitle;
   renderRecent();
+  cloudPatchChat(chat, { title: newTitle });
+}
 
-  if (state.user) {
-    try {
-      await db.collection('users').doc(state.user.uid).collection('chats').doc(chat.id).update({ title: newTitle });
-    } catch (err) {
-      console.error('Failed to sync chat rename to cloud:', err);
-    }
-  }
+function togglePinChat(chat) {
+  chat.pinned = !chat.pinned;
+  persistChats();
+  renderRecent();
+  cloudPatchChat(chat, { pinned: chat.pinned });
 }
 
 async function deleteChat(chat) {
-  if (!confirm('Delete this chat? This can\'t be undone.')) return;
+  if (!(await askConfirm('Delete chat?', 'This can\'t be undone.', 'Delete', true))) return;
 
   state.chats = state.chats.filter(c => c.id !== chat.id);
-  localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+  persistChats();
 
   // If it's the chat currently open, reset to a blank one — otherwise the
   // next message would silently re-create the chat we just deleted.
@@ -1470,14 +1529,110 @@ async function deleteChat(chat) {
   }
 }
 
+// ---------- Projects (folders for chats; stored on this phone, the chat's project link also syncs with the chat) ----------
+function loadProjects() { try { const p = JSON.parse(localStorage.getItem('aureon_projects') || '[]'); return Array.isArray(p) ? p : []; } catch (e) { return []; } }
+function saveProjects(list) { try { localStorage.setItem('aureon_projects', JSON.stringify(list)); } catch (e) { /* storage full */ } }
+state.projects = loadProjects();
+
+async function createProject() {
+  const name = await askText('New project', '', 'Project name', 'Create');
+  if (!name) return null;
+  const proj = { id: 'p' + Date.now(), name: name.slice(0, 40) };
+  state.projects.push(proj);
+  saveProjects(state.projects);
+  return proj;
+}
+
+function setChatProject(chat, projectId) {
+  chat.projectId = projectId || null;
+  persistChats();
+  renderRecent();
+  if ($('sheet-projects') && !$('sheet-projects').classList.contains('hidden')) renderProjects();
+  cloudPatchChat(chat, { projectId: chat.projectId });
+}
+
+function pickProjectForChat(chat) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pro-modal pm-bottom';
+  const card = document.createElement('div'); card.className = 'pm-card';
+  card.innerHTML = '<div class="pm-title">Add to project</div>';
+  const list = document.createElement('div'); list.className = 'pm-list';
+  const close = () => wrap.remove();
+  const row = (icon, label, fn, on) => { const b = document.createElement('button'); b.className = 'pm-item' + (on ? ' on' : ''); b.innerHTML = ic(icon) + '<span>' + escHtml(label) + '</span>' + (on ? ic('check', 'pm-tick') : ''); b.onclick = () => { close(); fn(); }; list.appendChild(b); };
+  state.projects.forEach(p => row('folder', p.name, () => setChatProject(chat, p.id), chat.projectId === p.id));
+  row('plus', 'New project', async () => { const np = await createProject(); if (np) setChatProject(chat, np.id); });
+  if (chat.projectId) row('x', 'Remove from project', () => setChatProject(chat, null));
+  card.appendChild(list);
+  wrap.appendChild(card);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  document.body.appendChild(wrap);
+}
+
+function renderProjects() {
+  const box = $('projects-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!state.projects.length) { box.innerHTML = '<div class="empty-hint">No projects yet. Create one, then use "Add to project" on any chat.</div>'; return; }
+  state.projects.forEach(proj => {
+    const chats = state.chats.filter(c => c.projectId === proj.id);
+    const card = document.createElement('div'); card.className = 'proj-card';
+    const head = document.createElement('button'); head.className = 'proj-head';
+    head.innerHTML = ic('folder') + '<span class="proj-name">' + escHtml(proj.name) + '</span><span class="proj-count">' + chats.length + '</span>' + ic('chev-r', 'proj-chev');
+    const body = document.createElement('div'); body.className = 'proj-body hidden';
+    if (!chats.length) body.innerHTML = '<div class="empty-hint">Empty.</div>';
+    chats.forEach(c => { const r = document.createElement('button'); r.className = 'proj-chat'; r.textContent = c.title || 'Chat'; r.onclick = () => { closeSheet('sheet-projects'); openChatFromHistory(c); }; body.appendChild(r); });
+    const tools = document.createElement('div'); tools.className = 'proj-tools';
+    const ren = document.createElement('button'); ren.innerHTML = ic('pencil') + '<span>Rename</span>';
+    ren.onclick = async () => { const n = await askText('Rename project', proj.name, 'Project name', 'Save'); if (n) { proj.name = n.slice(0, 40); saveProjects(state.projects); renderProjects(); } };
+    const del = document.createElement('button'); del.className = 'danger'; del.innerHTML = ic('trash') + '<span>Delete</span>';
+    del.onclick = async () => {
+      if (!(await askConfirm('Delete project?', 'Chats inside are kept; they just leave the project.', 'Delete', true))) return;
+      state.chats.filter(c => c.projectId === proj.id).forEach(c => setChatProject(c, null));
+      state.projects = state.projects.filter(p => p.id !== proj.id); saveProjects(state.projects); renderProjects();
+    };
+    tools.appendChild(ren); tools.appendChild(del); body.appendChild(tools);
+    head.onclick = () => { body.classList.toggle('hidden'); card.classList.toggle('open'); };
+    card.appendChild(head); card.appendChild(body); box.appendChild(card);
+  });
+}
+$('btn-project-new').onclick = async () => { const p = await createProject(); if (p) renderProjects(); };
+
+function openChatFromHistory(chat) {
+  try {
+    closeDrawer();
+    const messages = Array.isArray(chat.messages) ? chat.messages : [];
+    state.currentMessages = messages;
+    state.activeChatId = chat.id;
+    $('messages').innerHTML = '';
+    messages
+      .filter(m => m && m.content) // skip internal agent turns (functionCall/functionResponse have no content)
+      .forEach(m => {
+        if (m.role === 'user') {
+          // show what the user typed + a file chip — not the file's text
+          const sp = splitAttachment(m.content);
+          const shown = (m.display !== undefined) ? m.display : sp.text;
+          const file = m.file || sp.file;
+          if (shown) addMessage('user', shown);
+          if (file) addAttachmentChip(file);
+        } else {
+          const d = addMessage('ai', m.content);
+          if (m.steps && m.steps.length) attachSummaryChip(d, m.steps, m);
+        }
+      });
+    $('chat-title-text').textContent = chat.title || 'Chat';
+    showScreen('screen-chat');
+  } catch (err) {
+    console.error('Failed to open chat from history:', err);
+    showScreen('screen-home');
+    alert('Could not open that chat — it may be corrupted. Try another one.');
+  }
+}
+
 function renderRecent() {
   const list = $('drawer-recent-list');
-  if (state.chats.length === 0) {
-    list.innerHTML = '<div class="empty-hint">No chats yet — start one below.</div>';
-    return;
-  }
-  list.innerHTML = '';
-  state.chats.forEach(chat => {
+  const pinList = $('drawer-pinned-list');
+  const pinWrap = $('drawer-pinned-wrap');
+  const makeItem = (chat) => {
     const item = document.createElement('div');
     item.className = 'recent-item';
     const titleEl = document.createElement('span');
@@ -1487,44 +1642,106 @@ function renderRecent() {
     const menuBtn = document.createElement('button');
     menuBtn.className = 'recent-menu-btn';
     menuBtn.setAttribute('aria-label', 'Chat options');
-    menuBtn.textContent = '⋮';
+    menuBtn.innerHTML = ic('dots');
     menuBtn.onclick = (ev) => {
       ev.stopPropagation(); // don't also open the chat
       openChatMenu(chat, menuBtn);
     };
     item.appendChild(menuBtn);
-    item.onclick = () => {
-      try {
-        closeDrawer();
-        const messages = Array.isArray(chat.messages) ? chat.messages : [];
-        state.currentMessages = messages;
-        state.activeChatId = chat.id;
-        $('messages').innerHTML = '';
-        messages
-          .filter(m => m && m.content) // skip internal agent turns (functionCall/functionResponse have no content)
-          .forEach(m => {
-            if (m.role === 'user') {
-              // show what the user typed + a file chip — not the file's text
-              const sp = splitAttachment(m.content);
-              const shown = (m.display !== undefined) ? m.display : sp.text;
-              const file = m.file || sp.file;
-              if (shown) addMessage('user', shown);
-              if (file) addAttachmentChip(file);
-            } else {
-              addMessage('ai', m.content);
-            }
-          });
-        $('chat-title-text').textContent = chat.title || 'Chat';
-        showScreen('screen-chat');
-      } catch (err) {
-        console.error('Failed to open chat from history:', err);
-        addMessage && showScreen('screen-home');
-        alert('Could not open that chat — it may be corrupted. Try another one.');
-      }
-    };
-    list.appendChild(item);
+    // long-press = same menu (like the Claude app)
+    let lp = null;
+    item.addEventListener('touchstart', () => { lp = setTimeout(() => { lp = null; openChatMenu(chat, menuBtn); }, 520); }, { passive: true });
+    ['touchend', 'touchmove', 'touchcancel'].forEach(ev => item.addEventListener(ev, () => { if (lp) { clearTimeout(lp); lp = null; } }, { passive: true }));
+    item.onclick = () => openChatFromHistory(chat);
+    return item;
+  };
+  const pinned = state.chats.filter(c => c.pinned);
+  const rest = state.chats.filter(c => !c.pinned);
+  if (pinList && pinWrap) {
+    pinList.innerHTML = '';
+    pinned.forEach(c => pinList.appendChild(makeItem(c)));
+    pinWrap.classList.toggle('hidden', pinned.length === 0);
+  }
+  list.innerHTML = '';
+  if (state.chats.length === 0) {
+    list.innerHTML = '<div class="empty-hint">No chats yet — start one below.</div>';
+    return;
+  }
+  rest.forEach(c => list.appendChild(makeItem(c)));
+  if (typeof chatsDone !== 'undefined' && state.user && state.chats.length > 0) {
+    const more = document.createElement('div');
+    more.id = 'drawer-recent-more'; more.className = 'empty-hint';
+    more.textContent = chatsDone ? '' : 'Scroll for older chats';
+    list.appendChild(more);
+  }
+}
+
+
+// ---------- Summary sheet (what the server did while you coded: write, review, syntax check, optional sandbox run) ----------
+const SUM_ICONS = { alert: 'alert', play: 'play', sparkle: 'sparkle', code: 'code', search: 'search', terminal: 'terminal', wrench: 'wrench', flask: 'flask', check: 'check' };
+function attachSummaryChip(msgDiv, steps, msgObj) {
+  if (!msgDiv || !steps || !steps.length) return;
+  const chip = document.createElement('button');
+  chip.className = 'sum-chip';
+  const bad = steps.some(x => x.status === 'error');
+  chip.innerHTML = ic('flask') + '<span>Summary · ' + steps.length + ' step' + (steps.length === 1 ? '' : 's') + (bad ? ' · issue found' : '') + '</span>' + ic('chev-r', 'sum-chev');
+  chip.onclick = () => openSummary(steps, msgObj);
+  msgDiv.appendChild(chip);
+}
+function renderSummaryList(steps) {
+  const list = $('sum-list');
+  list.innerHTML = '';
+  steps.forEach(st => {
+    const row = document.createElement('div');
+    row.className = 'sum-item ' + (st.status || 'ok');
+    const icon = SUM_ICONS[st.icon] || 'terminal';
+    row.innerHTML = '<div class="sum-ico">' + ic(icon) + '</div><div class="sum-txt"><div class="sum-l"></div>' + (st.detail ? '<div class="sum-d"></div>' : '') + '</div>';
+    row.querySelector('.sum-l').textContent = st.label || '';
+    if (st.detail) row.querySelector('.sum-d').textContent = st.detail;
+    list.appendChild(row);
   });
 }
+function jsBlocksOf(text) {
+  const out = []; const re = /```(?:js|javascript|node)[ \t]*\n([\s\S]*?)```/gi; let m;
+  while ((m = re.exec(String(text || '')))) out.push(m[1].replace(/\n$/, ''));
+  return out;
+}
+function openSummary(steps, msgObj) {
+  renderSummaryList(steps);
+  const act = $('sum-actions');
+  act.innerHTML = '';
+  const blocks = jsBlocksOf(msgObj && msgObj.content);
+  if (blocks.length) {
+    const btn = document.createElement('button');
+    btn.className = 'sum-run';
+    btn.innerHTML = ic('play') + '<span>Run in sandbox (JavaScript)</span>';
+    const note = document.createElement('div'); note.className = 'sum-note';
+    note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.';
+    btn.onclick = async () => {
+      if (!(await askConfirm('Run this code on the server?', 'JavaScript block ' + (blocks.length > 1 ? '1 of ' + blocks.length + ' ' : '') + 'will run once in an isolated temp folder with a time limit.', 'Approve & run'))) return;
+      btn.disabled = true; btn.classList.add('busy');
+      steps.push({ icon: 'terminal', label: 'Sandbox run approved by you', status: 'ok' });
+      renderSummaryList(steps);
+      try {
+        const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang: 'js', code: blocks[0] }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Server returned ' + res.status));
+        const okRun = data.status === 'ran' || data.status === 'tested';
+        const out = (data.stdout || data.stderr || '').trim().slice(0, 600);
+        steps.push({ icon: 'flask', label: okRun ? 'Ran OK (' + data.ms + 'ms, exit ' + data.exitCode + ')' : 'Run ' + (data.status || 'failed') + (data.exitCode != null ? ' (exit ' + data.exitCode + ')' : ''), detail: out || data.report || '', status: okRun ? 'ok' : 'error' });
+      } catch (e) {
+        steps.push({ icon: 'alert', label: 'Sandbox run did not happen', detail: String(e.message || e), status: 'error' });
+      }
+      btn.disabled = false; btn.classList.remove('busy');
+      renderSummaryList(steps);
+      if (msgObj) saveChatSnapshot();
+      $('sum-list').scrollTop = $('sum-list').scrollHeight;
+    };
+    act.appendChild(btn); act.appendChild(note);
+  }
+  openSheet('sheet-summary');
+}
+$('sum-close').onclick = () => closeSheet('sheet-summary');
 
 // ---------- Settings ----------
 $('btn-save-settings').onclick = () => {
@@ -1676,18 +1893,63 @@ function routeForUser(user) {
 }
 
 // ---------- Firestore: cloud chat sync ----------
+var CHAT_PAGE = 30;
+var chatCursor = null, chatsDone = false, chatsLoading = false;
+function chatsCol() { return db.collection('users').doc(state.user.uid).collection('chats'); }
+function toChat(d) { const c = { id: d.id, ...d.data() }; return { ...c, messages: slimForStorage(c.messages) }; }
+
 async function loadChatsFromCloud() {
   if (!state.user) return;
+  chatsLoading = true;
   try {
-    const snap = await db.collection('users').doc(state.user.uid).collection('chats').orderBy('updatedAt', 'desc').limit(30).get();
-    state.chats = snap.docs.map(d => { const c = { id: d.id, ...d.data() }; return { ...c, messages: slimForStorage(c.messages) }; });
-    localStorage.setItem('aureon_chats', JSON.stringify(state.chats));
+    const snap = await chatsCol().orderBy('updatedAt', 'desc').limit(CHAT_PAGE).get();
+    chatCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    chatsDone = snap.docs.length < CHAT_PAGE;
+    const list = snap.docs.map(toChat);
+    // pinned chats must always show, even if they are older than the first page
+    try {
+      const pins = await chatsCol().where('pinned', '==', true).get();
+      pins.docs.forEach(d => { if (!list.some(c => c.id === d.id)) list.push(toChat(d)); });
+    } catch (e) { /* pinned lookup is a bonus */ }
+    state.chats = list;
+    cacheChatsLocal();
     renderRecent();
   } catch (err) {
     console.error('Failed to load chats from cloud:', err);
     renderRecent(); // fall back to whatever's cached locally
-  }
+  } finally { chatsLoading = false; }
+  setTimeout(maybeLoadMoreChats, 300);
 }
+
+// Older chats: loaded as you scroll the Recents list, all the way back to the very first chat.
+async function loadMoreChats() {
+  if (!state.user || chatsDone || chatsLoading || !chatCursor) return;
+  chatsLoading = true;
+  const foot = $('drawer-recent-more');
+  if (foot) foot.textContent = 'Loading older chats\u2026';
+  try {
+    const snap = await chatsCol().orderBy('updatedAt', 'desc').startAfter(chatCursor).limit(CHAT_PAGE).get();
+    if (snap.docs.length) chatCursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < CHAT_PAGE) chatsDone = true;
+    snap.docs.forEach(d => { if (!state.chats.some(c => c.id === d.id)) state.chats.push(toChat(d)); });
+    renderRecent();
+  } catch (err) {
+    console.error('Failed to load older chats:', err);
+    if (foot) foot.textContent = 'Could not load older chats \u2014 scroll again to retry';
+  } finally { chatsLoading = false; }
+  setTimeout(maybeLoadMoreChats, 200);   // keep going if the list still doesn't fill the screen
+}
+function maybeLoadMoreChats() {
+  const sc = document.querySelector('#drawer .dr-scroll');
+  if (!sc || chatsDone || chatsLoading) return;
+  if (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 240) loadMoreChats();
+}
+(function wireChatScroll() {
+  const sc = document.querySelector('#drawer .dr-scroll');
+  if (sc) sc.addEventListener('scroll', maybeLoadMoreChats, { passive: true });
+  const dr = $('btn-menu');
+  if (dr) dr.addEventListener('click', () => setTimeout(maybeLoadMoreChats, 350));
+})();
 
 async function saveChatToCloud(snapshot) {
   if (!state.user) return;
@@ -1695,6 +1957,8 @@ async function saveChatToCloud(snapshot) {
     await db.collection('users').doc(state.user.uid).collection('chats').doc(snapshot.id).set({
       title: snapshot.title,
       messages: snapshot.messages,
+      pinned: !!snapshot.pinned,
+      projectId: snapshot.projectId || null,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   } catch (err) {
@@ -1778,7 +2042,7 @@ $('knowledge-file-input').addEventListener('change', async (e) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
-      statusEl.textContent = `✓ "${file.name}" added (${data.chunkCount} sections indexed).`;
+      statusEl.textContent = `"${file.name}" added (${data.chunkCount} sections indexed).`;
       loadKnowledgeList();
     } catch (err) {
       statusEl.textContent = `Couldn't upload: ${err.message}`;
@@ -1807,7 +2071,7 @@ async function loadKnowledgeList() {
     data.files.forEach(file => {
       const item = document.createElement('div');
       item.className = 'recent-item knowledge-item';
-      item.innerHTML = `<span>${file.filename}</span><button class="knowledge-delete-btn" data-id="${file.id}">✕</button>`;
+      item.innerHTML = `<span>${file.filename}</span><button class="knowledge-delete-btn" data-id="${file.id}" aria-label="Delete">${ic('x')}</button>`;
       item.querySelector('.knowledge-delete-btn').onclick = async (ev) => {
         ev.stopPropagation();
         if (!confirm(`Remove "${file.filename}"?`)) return;
@@ -1836,7 +2100,7 @@ async function runFormFill(args) {
   let host = '';
   try { if (args.url) host = new URL(args.url).hostname.replace(/^www\./, ''); } catch (e) { /* bad url */ }
   if (!args.url) {
-    addMessage('ai', '⏳ 10 second mein form wala page/app khol lo — phir main bharna shuru karunga.');
+    addMessage('ai', '10 second mein form wala page/app khol lo — phir main bharna shuru karunga.');
     await sleep(10000);
   }
   // Everything below runs natively (open page, login with saved site login,
@@ -1866,9 +2130,9 @@ $('btn-save-profile')?.addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
-    show('✅ Profile save ho gayi.');
+    show('Profile save ho gayi.');
   } catch (e) {
-    show('❌ Save nahi hui: ' + (e.message || e));
+    show('Save nahi hui: ' + (e.message || e));
   }
 });
 
@@ -2016,7 +2280,7 @@ async function refreshLogins() {
       info.appendChild(userEl);
       const b = document.createElement('button');
       b.className = 'login-del';
-      b.textContent = '✕';
+      b.innerHTML = ic('x');
       b.onclick = async () => { await A.deleteLogin({ host: l.host }); refreshLogins(); };
       row.appendChild(info);
       row.appendChild(b);
@@ -2030,14 +2294,14 @@ $('btn-save-login')?.addEventListener('click', async () => {
   const A = aureonActionsPlugin();
   const status = $('login-status');
   const show = msg => { if (status) { status.textContent = msg; status.classList.remove('hidden'); } };
-  if (!A) { show('❌ Sirf installed app mein kaam karta hai.'); return; }
+  if (!A) { show('Sirf installed app mein kaam karta hai.'); return; }
   try {
     await A.saveLogin({ host: $('login-host').value.trim(), user: $('login-user').value.trim(), pass: $('login-pass').value });
     $('login-pass').value = '';
-    show('✅ Login is phone par encrypted save ho gaya.');
+    show('Login is phone par encrypted save ho gaya.');
     refreshLogins();
   } catch (e) {
-    show('❌ ' + (e.message || e));
+    show('' + (e.message || e));
   }
 });
 
@@ -2070,7 +2334,6 @@ function settingsShowList() {
   const list = settingsEl('settings-list');
   if (list) list.classList.remove('hidden');
   document.querySelectorAll('.settings-pane').forEach(p => p.classList.add('hidden'));
-  settingsEl('settings-back')?.classList.add('hidden');
   settingsEl('settings-footer')?.classList.add('hidden');
   const t = settingsEl('settings-title');
   if (t) t.textContent = 'Settings';
@@ -2085,7 +2348,6 @@ function settingsOpenPane(name) {
   settingsEl('settings-list')?.classList.add('hidden');
   document.querySelectorAll('.settings-pane').forEach(p => p.classList.add('hidden'));
   pane.classList.remove('hidden');
-  settingsEl('settings-back')?.classList.remove('hidden');
   const t = settingsEl('settings-title');
   if (t) t.textContent = pane.dataset.title || 'Settings';
   // "Save settings" only matters for the General and Memory panes
@@ -2135,6 +2397,9 @@ $('btn-open-sentinel')?.addEventListener('click', async () => {
   const ok = await openExternalUrl(url);
   if (!ok) alert('Dashboard khul nahi paya. Browser me ye link khol lo:\n' + state.backendUrl);
 });
-settingsEl('settings-back')?.addEventListener('click', settingsShowList);
+settingsEl('settings-back')?.addEventListener('click', () => {
+  const list = settingsEl('settings-list');
+  if (list && !list.classList.contains('hidden')) closeSheet('sheet-settings'); else settingsShowList();
+});
 $('btn-drawer-settings')?.addEventListener('click', () => setTimeout(() => { settingsShowList(); refreshLogins(); }, 0));
 $('toggle-auto-submit')?.addEventListener('change', updateSettingsSubs);
