@@ -256,10 +256,19 @@ function factory(opts) {
       for (let attempt = 0; !g; attempt++) {          // patient: if every AI is out of quota, wait and retry (background) instead of failing
         try { g = await generate(args, 2, (step) => touch(j, { step })); }
         catch (e) {
-          if (RATE.test(String(e.message)) && attempt < 6) { const wait = Math.min(60000 * 2 ** attempt, 900000); touch(j, { step: '⏳ AI quota/limit — ' + Math.round(wait / 60000) + ' min baad dobara (' + (attempt + 1) + '/6)' }); await new Promise((r) => setTimeout(r, wait)); touch(j, { step: 'AI app likh raha hai…' }); }
+          if (j.cancelled) throw new Error('owner ne roka');
+          if (RATE.test(String(e.message)) && attempt < 10) {
+            const wait = Math.min(Number(process.env.AVA_APK_WAIT_MS || 15000) * 2 ** attempt, Number(process.env.AVA_APK_WAIT_MAX_MS || 300000));
+            const shown = wait >= 60000 ? Math.round(wait / 60000) + ' min' : Math.round(wait / 1000) + 's';
+            touch(j, { step: '⏳ AI quota/limit — ' + shown + ' baad dobara (' + (attempt + 1) + '/10) — wajah: ' + String(e.message || '').replace(/\s+/g, ' ').slice(0, 90) });
+            const end = Date.now() + wait; while (Date.now() < end && !j.cancelled) await new Promise((r) => setTimeout(r, Math.min(2000, Math.max(50, end - Date.now()))));
+            if (j.cancelled) throw new Error('owner ne roka');
+            touch(j, { step: 'AI app likh raha hai…' });
+          }
           else throw e;
         }
       }
+      if (j.cancelled) return;   // owner stopped it while the AI was writing: do not commit/dispatch anything
       const name = String((args.name || g.meta.name || j.name || 'My App')).slice(0, 40);
       const color = isHex(g.meta.color) ? g.meta.color : (j.color || '#0E7C66');
       touch(j, { name, color, status: 'committing', step: 'Code GitHub me save ho raha hai…' });
@@ -329,6 +338,13 @@ function factory(opts) {
     if (!auth.stepUp(req, res)) return;
     await ready; const n = jobs.filter((j) => j.status === 'failed').length;
     jobs = jobs.filter((j) => j.status !== 'failed'); save(); auth.action(req, 'apk clear failed (' + n + ')'); res.json({ ok: true, removed: n });
+  });
+  // Stop button: stops builds that are still waiting for / writing with the AI (a build already sent to GitHub Actions is not touched).
+  router.post('/cancel', async (req, res) => {
+    if (!auth.stepUp(req, res)) return;
+    await ready; let n = 0;
+    for (const j of jobs) { if (j.status === 'generating') { j.cancelled = true; touch(j, { status: 'failed', error: 'Owner ne roka', step: 'Roka gaya' }); n++; } }
+    auth.action(req, 'apk cancel (' + n + ')'); res.json({ ok: true, stopped: n });
   });
   router.delete('/jobs/:id', async (req, res) => {
     if (!auth.stepUp(req, res)) return;

@@ -532,7 +532,7 @@ function renderWork() {
   var pill = $('#workPill'); pill.className = 'pill ' + (w ? 'work' : 'idle'); $('#workTx').textContent = w ? 'Ava kaam kar rahi hai…' : 'Ava ruki hui hai';
   var cp = $('#codePill'); cp.className = 'pill ' + (w ? 'work' : 'idle'); $('span', cp).textContent = w ? 'LIVE' : 'idle';
   ['#bGo', '#bUp', '#bProto', '#bProto2', '#bProj', '#bProj2', '#bApk', '#bAtt'].forEach(function (id) { var b = $(id); if (b) b.disabled = w; });
-  var bs = $('#bStop'); if (bs) bs.style.display = (S.studio && S.studio.running) || (S.state && S.state.jailPending > 0) ? '' : 'none';
+  var bs = $('#bStop'); if (bs) bs.style.display = (S.studio && S.studio.running) || (S.state && S.state.jailPending > 0) || (S.apkJobs || []).some(function (x) { return x.status === 'generating'; }) ? '' : 'none';
   orb = w ? 'thinking' : 'idle'; redraw();
 }
 function applyVariant() {
@@ -1005,7 +1005,7 @@ $('#bProto').addEventListener('click', function () { doProto('#task'); });
 $('#bProto2').addEventListener('click', function () { doProto('#task2'); });
 $('#bProj').addEventListener('click', function () { doProject('#task'); });
 $('#bProj2').addEventListener('click', function () { doProject('#task2'); });
-$('#bStop').addEventListener('click', function () { jpost(ST + '/cancel').then(function () { return jpost(AVA + '/jail/queue/clear'); }).then(function () { toast('Roka ja raha hai…'); loadAll(); }); });
+$('#bStop').addEventListener('click', function () { jpost('/api/apk/cancel').catch(function () {}); jpost(ST + '/cancel').then(function () { return jpost(AVA + '/jail/queue/clear'); }).then(function () { toast('Roka ja raha hai…'); loadAll(); }); });
 $('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doAuto('#task'); });
 $('#bGo').addEventListener('click', function () { doAuto('#task'); });
 $('#bAtt').addEventListener('click', function () { $('#fAtt').click(); });
