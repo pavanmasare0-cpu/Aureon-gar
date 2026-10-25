@@ -56,6 +56,10 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
     }
   }
   const router = express.Router();
+  // Health check endpoint
+  router.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
 
   // ---------------- storage ----------------
   const DATA_DIR = path.join(__dirname, 'ava-data');
