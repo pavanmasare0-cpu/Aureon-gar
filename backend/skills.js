@@ -264,6 +264,30 @@ function createRouter({ express, verifyAuth, getDb }) {
       res.json({ skills: snap.docs.map(d => { const x = d.data(); return { name: x.name, description: x.description, source: x.source, installedAt: x.installedAt || 0 }; }) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
+  // Fast delete: {names:[...]} (up to 1000 per call) or {source:"https://github.com/owner/repo"} = every skill that came from that source.
+  r.post('/bulk-delete', async (req, res) => {
+    try {
+      const col = getDb().collection('users').doc(req.verifiedUid).collection('skills');
+      const body = req.body || {};
+      let refs = [];
+      if (typeof body.source === 'string' && body.source.trim()) {
+        const snap = await col.where('source', '==', body.source.trim()).get();
+        refs = snap.docs.map(d => d.ref);
+      } else if (Array.isArray(body.names)) {
+        const names = [...new Set(body.names.slice(0, 1000).map(n => String(n).toLowerCase().replace(/[^a-z0-9-]/g, '')).filter(Boolean))];
+        refs = names.map(n => col.doc(n));
+      } else return res.status(400).json({ ok: false, error: 'names[] ya source chahiye' });
+      let deleted = 0;
+      for (let i = 0; i < refs.length; i += 400) {   // Firestore batch limit is 500
+        const batch = getDb().batch();
+        refs.slice(i, i + 400).forEach(ref => batch.delete(ref));
+        await batch.commit();
+        deleted += Math.min(400, refs.length - i);
+      }
+      cache.delete(req.verifiedUid);
+      res.json({ ok: true, deleted });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
   r.delete('/:name', async (req, res) => {
     try {
       const name = String(req.params.name).toLowerCase().replace(/[^a-z0-9-]/g, '');

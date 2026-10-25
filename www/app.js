@@ -1718,17 +1718,18 @@ function openSummary(steps, msgObj) {
     const note = document.createElement('div'); note.className = 'sum-note';
     note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.';
     btn.onclick = async () => {
-      if (!(await askConfirm('Run this code on the server?', 'JavaScript block ' + (blocks.length > 1 ? '1 of ' + blocks.length + ' ' : '') + 'will run once in an isolated temp folder with a time limit.', 'Approve & run'))) return;
+      if (!(await askConfirm('Run this code on the server?', (blocks.length > 1 ? blocks.length + ' JavaScript blocks (code + tests)' : 'JavaScript block') + ' will run once in an isolated temp folder with a time limit.', 'Approve & run'))) return;
       btn.disabled = true; btn.classList.add('busy');
       steps.push({ icon: 'terminal', label: 'Sandbox run approved by you', status: 'ok' });
       renderSummaryList(steps);
       try {
-        const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang: 'js', code: blocks[0] }) });
+        const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang: 'js', blocks: blocks }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('Server returned ' + res.status));
         const okRun = data.status === 'ran' || data.status === 'tested';
-        const out = (data.stdout || data.stderr || '').trim().slice(0, 600);
-        steps.push({ icon: 'flask', label: okRun ? 'Ran OK (' + data.ms + 'ms, exit ' + data.exitCode + ')' : 'Run ' + (data.status || 'failed') + (data.exitCode != null ? ' (exit ' + data.exitCode + ')' : ''), detail: out || data.report || '', status: okRun ? 'ok' : 'error' });
+        const tail = (t) => { t = String(t || '').trim(); return t.length > 700 ? '…' + t.slice(-700) : t; };
+        const out = (data.friendly ? data.friendly + '\n\n' : '') + tail(data.stdout || data.stderr || '');
+        steps.push({ icon: 'flask', label: data.status === 'tested' ? 'Tests passed (' + data.ms + 'ms)' : okRun ? 'Ran OK (' + data.ms + 'ms, exit ' + data.exitCode + ')' : 'Run ' + (data.status || 'failed') + (data.exitCode != null ? ' (exit ' + data.exitCode + ')' : ''), detail: out || data.report || '', status: okRun ? 'ok' : 'error' });
       } catch (e) {
         steps.push({ icon: 'alert', label: 'Sandbox run did not happen', detail: String(e.message || e), status: 'error' });
       }

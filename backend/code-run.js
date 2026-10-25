@@ -86,13 +86,78 @@ async function runCode({ lang, code, tests, timeoutMs } = {}) {
   }
 }
 
+// ---------- runBlocks: chat ke saare JS blocks ek saath (code + tests), tests ke liye jest/vitest shim ----------
+// AI aksar ek block me code deta hai aur doosre me tests (import ... from 'vitest' / jest globals / node:test).
+// Pehle sirf pehla block chalta tha, isliye tests kabhi nahi chalte the. Ab: implementation -> impl.(mjs|cjs), tests -> test.(mjs|cjs),
+// tests ke relative imports ('./x', '../src/x') impl file par mod jaate hain, aur 'vitest' / '@jest/globals' / jest-globals shim se chalte hain.
+const SHIM_SRC = require('./code-run-shim');
+const TEST_BLOCK_RE = /\b(describe|it|test)(\.(each|skip))?\s*\(\s*[`'"]|\bfrom\s+['"](vitest|@jest\/globals|node:test)['"]|require\(\s*['"](node:test|vitest|@jest\/globals)['"]\s*\)/;
+const ESM_RE = /^\s*(import\s+[\w{*'"]|export\s+(default|const|let|var|function|class|async|\{|\*))/m;
+const isTestBlock = (c) => TEST_BLOCK_RE.test(c);
+const isEsm = (c) => ESM_RE.test(c);
+const LOCAL_SPEC_RE = /((?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"])(\.{1,2}\/[^'"]*)(['"])/g;
+
+function friendlyError(res) {
+  const text = String((res && (res.stderr || '')) + '\n' + String((res && res.stdout) || ''));
+  const m = text.match(/Cannot find (?:package|module) '([^']+)'/);
+  if (m && !m[1].startsWith('.')) return "Package '" + m[1] + "' sandbox me nahi hai (yahan npm install nahi hota). Tests ke liye built-in node:test + node:assert/strict use karo; jest/vitest ke describe/it/expect ye sandbox khud deta hai.";
+  if (/ERR_REQUIRE_ESM|require\(\) of ES Module/.test(text)) return 'Code ESM (import/export) hai aur test CommonJS (require). Dono me ek hi style rakho.';
+  return '';
+}
+function stripNoise(t) {
+  return String(t || '').split('\n').filter((l) => !/^\s+at .*node:internal|^node:internal|^\s*\^+\s*$|^Node\.js v\d+/.test(l)).join('\n').trim();
+}
+
+async function runBlocks({ blocks, timeoutMs } = {}) {
+  blocks = (Array.isArray(blocks) ? blocks : []).map((b) => String(b || '')).filter((b) => b.trim());
+  if (!blocks.length) return { status: 'skipped', lang: 'js', note: 'Code khaali hai.' };
+  const tests = blocks.filter(isTestBlock);
+  const others = blocks.filter((b) => !isTestBlock(b));
+  if (!tests.length) return runCode({ lang: 'js', code: others[0] || blocks[0], timeoutMs });   // no tests: run the first block as before
+  // implementation = first non-test block that defines something (function/class/export), else the first non-test block
+  const impl = others.find((b) => /\b(function|class|=>)\b|module\.exports|\bexport\b/.test(b)) || others[0] || '';
+  const ms = timeoutMs || LIMITS.ms;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
+  try {
+    const esmImpl = isEsm(impl);
+    const implFile = 'impl.' + (esmImpl ? 'mjs' : 'cjs');
+    // test files may be several blocks: join those with the same module style
+    const testCode = tests.join('\n\n');
+    const esmTest = isEsm(testCode);
+    const testFile = 'test.' + (esmTest ? 'mjs' : 'cjs');
+    if (impl) fs.writeFileSync(path.join(dir, implFile), impl, 'utf8');
+    fs.writeFileSync(path.join(dir, testFile), testCode.replace(LOCAL_SPEC_RE, (m0, a, spec, q) => a + './' + implFile + q), 'utf8');
+    // shim + fake packages
+    fs.writeFileSync(path.join(dir, 'shim.cjs'), SHIM_SRC, 'utf8');
+    const wrapper = "import c from './index.cjs';\nexport const { describe, it, test, suite, expect, beforeEach, afterEach, beforeAll, afterAll, vi, jest } = c;\nexport default c;\n";
+    for (const pkg of ['vitest', '@jest/globals']) {
+      const pd = path.join(dir, 'node_modules', ...pkg.split('/'));
+      fs.mkdirSync(pd, { recursive: true });
+      fs.writeFileSync(path.join(pd, 'index.cjs'), "module.exports = require(" + JSON.stringify(path.relative(pd, path.join(dir, 'shim.cjs')).split(path.sep).join('/')) + ");\n");
+      fs.writeFileSync(path.join(pd, 'index.mjs'), wrapper);
+      fs.writeFileSync(path.join(pd, 'package.json'), JSON.stringify({ name: pkg, version: '0.0.0', exports: { '.': { import: './index.mjs', require: './index.cjs', default: './index.cjs' } } }));
+    }
+    const args = ['--permission', '--allow-fs-read=' + dir, '--allow-fs-write=' + dir, '--require', './shim.cjs', testFile];
+    let r = await spawnRun(process.execPath, args, dir, ms);
+    if (r.exitCode === 9 && /bad option|--permission/.test(r.stderr || '')) { r = await spawnRun(process.execPath, ['--require', './shim.cjs', testFile], dir, ms); r.noSandboxFlag = true; }
+    if (r.unavailable) return { status: 'skipped', lang: 'js', note: 'node is machine par nahi mila; code chalaya nahi gaya.' };
+    const base = { lang: 'js', hadTests: true, exitCode: r.exitCode, ms: r.ms, stdout: clipTail(r.stdout), stderr: clip(stripNoise(r.stderr)), sandboxFlag: !r.noSandboxFlag, friendly: friendlyError(r), usedBlocks: { impl: !!impl, tests: tests.length } };
+    if (r.timedOut) return { ...base, status: 'timeout', note: 'Time limit (' + ms + 'ms) me khatam nahi hua.' };
+    if (r.exitCode !== 0) return { ...base, status: 'failed' };
+    return { ...base, status: 'tested' };
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ok */ }
+  }
+}
+const clipTail = (s) => { s = String(s || '').trim(); return s.length > LIMITS.outChars ? '...(shuru ka hissa kaata gaya)\n' + s.slice(-LIMITS.outChars) : s; };
+
 // Report sirf real result se. Model ka "Verified" yahan se nahi aata.
 function buildReport(res) {
   if (!res) return 'NOT TESTED: koi check nahi chala.';
   switch (res.status) {
     case 'tested': return 'VERIFIED (tests pass, ' + res.ms + 'ms): code chala aur tests exit code 0 ke saath nikle.' + (res.sandboxFlag === false ? ' (Dhyan: Node sandbox flag nahi laga.)' : '');
     case 'ran': return 'RAN OK, TESTS NAHI: code error ke bina chala (' + res.ms + 'ms), par logic ka koi test nahi tha. "Verified" mat bolo.';
-    case 'failed': return 'FAILED (exit ' + res.exitCode + '):\n' + (res.stderr || res.stdout || '(koi output nahi)');
+    case 'failed': return 'FAILED (exit ' + res.exitCode + '):\n' + (res.friendly ? res.friendly + '\n\n' : '') + (res.stdout || res.stderr || '(koi output nahi)');
     case 'timeout': return 'FAILED: ' + res.note;
     case 'skipped': return 'NOT TESTED: ' + res.note;
     default: return 'NOT TESTED';
@@ -117,4 +182,4 @@ async function verifyLoop({ lang, code, tests, generate, maxRounds }) {
   }
 }
 
-module.exports = { runCode, buildReport, verifyLoop, LIMITS };
+module.exports = { runCode, runBlocks, buildReport, verifyLoop, LIMITS, _isTestBlock: isTestBlock, _isEsm: isEsm };

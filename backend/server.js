@@ -1801,15 +1801,17 @@ app.post('/api/code/run', verifyAuth, async (req, res) => {
     if (!(ownerDoc.exists && ownerDoc.data() && ownerDoc.data().isOwner)) return res.status(403).json({ error: 'Sandbox run sirf owner ke liye hai.' });
     const lang = String((req.body && req.body.lang) || '').toLowerCase();
     if (!['js', 'javascript', 'node'].includes(lang)) return res.status(400).json({ error: 'Abhi sirf JavaScript chalti hai.' });
-    const code = String((req.body && req.body.code) || '');
+    // blocks[] = every JS block of the answer (implementation + tests); code = a single block (older app versions)
+    const rawBlocks = Array.isArray(req.body && req.body.blocks) ? req.body.blocks.slice(0, 8).map(b => String(b || '')) : [String((req.body && req.body.code) || '')];
+    const code = rawBlocks.join('\n');
     if (!code.trim()) return res.status(400).json({ error: 'Code khaali hai.' });
-    if (code.length > 20000) return res.status(413).json({ error: 'Code bahut bada hai (max 20000 chars).' });
+    if (code.length > 60000) return res.status(413).json({ error: 'Code bahut bada hai (max 60000 chars).' });
     if (parseInt(process.versions.node, 10) < 20) return res.status(501).json({ error: 'Server ka Node purana hai (--permission sandbox nahi), isliye run band hai.' });
     if (_codeRunBusy.has(uid)) return res.status(429).json({ error: 'Pehla run abhi chal raha hai.' });
     _codeRunBusy.add(uid);
     try {
       const cr = require('./code-run');
-      const r = await cr.runCode({ lang: 'js', code });
+      const r = await cr.runBlocks({ blocks: rawBlocks });
       res.json({ ...r, report: cr.buildReport(r) });
     } finally { _codeRunBusy.delete(uid); }
   } catch (err) {
