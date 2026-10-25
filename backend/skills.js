@@ -3,12 +3,12 @@
 // Skills are TEXT guidance only. Nothing from a repo is ever executed or written to disk.
 const AdmZip = require('adm-zip');
 
-const MAX_ZIP_BYTES = 25 * 1024 * 1024;   // whole repo download
-const MAX_ENTRIES = 5000;                 // zip-bomb guard (file count)
-const MAX_SKILL_BYTES = 60 * 1024;        // one SKILL.md
+const MAX_ZIP_BYTES = Number(process.env.AUREON_SKILL_MAX_ZIP_MB || 80) * 1024 * 1024;   // whole repo download (RAM safety: Render free plan has ~512MB)
+const MAX_ENTRIES = Number(process.env.AUREON_SKILL_MAX_FILES || 20000);   // zip-bomb guard (file count)
+const MAX_SKILL_BYTES = Number(process.env.AUREON_SKILL_MAX_KB || 5120) * 1024;   // one SKILL.md (5 MB)
 const MAX_PER_REPO = 1000;      // zip ke andar ki file-count guard (MAX_ENTRIES) phir bhi laga hai
 const MAX_PER_USER = 100000;    // practically no limit
-const MAX_CONTEXT_CHARS = 16000;          // per skill added to the prompt
+const MAX_CONTEXT_CHARS = Number(process.env.AUREON_SKILL_CONTEXT_CHARS || 100000);   // per skill added to the prompt
 const FETCH_TIMEOUT_MS = 30000;
 const CACHE_MS = 60 * 1000;
 
@@ -45,7 +45,7 @@ function parseSkillMd(text) {
   return { name: meta.name || '', description: meta.description || '', body: body.trim() };
 }
 
-function tooBig() { const e = new Error('Repo bahut bada hai (max 25MB)'); e.code = 'TOO_BIG'; return e; }
+function tooBig() { const e = new Error('Repo bahut bada hai (limit ' + Math.round(MAX_ZIP_BYTES / 1048576) + 'MB)'); e.code = 'TOO_BIG'; return e; }
 
 async function downloadZip(url, fetchImpl) {
   const ctl = new AbortController();
@@ -174,7 +174,7 @@ function lastUserText(messages) {
 }
 
 // Text to append to the system prompt ('' when nothing matches).
-async function buildContext({ db, uid, messages, max = Number(process.env.AUREON_SKILLS_PER_PROMPT || 2) }) {
+async function buildContext({ db, uid, messages, max = Number(process.env.AUREON_SKILLS_PER_PROMPT || 3) }) {
   if (!db || !uid) return '';
   const msg = lastUserText(messages);
   if (!msg) return '';

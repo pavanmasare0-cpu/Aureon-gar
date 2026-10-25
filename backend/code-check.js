@@ -146,7 +146,7 @@ const REVIEW_PROMPT = 'Now REVIEW your previous answer like a strict senior code
   + 'If you find bugs, reply with the COMPLETE corrected answer (same format, every code block in full, no placeholders), and make the first line: "Fixed: <short list of what you fixed>".';
 const errCount = (rs) => rs.filter((r) => r.status === 'error').length;
 async function reviewRounds(answer, regenerate, rounds) {
-  const max = rounds === undefined ? Number(process.env.AUREON_CODE_REVIEW_ROUNDS === undefined ? 2 : process.env.AUREON_CODE_REVIEW_ROUNDS) : rounds;
+  const max = rounds === undefined ? Number(process.env.AUREON_CODE_REVIEW_ROUNDS === undefined ? 3 : process.env.AUREON_CODE_REVIEW_ROUNDS) : rounds;
   let text = answer;
   if (!(max > 0) || typeof regenerate !== 'function' || typeof text !== 'string') return text;
   if (extractBlocks(text).reduce((n, b) => n + b.code.length, 0) < 300) return text;   // tiny snippets: not worth an extra AI call
