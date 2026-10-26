@@ -1701,35 +1701,51 @@ function renderSummaryList(steps) {
     list.appendChild(row);
   });
 }
-function jsBlocksOf(text) {
-  const out = []; const re = /```(?:js|javascript|node)[ \t]*\n([\s\S]*?)```/gi; let m;
+function codeBlocksOf(text, lang) {
+  const re = lang === 'py' ? /```(?:py|python|python3)[ \t]*\n([\s\S]*?)```/gi : /```(?:js|javascript|node)[ \t]*\n([\s\S]*?)```/gi;
+  const out = []; let m;
   while ((m = re.exec(String(text || '')))) out.push(m[1].replace(/\n$/, ''));
   return out;
+}
+function jsBlocksOf(text) { return codeBlocksOf(text, 'js'); }   // older callers
+const tailText = (t, n = 700) => { t = String(t || '').trim(); return t.length > n ? '…' + t.slice(-n) : t; };
+function runStep(data) {
+  const okRun = data.status === 'ran' || data.status === 'tested';
+  const out = (data.friendly ? data.friendly + '\n\n' : '') + tailText(data.stdout || data.stderr || data.note || '');
+  return { icon: 'flask', label: data.status === 'tested' ? 'Tests passed (' + data.ms + 'ms)' : okRun ? 'Ran OK (' + data.ms + 'ms, exit ' + data.exitCode + ')' : 'Run ' + (data.status || 'failed') + (data.exitCode != null ? ' (exit ' + data.exitCode + ')' : ''), detail: out || data.report || '', status: okRun ? 'ok' : 'error' };
 }
 function openSummary(steps, msgObj) {
   renderSummaryList(steps);
   const act = $('sum-actions');
   act.innerHTML = '';
-  const blocks = jsBlocksOf(msgObj && msgObj.content);
-  if (blocks.length) {
+  const jsB = codeBlocksOf(msgObj && msgObj.content, 'js');
+  const pyB = codeBlocksOf(msgObj && msgObj.content, 'py');
+  const lang = jsB.length ? 'js' : pyB.length ? 'py' : '';
+  const blocks = lang === 'py' ? pyB : jsB;
+  const LN = lang === 'py' ? 'Python' : 'JavaScript';
+  const base = state.backendUrl.replace(/\/$/, '');
+  if (lang) {
     const btn = document.createElement('button');
     btn.className = 'sum-run';
-    btn.innerHTML = ic('play') + '<span>Run in sandbox (JavaScript)</span>';
+    btn.innerHTML = ic('play') + '<span>Run in sandbox (' + LN + ')</span>';
     const note = document.createElement('div'); note.className = 'sum-note';
-    note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.';
+    note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.' + (lang === 'py' ? ' Python: file/network/process access is blocked.' : '');
+    const fixBtn = document.createElement('button');
+    fixBtn.className = 'sum-run'; fixBtn.style.display = 'none'; fixBtn.style.marginTop = '8px';
+    fixBtn.innerHTML = ic('wrench') + '<span>Fix & re-run (max 3 rounds)</span>';
+    let lastFail = '';
+    const showFix = (data) => { lastFail = data.report || data.stdout || data.stderr || data.note || ''; fixBtn.style.display = (data.status === 'failed' || data.status === 'timeout') && lastFail ? '' : 'none'; };
     btn.onclick = async () => {
-      if (!(await askConfirm('Run this code on the server?', (blocks.length > 1 ? blocks.length + ' JavaScript blocks (code + tests)' : 'JavaScript block') + ' will run once in an isolated temp folder with a time limit.', 'Approve & run'))) return;
-      btn.disabled = true; btn.classList.add('busy');
+      if (!(await askConfirm('Run this code on the server?', (blocks.length > 1 ? blocks.length + ' ' + LN + ' blocks (code + tests)' : LN + ' block') + ' will run once in an isolated temp folder with a time limit.', 'Approve & run'))) return;
+      btn.disabled = true; btn.classList.add('busy'); fixBtn.style.display = 'none';
       steps.push({ icon: 'terminal', label: 'Sandbox run approved by you', status: 'ok' });
       renderSummaryList(steps);
       try {
-        const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang: 'js', blocks: blocks }) });
+        const res = await fetch(`${base}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, blocks }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('Server returned ' + res.status));
-        const okRun = data.status === 'ran' || data.status === 'tested';
-        const tail = (t) => { t = String(t || '').trim(); return t.length > 700 ? '…' + t.slice(-700) : t; };
-        const out = (data.friendly ? data.friendly + '\n\n' : '') + tail(data.stdout || data.stderr || '');
-        steps.push({ icon: 'flask', label: data.status === 'tested' ? 'Tests passed (' + data.ms + 'ms)' : okRun ? 'Ran OK (' + data.ms + 'ms, exit ' + data.exitCode + ')' : 'Run ' + (data.status || 'failed') + (data.exitCode != null ? ' (exit ' + data.exitCode + ')' : ''), detail: out || data.report || '', status: okRun ? 'ok' : 'error' });
+        steps.push(runStep(data));
+        showFix(data);
       } catch (e) {
         steps.push({ icon: 'alert', label: 'Sandbox run did not happen', detail: String(e.message || e), status: 'error' });
       }
@@ -1738,7 +1754,47 @@ function openSummary(steps, msgObj) {
       if (msgObj) saveChatSnapshot();
       $('sum-list').scrollTop = $('sum-list').scrollHeight;
     };
-    act.appendChild(btn); act.appendChild(note);
+    // Fix & re-run: one tap = the real error goes to the AI, it fixes the code, the sandbox runs it again (up to 3 rounds, shown live).
+    fixBtn.onclick = async () => {
+      if (!(await askConfirm('Fix and re-run?', 'The error is sent to the AI, it fixes the code, and the sandbox runs the new version. Up to 3 rounds, each one runs once with the same limits.', 'Approve & fix'))) return;
+      btn.disabled = true; fixBtn.disabled = true; fixBtn.classList.add('busy');
+      let answer = String(msgObj.content || ''), report = lastFail, success = false, finalSteps = null;
+      for (let round = 1; round <= 3 && !success; round++) {
+        const live = { icon: 'sparkle', label: 'Fix round ' + round + '/3: AI sudhaar raha hai…', status: 'ok' };
+        steps.push(live); renderSummaryList(steps); $('sum-list').scrollTop = $('sum-list').scrollHeight;
+        try {
+          const res = await fetch(`${base}/api/code/fix-run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, answer, report }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || ('Server returned ' + res.status));
+          live.label = 'Fix round ' + round + '/3' + (data.fixedLine ? ': ' + data.fixedLine : '');
+          const st = runStep(data.result || {});
+          st.label = 'Round ' + round + ' — ' + st.label; steps.push(st);
+          answer = data.answer; report = (data.result && (data.result.report || data.result.stdout || data.result.stderr)) || report;
+          success = !!data.success;
+          if (success) finalSteps = { answer, line: data.fixedLine };
+        } catch (e) {
+          live.label = 'Fix round ' + round + ' nahi hua'; live.status = 'error'; live.detail = String(e.message || e);
+          renderSummaryList(steps); break;
+        }
+        renderSummaryList(steps);
+      }
+      if (success && finalSteps) {
+        // the corrected answer becomes a new message in the chat, with its own Summary
+        const d = addMessage('ai', finalSteps.answer);
+        const m2 = { role: 'assistant', content: finalSteps.answer, steps: [{ icon: 'sparkle', label: 'Sudhaara hua jawab (fix & re-run)', detail: finalSteps.line || '', status: 'ok' }, { icon: 'flask', label: 'Sandbox me tests pass hue', status: 'ok' }] };
+        attachSummaryChip(d, m2.steps, m2);
+        state.currentMessages.push(m2);
+        steps.push({ icon: 'check', label: 'Sudhaara hua jawab chat me add kar diya', status: 'ok' });
+        fixBtn.style.display = 'none';
+      } else if (!success) {
+        steps.push({ icon: 'alert', label: '3 round me bhi theek nahi hua — error upar dekho', status: 'error' });
+      }
+      btn.disabled = false; fixBtn.disabled = false; fixBtn.classList.remove('busy');
+      renderSummaryList(steps);
+      if (msgObj) saveChatSnapshot();
+      $('sum-list').scrollTop = $('sum-list').scrollHeight;
+    };
+    act.appendChild(btn); act.appendChild(fixBtn); act.appendChild(note);
   }
   openSheet('sheet-summary');
 }

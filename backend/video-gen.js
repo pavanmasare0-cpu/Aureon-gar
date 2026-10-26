@@ -67,11 +67,15 @@ async function runJob(job) {
       const file = path.join(os.tmpdir(), `aureon-video-${job.id}.mp4`);
       fs.writeFileSync(file, Buffer.from(await v.arrayBuffer()));
       job.file = file; job.status = 'done';
+      try { if (global.__brain) global.__brain.recordFor(job.uid, 6, 'AI video bana (' + job.model + ')', { kind: 'video' }); } catch (e) { /* brain is optional */ }
       setTimeout(() => { try { fs.unlinkSync(file); } catch (e) { /* ok */ } jobs.delete(job.id); }, 30 * 60 * 1000).unref();
       return;
     }
     throw new Error('Video bahut der laga raha hai (8 min), baad me try karo.');
-  } catch (e) { job.status = 'error'; job.error = short(e.message); }
+  } catch (e) {
+    job.status = 'error'; job.error = short(e.message);
+    try { if (global.__brain) global.__brain.recordOnce('video-fail', 5, 3, 'Video nahi bana: ' + job.error.slice(0, 90), { kind: 'video' }); } catch (e2) { /* brain is optional */ }
+  }
 }
 
 module.exports = function createVideoRouter({ express, verifyAuth }) {

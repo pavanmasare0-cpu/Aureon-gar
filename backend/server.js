@@ -1492,6 +1492,7 @@ app.post('/api/generate-image', verifyAuth, async (req, res) => {
       const textPart = resultParts.find(p => p.text);
       throw new Error(textPart?.text || 'Model did not return an image for this prompt.');
     }
+    try { if (global.__brain) global.__brain.recordFor(req.verifiedUid, 5, sourceImage ? 'Photo edit ki' : 'Nayi photo banayi', { kind: 'image' }); } catch (e) { /* brain is optional */ }
     res.json({ mimeType: imagePart.inlineData.mimeType || 'image/png', dataBase64: imagePart.inlineData.data });
   } catch (err) {
     console.error('Image generation failed:', err);
@@ -1685,11 +1686,17 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
     try { finalSystemPrompt += await skills.buildContext({ db, uid, messages }); }
     catch (skillErr) { console.warn('Skills context failed:', skillErr.message); }
 
+    const isCodeModel = model === 'claudecode' || model === 'coding';
+    // Lessons Aureon learned from its own earlier bugs (short, only the relevant ones).
+    if (isCodeModel && global.__lessons) {
+      try { const lastUser = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string'); finalSystemPrompt += await global.__lessons.promptBlock(uid, lastUser ? lastUser.content : ''); }
+      catch (lessonErr) { console.warn('Lessons context failed:', lessonErr.message); }
+    }
     // Code mode: coding rules + the list of installed skills (name: description).
     if (model === 'claudecode') {
       try {
         finalSystemPrompt += '\n\nYou are in CODE mode: act as a careful senior software engineer. ' + require('./code-skill').CODING_KNOWLEDGE_CHAT;
-        finalSystemPrompt += await skills.buildIndex({ db, uid });
+        finalSystemPrompt += await skills.buildIndex({ db, uid, message: (() => { const lu = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string'); return lu ? lu.content : ''; })() });
       } catch (skillErr) { console.warn('Code mode context failed:', skillErr.message); }
     }
 
@@ -1745,7 +1752,12 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
             return typeof again === 'string' ? again : '';
           };
           const trace = [{ icon: 'sparkle', label: 'Jawab / code likha', detail: 'Model: ' + (model || 'default'), status: 'ok' }];
-          if (model === 'claudecode') reply = await cc.reviewRounds(reply, regen, undefined, trace);   // Code mode: model re-reviews its own code (AUREON_CODE_REVIEW_ROUNDS, default 2, 0 = off)
+          if (isCodeModel) {
+            const beforeReview = reply;
+            reply = await cc.reviewRounds(reply, regen, undefined, trace);
+            const fx = reply !== beforeReview ? /^\s*Fixed:\s*(.+)$/mi.exec(reply) : null;   // the reviewer found a real bug -> remember it as a lesson
+            if (fx && uid && global.__lessons) global.__lessons.saveLesson(uid, fx[1], 'review').catch(() => {});
+          }   // Code mode: model re-reviews its own code (AUREON_CODE_REVIEW_ROUNDS, default 2, 0 = off)
           reply = await cc.verifyAndFix(reply, regen, trace);
           if (trace.length > 1) steps = trace;   // only replies that have code blocks get a Summary
         } catch (e) { console.warn('verifyAndFix skipped:', e && e.message); }
@@ -1799,24 +1811,75 @@ app.post('/api/code/run', verifyAuth, async (req, res) => {
   try {
     const ownerDoc = await db.collection('users').doc(uid).collection('profile').doc('owner').get();
     if (!(ownerDoc.exists && ownerDoc.data() && ownerDoc.data().isOwner)) return res.status(403).json({ error: 'Sandbox run sirf owner ke liye hai.' });
-    const lang = String((req.body && req.body.lang) || '').toLowerCase();
-    if (!['js', 'javascript', 'node'].includes(lang)) return res.status(400).json({ error: 'Abhi sirf JavaScript chalti hai.' });
+    let lang = String((req.body && req.body.lang) || '').toLowerCase();
+    if (['js', 'javascript', 'node'].includes(lang)) lang = 'js';
+    else if (['py', 'python', 'python3'].includes(lang)) lang = 'py';
+    else return res.status(400).json({ error: 'Abhi sirf JavaScript aur Python chalti hai.' });
     // blocks[] = every JS block of the answer (implementation + tests); code = a single block (older app versions)
     const rawBlocks = Array.isArray(req.body && req.body.blocks) ? req.body.blocks.slice(0, 8).map(b => String(b || '')) : [String((req.body && req.body.code) || '')];
     const code = rawBlocks.join('\n');
     if (!code.trim()) return res.status(400).json({ error: 'Code khaali hai.' });
     if (code.length > 60000) return res.status(413).json({ error: 'Code bahut bada hai (max 60000 chars).' });
-    if (parseInt(process.versions.node, 10) < 20) return res.status(501).json({ error: 'Server ka Node purana hai (--permission sandbox nahi), isliye run band hai.' });
+    if (lang === 'js' && parseInt(process.versions.node, 10) < 20) return res.status(501).json({ error: 'Server ka Node purana hai (--permission sandbox nahi), isliye run band hai.' });
     if (_codeRunBusy.has(uid)) return res.status(429).json({ error: 'Pehla run abhi chal raha hai.' });
     _codeRunBusy.add(uid);
     try {
       const cr = require('./code-run');
-      const r = await cr.runBlocks({ blocks: rawBlocks });
+      const r = await cr.runAnyBlocks({ lang, blocks: rawBlocks });
+      brainNote(uid, r, lang);
       res.json({ ...r, report: cr.buildReport(r) });
     } finally { _codeRunBusy.delete(uid); }
   } catch (err) {
     console.error('code run failed:', err);
     res.status(500).json({ error: err.message || 'Run failed' });
+  }
+});
+
+// Brain: one neuron per sandbox result (owner only; never the code itself)
+function brainNote(uid, r, lang) {
+  try {
+    if (!global.__brain || !r) return;
+    const L = lang === 'py' ? 'Python' : 'JavaScript';
+    if (r.status === 'tested') global.__brain.recordFor(uid, 1, L + ' tests pass hue (' + (r.ms || 0) + 'ms)', { kind: 'run', lang });
+    else if (r.status === 'ran') global.__brain.recordFor(uid, 1, L + ' code chala (bina tests)', { kind: 'run', lang });
+    else if (r.status === 'failed' || r.status === 'timeout') global.__brain.recordFor(uid, 3, L + ' run fail: ' + String(r.friendly || r.stderr || r.stdout || r.note || '').split('\n').find((x) => x.trim()) , { kind: 'run', lang });
+  } catch (e) { /* brain is optional */ }
+}
+const FIX_PROMPT = (report) => 'Your code was run in the sandbox and FAILED:\n\n' + String(report).slice(0, 3500) + '\n\nFind the REAL cause and fix it (fix the code, not the test, unless the test itself is wrong). Reply with the COMPLETE corrected answer in the same format: implementation block first, then the tests block, every block in full, no placeholders. Make the first line: "Fixed: <what was wrong, one short sentence>".';
+const CODE_BLOCK_RE = { js: /```(?:js|javascript|node)[ \t]*\n([\s\S]*?)```/gi, py: /```(?:py|python|python3)[ \t]*\n([\s\S]*?)```/gi };
+app.post('/api/code/fix-run', verifyAuth, async (req, res) => {
+  const uid = req.verifiedUid;
+  try {
+    const ownerDoc = await db.collection('users').doc(uid).collection('profile').doc('owner').get();
+    if (!(ownerDoc.exists && ownerDoc.data() && ownerDoc.data().isOwner)) return res.status(403).json({ error: 'Sandbox run sirf owner ke liye hai.' });
+    const b = req.body || {};
+    const lang = ['py', 'python', 'python3'].includes(String(b.lang || '').toLowerCase()) ? 'py' : 'js';
+    const answer = String(b.answer || ''), report = String(b.report || '');
+    if (!answer.trim() || !report.trim()) return res.status(400).json({ error: 'answer aur report chahiye.' });
+    if (answer.length > 40000) return res.status(413).json({ error: 'Jawab bahut bada hai.' });
+    if (_codeRunBusy.has(uid)) return res.status(429).json({ error: 'Pehla run abhi chal raha hai.' });
+    _codeRunBusy.add(uid);
+    try {
+      const cr = require('./code-run');
+      const sys = 'You are a careful senior software engineer fixing code that failed a REAL test run. Be precise; never claim a fix works until the tests would pass.';
+      const ask = [{ role: 'assistant', content: answer }, { role: 'user', content: FIX_PROMPT(report) }];
+      let fixed = '';
+      try { fixed = process.env.ANTHROPIC_API_KEY ? await callSmart(ask, sys, 8192) : await callGemini(ask, sys, false); }
+      catch (e1) { try { fixed = await callGroq(ask, sys, false); } catch (e2) { return res.status(502).json({ error: 'AI abhi jawab nahi de paaya: ' + String(e2.message || e1.message).slice(0, 160) }); } }
+      if (typeof fixed !== 'string' || !fixed.includes('```')) return res.status(502).json({ error: 'AI ne sudhaara hua code nahi diya.' });
+      const blocks = []; let m; const re = new RegExp(CODE_BLOCK_RE[lang].source, 'gi');
+      while ((m = re.exec(fixed))) blocks.push(m[1].replace(/\n$/, ''));
+      if (!blocks.length) return res.status(502).json({ error: 'Sudhaare hue jawab me ' + (lang === 'py' ? 'Python' : 'JavaScript') + ' block nahi mila.' });
+      const r = await cr.runAnyBlocks({ lang, blocks: blocks.slice(0, 8) });
+      brainNote(uid, r, lang);
+      const line = (/^\s*Fixed:\s*(.+)$/mi.exec(fixed) || [])[1] || '';
+      const ok = r.status === 'tested' || r.status === 'ran';
+      if (ok && line && global.__lessons) global.__lessons.saveLesson(uid, line, 'fix').catch(() => {});
+      res.json({ ok: true, success: ok, answer: fixed, fixedLine: line, result: { ...r, report: cr.buildReport(r) } });
+    } finally { _codeRunBusy.delete(uid); }
+  } catch (err) {
+    console.error('code fix-run failed:', err);
+    res.status(500).json({ error: err.message || 'Fix-run failed' });
   }
 });
 
@@ -2183,5 +2246,20 @@ app.use('/api/apk', require('./apk-maker')({
 
 // ---------- AI video generation (Veo) — all Gemini keys, auto switch ----------
 app.use('/api/generate-video', require('./video-gen')({ express, verifyAuth }));
+
+// ---------- Brain log (ever-growing neurons) + Lessons ----------
+try {
+  const brainLog = require('./brain-log')({ getDb: () => db, admin });
+  global.__brain = brainLog;
+  const lessonsMod = require('./lessons')({ express, verifyAuth, getDb: () => db });
+  global.__lessons = lessonsMod;
+  app.use('/api/lessons', lessonsMod.router);
+  setTimeout(() => {
+    brainLog.load().then(() => {
+      let g = 0, q = 0; try { g = geminiKeys().length; q = groqKeys().length; } catch (e) { /* keys optional */ }
+      brainLog.record(0, 'Server jaaga: Gemini ' + g + ' key, Groq ' + q + ' key', { kind: 'boot' });
+    }).catch(() => {});
+  }, 6000);
+} catch (e) { console.warn('Brain log not started:', e.message); }
 
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));

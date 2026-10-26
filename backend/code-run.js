@@ -151,6 +151,50 @@ async function runBlocks({ blocks, timeoutMs } = {}) {
 }
 const clipTail = (s) => { s = String(s || '').trim(); return s.length > LIMITS.outChars ? '...(shuru ka hissa kaata gaya)\n' + s.slice(-LIMITS.outChars) : s; };
 
+// ---------- Python: implementation + pytest/unittest-style tests ----------
+const PYSHIM = require('./code-run-pyshim');
+const PY_TEST_RE = /^\s*def\s+test\w*\s*\(|\bimport\s+pytest\b|^\s*from\s+pytest\b|\bunittest\.TestCase\b/m;
+const PY_STD = new Set('abc argparse array ast asyncio base64 bisect builtins calendar collections contextlib copy csv dataclasses datetime decimal difflib enum fractions functools gzip hashlib heapq html inspect io itertools json logging math numbers operator os pprint queue random re secrets statistics string struct sys textwrap threading time traceback types typing unittest uuid warnings weakref zlib pytest'.split(' '));
+function pyFriendly(res) {
+  const text = String((res && res.stderr) || '') + '\n' + String((res && res.stdout) || '');
+  const b = text.match(/BLOCKED: [^\n]+/); if (b) return b[0].replace('BLOCKED: ', 'Sandbox ne roka: ') + ' (owner-only + approve ke bawajood file/network/process wali cheezein band hain.)';
+  const m = text.match(/No module named '([^'.]+)/); if (m) return "Package '" + m[1] + "' sandbox me nahi hai (yahan pip install nahi hota). Sirf Python ki built-in library aur pytest-style tests chalte hain.";
+  return '';
+}
+async function runPyBlocks({ blocks, timeoutMs } = {}) {
+  blocks = (Array.isArray(blocks) ? blocks : []).map((b) => String(b || '')).filter((b) => b.trim());
+  if (!blocks.length) return { status: 'skipped', lang: 'py', note: 'Code khaali hai.' };
+  const tests = blocks.filter((b) => PY_TEST_RE.test(b));
+  const others = blocks.filter((b) => !PY_TEST_RE.test(b));
+  if (!tests.length) return runCode({ lang: 'py', code: others[0] || blocks[0], timeoutMs });
+  const impl = others.find((b) => /^\s*(def|class)\s/m.test(b)) || others[0] || '';
+  const testCode = tests.join('\n\n');
+  let modName = 'solution';
+  const re = /^\s*(?:from\s+([A-Za-z_]\w*)[\w.]*\s+import|import\s+([A-Za-z_]\w*))/gm; let m;
+  while ((m = re.exec(testCode))) { const n = m[1] || m[2]; if (n && !PY_STD.has(n)) { modName = n; break; } }
+  const ms = timeoutMs || LIMITS.ms;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
+  try {
+    if (impl) fs.writeFileSync(path.join(dir, modName + '.py'), impl, 'utf8');
+    fs.writeFileSync(path.join(dir, 'test_main.py'), testCode, 'utf8');
+    fs.writeFileSync(path.join(dir, 'pytest.py'), PYSHIM.PYTEST_SHIM, 'utf8');
+    fs.writeFileSync(path.join(dir, '_run_tests.py'), PYSHIM.PY_RUNNER, 'utf8');
+    let r;
+    for (const bin of ['python3', 'python']) { r = await spawnRun(bin, ['_run_tests.py', 'test_main'], dir, ms); if (!r.unavailable) break; }
+    if (r.unavailable) return { status: 'skipped', lang: 'py', note: 'python is machine par nahi mila; code chalaya nahi gaya.' };
+    const base = { lang: 'py', hadTests: true, exitCode: r.exitCode, ms: r.ms, stdout: clipTail(r.stdout), stderr: clip(r.stderr), sandboxFlag: false, friendly: pyFriendly(r), usedBlocks: { impl: !!impl, tests: tests.length } };
+    if (r.timedOut) return { ...base, status: 'timeout', note: 'Time limit (' + ms + 'ms) me khatam nahi hua.' };
+    if (r.exitCode !== 0) return { ...base, status: 'failed' };
+    return { ...base, status: 'tested' };
+  } finally { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ok */ } }
+}
+// One entry point for the server: lang 'js' or 'py', blocks = every code block of the answer.
+function runAnyBlocks({ lang, blocks, timeoutMs } = {}) {
+  lang = String(lang || 'js').toLowerCase();
+  if (lang === 'py' || lang === 'python') return runPyBlocks({ blocks, timeoutMs });
+  return runBlocks({ blocks, timeoutMs });
+}
+
 // Report sirf real result se. Model ka "Verified" yahan se nahi aata.
 function buildReport(res) {
   if (!res) return 'NOT TESTED: koi check nahi chala.';
@@ -182,4 +226,4 @@ async function verifyLoop({ lang, code, tests, generate, maxRounds }) {
   }
 }
 
-module.exports = { runCode, runBlocks, buildReport, verifyLoop, LIMITS, _isTestBlock: isTestBlock, _isEsm: isEsm };
+module.exports = { runCode, runBlocks, runPyBlocks, runAnyBlocks, buildReport, verifyLoop, LIMITS, _isTestBlock: isTestBlock, _isEsm: isEsm };

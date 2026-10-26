@@ -302,11 +302,19 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
       } catch (e) { /* extra off */ }
       facts.forEach((f) => push('f' + f.id, 2, f.topic ? f.topic + ': ' + f.fact : f.fact, f.createdAt));      // learned facts -> memory
       thoughts.forEach((t) => push('t' + t.id, 0, t.text, t.createdAt));                                       // her thoughts -> thinking
+      let logCounts = [0, 0, 0, 0, 0, 0, 0];
+      try {   // everything the backend learned or did: lessons, skills, test runs, failures, builds ... (grows forever)
+        const bl = global.__brain && global.__brain.snapshot();
+        if (bl) { bl.items.forEach((x) => push(x.id, x.r, x.t, x.ts)); logCounts = bl.counts; }
+      } catch (e) { /* brain log off */ }
       const counts = [0, 0, 0, 0, 0, 0, 0]; all.forEach((x) => { counts[x.r]++; });
+      // the log keeps true totals forever; the page only draws the newest events, so add the older ones to the totals
+      const drawnFromLog = [0, 0, 0, 0, 0, 0, 0]; all.forEach((x) => { if (/^b/.test(x.id)) drawnFromLog[x.r]++; });
+      for (let i = 0; i < 7; i++) counts[i] += Math.max(0, (logCounts[i] || 0) - drawnFromLog[i]);
       all.sort((a, b) => b.ts - a.ts);
       const per = [0, 0, 0, 0, 0, 0, 0], items = [];
       for (const x of all) { if (per[x.r] >= 90) continue; per[x.r]++; items.push(x); }      // newest 90 per region are drawn; counts are the true totals
-      return { counts, total: all.length, items, at: Date.now() };
+      return { counts, total: counts.reduce((a, b) => a + b, 0), items, at: Date.now() };
     },
   };
 

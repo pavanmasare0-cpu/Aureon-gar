@@ -115,6 +115,7 @@ function recordError(category, err) {
   const message = (err && err.message) ? err.message : String(err);
 
   recentErrors.unshift({ category, message, at: now });
+  try { if (global.__brain) global.__brain.recordOnce('wd:' + category, 10, 3, 'Dikkat: ' + category + ' — ' + String(message).replace(/\s+/g, ' ').slice(0, 90), { kind: 'error' }); } catch (e) { /* brain is optional */ }
   if (recentErrors.length > MAX_LOGGED_ERRORS) recentErrors.length = MAX_LOGGED_ERRORS;
 
   if (!errorLog[category]) errorLog[category] = [];
