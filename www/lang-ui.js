@@ -8,7 +8,11 @@
     if (v === 'hinglish') return '\n\nLANGUAGE RULE (user setting): Always reply in natural Hinglish (Hindi written in English letters, mixed with English words), even if the user writes in English. Keep code and code comments in English.';
     return '';
   };
+  var AKEY = 'aureon_auto_fix';   // Auto test & fix: 'on' (default) or 'off'
+  window.aureonAutoFix = function () { try { return localStorage.getItem(AKEY) !== 'off'; } catch (e) { return true; } };
   function init() {
+    var af = document.getElementById('auto-fix-select');
+    if (af) { af.value = window.aureonAutoFix() ? 'on' : 'off'; af.addEventListener('change', function () { try { localStorage.setItem(AKEY, af.value); } catch (e) { /* storage blocked */ } }); }
     var sel = document.getElementById('reply-lang-select');
     if (!sel) return;
     sel.value = get();

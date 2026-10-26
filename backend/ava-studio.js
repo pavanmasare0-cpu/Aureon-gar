@@ -352,6 +352,8 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
     await demoStep(e, ck, plan);
     if (entryFiles(e).filter((x) => x.lines > 0).length < MIN_FILES) throw new Error('Sirf kuch hi file valid bani — project reject');
   }
+  // Brain: Ava's test results and finished projects become neurons (no code, only short facts).
+  const brainEv = (r, t) => { try { if (global.__brain) global.__brain.record(r, t, { kind: 'ava-studio' }); } catch (err) { /* brain is optional */ } };
   async function testModule(e, ck, m, written) {
     const tests = written.filter(isTest);
     if (!tests.length) return;
@@ -361,8 +363,8 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
       for (let round = 0; round < 3; round++) {
         say('Test chala rahi hai: ' + t + (round ? ' (repair ' + round + ')' : ''));
         const r = runTest(e.id, t);
-        if (r.ok) { e.notes.push('✅ test pass: ' + t + (r.sandboxed ? ' (isolated)' : '')); break; }
-        if (round === 2) { e.notes.push('❌ test fail: ' + t + ' — ' + r.log.split('\n').filter(Boolean).slice(-2).join(' | ').slice(0, 160)); break; }
+        if (r.ok) { e.notes.push('✅ test pass: ' + t + (r.sandboxed ? ' (isolated)' : '')); brainEv(1, 'Ava test pass: ' + t + (round ? ' (repair ke baad)' : '')); break; }
+        if (round === 2) { brainEv(3, 'Ava test fail: ' + t); e.notes.push('❌ test fail: ' + t + ' — ' + r.log.split('\n').filter(Boolean).slice(-2).join(' | ').slice(0, 160)); break; }
         // repair the first non-test project file named in the failure output, else the test itself
         const named = [...r.log.matchAll(/([A-Za-z0-9_./-]+\.js)(?::\d+)/g)].map((x) => x[1].replace(pdir(e.id) + '/', '')).filter((p) => !isTest(p) && getFile(e.id, p) != null)[0];
         const target = named || t; const f = m.files.find((x) => x.path === target) || { path: target, purpose: 'fix', approx: 200, deps: [] };
@@ -588,6 +590,7 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
         saveCk(e.id, ck); say('Attachment ready: ' + (a.notes.join(' · ') || 'ok').slice(0, 160));
       }
       if (kind === 'ui') await buildUi(e, ck.brief + (ck.ctx ? '\n\nATTACHED MATERIAL (build the UI from / inspired by this exactly as the owner wants):\n' + ck.ctx.slice(0, 12000) : '')); else await buildProject(e, ck);
+      brainEv(6, 'Ava ne project banaya: ' + String(e.title || 'project').slice(0, 60) + ' (' + e.stats.files + ' files)');
       e.status = 'done'; e.sandbox = { ok: true, log: e.stats.files + ' file(s), ' + e.stats.lines + ' lines, ' + job.calls + ' AI calls' }; e.stats.calls = job.calls; e.notes = e.notes.slice(-40);
       try { fs.rmSync(ckFile(e.id), { force: true }); } catch (err) { /* ignore */ }
       say('✅ Ho gaya: ' + e.title + ' (' + e.stats.lines + ' lines)'); save();
