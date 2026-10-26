@@ -153,7 +153,17 @@ function factory(opts) {
     } catch (e) { console.error('[apk] load failed:', e.message); }
   })();
   const save = () => { ready.then(() => store && store.save('apk_jobs', jobs.slice(0, MAX_JOBS), JOBS_FILE)).catch(() => {}); };
-  const touch = (j, patch) => { Object.assign(j, patch, { updatedAt: new Date().toISOString() }); save(); };
+  const touch = (j, patch) => {
+    const prev = j.status;
+    Object.assign(j, patch, { updatedAt: new Date().toISOString() });
+    save();
+    try {   // brain: APK builds (start, queued, done, failed) become neurons
+      if (global.__brain && patch.status && patch.status !== prev) {
+        const failed = /fail|error|cancel/i.test(patch.status);
+        global.__brain.record(failed ? 3 : 6, 'APK "' + String(j.name || 'app').slice(0, 40) + '": ' + patch.status + (failed && j.error ? ' — ' + String(j.error).slice(0, 80) : ''), { kind: 'apk' });
+      }
+    } catch (e) { /* brain is optional */ }
+  };
 
   // ---------------- GitHub
   async function gh(p, init) {

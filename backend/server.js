@@ -1249,6 +1249,7 @@ app.post('/api/knowledge/upload', verifyAuth, async (req, res) => {
       await batch.commit();
     }
 
+    brainFact(req.verifiedUid, 2, 'Knowledge doc: ' + filename + ' (' + embeddedChunks.length + ' chunks)', 'knowledge');
     res.json({ id: docRef.id, filename, chunkCount: embeddedChunks.length });
   } catch (err) {
     console.error('Knowledge upload failed:', err);
@@ -1762,6 +1763,7 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
           if (trace.length > 1) steps = trace;   // only replies that have code blocks get a Summary
         } catch (e) { console.warn('verifyAndFix skipped:', e && e.message); }
       }
+      { const lu = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string'); brainChat(uid, model, lu ? lu.content : '', reply); }
       return res.json(steps ? { reply, steps } : { reply });
       }
 
@@ -1777,12 +1779,14 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
       try {
         if (name === 'save_reminder') {
           await saveReminderToFirestore(uid, String(args.text || '').trim());
+          brainFact(uid, 2, 'Reminder: ' + String(args.text || '').trim(), 'reminder');
           result = { result: 'Saved.' };
         } else if (name === 'recall_reminders') {
           const texts = await consumeUndeliveredReminders(uid);
           result = { result: texts.length ? texts.join(' | ') : 'No pending reminders.' };
         } else {
           await appendToMemory(uid, args.fact);
+          brainFact(uid, 2, 'Yaad rakha: ' + String(args.fact || '').trim(), 'memory');
           result = { result: 'Remembered.' };
         }
       } catch (reminderErr) {
@@ -1803,8 +1807,8 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
 });
 
 // ---------- Code sandbox run (Approve button in the app's Summary sheet) ----------
-// Owner only, JavaScript only, one run at a time. Python is NOT enabled: it has no fs sandbox here.
-// Node's --permission flag limits file access to a temp folder and blocks child processes, but network is not blocked.
+// Owner only, JavaScript and Python (blocks = code + tests), one run at a time.
+// JS: Node's --permission limits file access to a temp folder and blocks child processes. Python: ast guard (deny-list) + clean env. Network is NOT blocked in either.
 const _codeRunBusy = new Set();
 app.post('/api/code/run', verifyAuth, async (req, res) => {
   const uid = req.verifiedUid;
@@ -1845,6 +1849,53 @@ function brainNote(uid, r, lang) {
     else if (r.status === 'failed' || r.status === 'timeout') global.__brain.recordFor(uid, 3, L + ' run fail: ' + String(r.friendly || r.stderr || r.stdout || r.note || '').split('\n').find((x) => x.trim()) , { kind: 'run', lang });
   } catch (e) { /* brain is optional */ }
 }
+// Brain: normal chat turns, reminders, saved facts, notes, knowledge docs (owner only; secrets are removed by the brain log)
+function brainChat(uid, model, userText, reply) {
+  try {
+    if (!global.__brain || !uid) return;
+    global.__brain.isOwner(uid).then((own) => { if (own) brainBackfill(uid, false).catch(() => {}); }).catch(() => {});
+    const q = String(userText || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const a = String(reply || '').replace(/```[\s\S]*?```/g, ' [code] ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!q && !a) return;
+    const region = (model === 'coding' || model === 'claudecode') ? 1 : 2;
+    global.__brain.recordFor(uid, region, 'Chat (' + (model || 'chat') + '): "' + q + '"' + (a ? ' → ' + a : ''), { kind: 'chat' });
+  } catch (e) { /* brain is optional */ }
+}
+// One-time catch-up: everything Aureon already knows (skills, lessons, knowledge docs, notes, saved chats) becomes neurons.
+// Runs by itself the first time the owner chats after this version is deployed; POST /api/brain/backfill?force=1 runs it again.
+let _backfillRunning = false;
+async function brainBackfill(uid, force) {
+  if (_backfillRunning || !global.__brain || !db) return { skipped: true };
+  const metaRef = db.collection('aureon_brain_meta').doc('backfill');
+  if (!force) { const m = await metaRef.get(); if (m.exists) return { skipped: true }; }
+  _backfillRunning = true;
+  try {
+    await metaRef.set({ startedAt: Date.now(), uid });
+    const B = global.__brain, u = db.collection('users').doc(uid); const done = {};
+    const rec = (k, r, t) => { B.record(r, t, { kind: 'backfill' }); done[k] = (done[k] || 0) + 1; };
+    try { (await u.collection('skills').limit(1000).get()).docs.forEach(d => rec('skills', 2, 'Skill seekhi: ' + (d.data().name || d.id))); } catch (e) { /* section optional */ }
+    try { (await u.collection('lessons').limit(500).get()).docs.forEach(d => rec('lessons', 1, 'Lesson: ' + (d.data().text || ''))); } catch (e) { /* section optional */ }
+    try { (await u.collection('knowledge').limit(300).get()).docs.forEach(d => rec('knowledge', 2, 'Knowledge doc: ' + (d.data().filename || d.id))); } catch (e) { /* section optional */ }
+    try { const m = await u.collection('profile').doc('memory').get(); if (m.exists && m.data().text) rec('notes', 2, 'Memory notes: ' + String(m.data().text).slice(0, 110)); } catch (e) { /* section optional */ }
+    try {
+      (await u.collection('chats').limit(300).get()).docs.forEach(d => {
+        const c = d.data() || {}; const first = Array.isArray(c.messages) ? c.messages.find(x => x && x.role === 'user' && typeof x.content === 'string') : null;
+        rec('chats', 2, 'Purani chat: ' + (c.title || '') + (first ? ' — "' + String(first.content).replace(/\s+/g, ' ').slice(0, 70) + '"' : ''));
+      });
+    } catch (e) { /* section optional */ }
+    await metaRef.set({ startedAt: Date.now(), uid, finishedAt: Date.now(), done });
+    B.record(0, 'Brain me purana sab kuch daala: ' + Object.entries(done).map(([k, v]) => k + ' ' + v).join(', '), { kind: 'backfill' });
+    return { ok: true, done };
+  } catch (e) { console.warn('Brain backfill failed:', e.message); return { error: e.message }; }
+  finally { _backfillRunning = false; }
+}
+app.post('/api/brain/backfill', verifyAuth, async (req, res) => {
+  try {
+    if (!global.__brain || !(await global.__brain.isOwner(req.verifiedUid))) return res.status(403).json({ error: 'Sirf owner ke liye.' });
+    res.json(await brainBackfill(req.verifiedUid, String(req.query.force || '') === '1'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+const brainFact = (uid, region, text, kind) => { try { if (global.__brain && uid) global.__brain.recordFor(uid, region, text, { kind }); } catch (e) { /* brain is optional */ } };
 const FIX_PROMPT = (report) => 'Your code was run in the sandbox and FAILED:\n\n' + String(report).slice(0, 3500) + '\n\nFind the REAL cause and fix it (fix the code, not the test, unless the test itself is wrong). Reply with the COMPLETE corrected answer in the same format: implementation block first, then the tests block, every block in full, no placeholders. Make the first line: "Fixed: <what was wrong, one short sentence>".';
 const CODE_BLOCK_RE = { js: /```(?:js|javascript|node)[ \t]*\n([\s\S]*?)```/gi, py: /```(?:py|python|python3)[ \t]*\n([\s\S]*?)```/gi };
 app.post('/api/code/fix-run', verifyAuth, async (req, res) => {
@@ -1909,6 +1960,7 @@ app.post('/api/memory', verifyAuth, async (req, res) => {
       text: text || '',
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
+    brainFact(uid, 2, 'Memory notes badle: ' + String(text || '').slice(0, 100), 'memory');
     res.json({ ok: true });
   } catch (err) {
     console.error('Saving memory failed:', err);
@@ -2260,6 +2312,10 @@ try {
       brainLog.record(0, 'Server jaaga: Gemini ' + g + ' key, Groq ' + q + ' key', { kind: 'boot' });
     }).catch(() => {});
   }, 6000);
+  const keyTick = setInterval(() => {   // keys status for the brain: counts + which key last worked (no test calls, so no quota is used)
+    try { brainLog.record(2, 'Keys: Gemini ' + geminiKeys().length + ', Groq ' + groqKeys().length + ' (Gemini aakhri chalti #' + (geminiKeys().length ? (geminiKeyStart % geminiKeys().length) + 1 : 0) + ')', { kind: 'keys' }); } catch (e) { /* optional */ }
+  }, 6 * 60 * 60 * 1000);
+  if (keyTick.unref) keyTick.unref();
 } catch (e) { console.warn('Brain log not started:', e.message); }
 
 app.listen(PORT, () => console.log(`Aureon AI backend running on port ${PORT}`));

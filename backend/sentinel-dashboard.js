@@ -137,6 +137,12 @@ function logEvent(type, server, text) {
   events.unshift({ t: new Date().toISOString(), type, server: server ? server.name : '', text: String(text || '').slice(0, 240) });
   if (events.length > 150) events.length = 150;
   persist('events');
+  try {   // brain: Sentinel, Ava Guard and Ava's upgrade proposals/approvals all become neurons
+    if (global.__brain) {
+      const R = { down: 3, deploy_bad: 3, error: 3, rejected: 4, proposal: 0, approved: 6, up: 2, deploy_ok: 6, deploy_watch: 0 };
+      global.__brain.record(R[type] != null ? R[type] : 0, 'Sentinel ' + type + (server && server.name ? ' [' + server.name + ']' : '') + ': ' + String(text || ''), { kind: 'sentinel' });
+    }
+  } catch (e) { /* brain is optional */ }
 }
 
 // history entries are [timestamp, responseMs] — responseMs -1 means the check failed

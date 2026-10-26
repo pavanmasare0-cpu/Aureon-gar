@@ -13,7 +13,12 @@ module.exports = function createBrainLog({ getDb, admin, ringSize = 1500 }) {
   let storedTotals = new Array(REGIONS).fill(0), pending = [], timer = null, loaded = false, flushing = false;
   const ownerCache = new Map();           // uid -> { v, at }
   const db = () => { try { return getDb(); } catch (e) { return null; } };
-  const clean = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
+  // Keys, tokens and passwords never become a neuron.
+  const SECRET_RES = [/AIza[0-9A-Za-z_\-]{30,}/g, /\bsk-[A-Za-z0-9_\-]{16,}/g, /\bgsk_[A-Za-z0-9]{16,}/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bxox[abp]-[A-Za-z0-9\-]{10,}/g, /\bAKIA[0-9A-Z]{16}\b/g,
+    /eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,}/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+    /\bBearer\s+[A-Za-z0-9._\-]{16,}/gi, /\b(?:api[_-]?key|secret|passwd|password|pwd|token|otp|pin)\s*[:=]\s*\S+/gi, /\b[A-Fa-f0-9]{40,}\b/g, /\b[A-Za-z0-9+\/_-]{40,}={0,2}(?=\s|$)/g];
+  const redact = (s) => SECRET_RES.reduce((t, re) => t.replace(re, '[hidden]'), String(s == null ? '' : s));
+  const clean = (s, n) => redact(s).replace(/\s+/g, ' ').trim().slice(0, n);
 
   function record(region, text, meta) {
     const r = Math.max(0, Math.min(REGIONS - 1, Number(region) | 0));
@@ -77,5 +82,5 @@ module.exports = function createBrainLog({ getDb, admin, ringSize = 1500 }) {
   function snapshot() {
     return { counts: totals.slice(), total: totals.reduce((a, b) => a + b, 0), items: ring.slice().sort((a, b) => b.ts - a.ts).map((e) => ({ id: 'b' + e.id, r: e.r, t: e.t, ts: e.ts })), loaded };
   }
-  return { record, recordOnce, recordFor, flush, load, snapshot, isOwner, _t: { ring, get pending() { return pending; }, get totals() { return totals; } } };
+  return { record, recordOnce, recordFor, redact, flush, load, snapshot, isOwner, _t: { ring, get pending() { return pending; }, get totals() { return totals; } } };
 };

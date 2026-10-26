@@ -309,6 +309,7 @@ function stepUp(req, res, force) {
 }
 function action(req, what) {
   log(req, 'action', what);
+  try { if (global.__brain) global.__brain.record(0, 'Owner action: ' + String(what || ''), { kind: 'action' }); } catch (e) { /* brain is optional */ }
   hooks.record({ app: 'dashboard', ip: ipOf(req), method: req.method, path: (req.originalUrl || '').split('?')[0], rule: 'DASH_SENSITIVE_ACTION', severity: 'LOW', action: 'ALERT', detail: `${(req.auth && req.auth.name) || 'owner'}: ${what}`.slice(0, 200) });
 }
 
