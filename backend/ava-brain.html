@@ -54,7 +54,7 @@ h1{text-shadow:0 0 18px rgba(53,214,255,.55)}
 <canvas id="cv"></canvas>
 <div class="hud top"><div><h1>AVA <span>· NEURAL LAB</span></h1><div class="sub" id="stat"></div></div>
 <div class="zoom"><button id="zi" aria-label="Zoom in">+</button><button id="zo" aria-label="Zoom out">−</button><button id="rs" aria-label="Reset">⟲</button></div></div>
-<div class="hud bot"><div id="info"><b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Niche box me kuch likho — Ava seekhegi aur uska ek naya chamakta neuron ban jayega.</div><div class="chips" id="chips"></div></div>
+<div class="hud bot"><div id="info"><b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Pichle 24 ghante ki yaadein upar (core me) dikhti hain, usse purani gehri chali jati hain — andar jaoge to dikhengi. Neeche kisi lobe (jaise Yaadein) par dabao to sirf wahi lobe dikhega.</div><div class="chips" id="chips"></div></div>
 <script src="/api/sentinel/ava-desk/three.js"></script>
 <script>
 (function(){
@@ -186,42 +186,49 @@ const KW=[[3,/\bdar\b|darr|dara|fear|afraid|scare|risk|danger|khatar|galat|error
 const classify=s=>{for(const[r,re]of KW)if(re.test(s))return r;return 2};
 const hs=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0};
 const mb=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
-const LO=new Float32Array(CAP*3),LCl=new Float32Array(CAP*3),LB=new Float32Array(CAP),LRn=new Float32Array(CAP);
-const DV=CAP*20,DP=new Float32Array(DV*3),DF=new Float32Array(DV*3),DC=new Float32Array(DV*3),DT=new Float32Array(DV),DR=new Float32Array(DV),DB=new Float32Array(DV);
-const SV=CAP*6,SP=new Float32Array(SV*3),SC=new Float32Array(SV*3);
+const LO=new Float32Array(CAP*3),LCl=new Float32Array(CAP*3),LB=new Float32Array(CAP),LRn=new Float32Array(CAP),LD=new Float32Array(CAP);
+const DV=CAP*20,DP=new Float32Array(DV*3),DF=new Float32Array(DV*3),DC=new Float32Array(DV*3),DT=new Float32Array(DV),DR=new Float32Array(DV),DB=new Float32Array(DV),DD=new Float32Array(DV);
+const SV=CAP*6,SP=new Float32Array(SV*3),SC=new Float32Array(SV*3),SD=new Float32Array(SV);
 const BA=(a,n)=>new T.BufferAttribute(a,n);
-const lgp=new T.BufferGeometry();lgp.setAttribute("position",BA(LO,3));lgp.setAttribute("col",BA(LCl,3));lgp.setAttribute("birth",BA(LB,1));lgp.setAttribute("rnd",BA(LRn,1));lgp.setDrawRange(0,0);
-const ldg=new T.BufferGeometry();ldg.setAttribute("position",BA(DP,3));ldg.setAttribute("off",BA(DF,3));ldg.setAttribute("col",BA(DC,3));ldg.setAttribute("tip",BA(DT,1));ldg.setAttribute("rnd",BA(DR,1));ldg.setAttribute("birth",BA(DB,1));ldg.setDrawRange(0,0);
-const lsg=new T.BufferGeometry();lsg.setAttribute("position",BA(SP,3));lsg.setAttribute("col",BA(SC,3));lsg.setDrawRange(0,0);
-const LU={uT:{value:0},uPx:{value:1600},uDist:{value:9},uMax:{value:130},uXe:{value:Xe},uLen:{value:.12},uInv:{value:1},uA:{value:.7}},LS={uXe:LU.uXe,uA:{value:0}};
+const lgp=new T.BufferGeometry();lgp.setAttribute("position",BA(LO,3));lgp.setAttribute("col",BA(LCl,3));lgp.setAttribute("birth",BA(LB,1));lgp.setAttribute("rnd",BA(LRn,1));lgp.setAttribute("dep",BA(LD,1));lgp.setDrawRange(0,0);
+const ldg=new T.BufferGeometry();ldg.setAttribute("position",BA(DP,3));ldg.setAttribute("off",BA(DF,3));ldg.setAttribute("col",BA(DC,3));ldg.setAttribute("tip",BA(DT,1));ldg.setAttribute("rnd",BA(DR,1));ldg.setAttribute("birth",BA(DB,1));ldg.setAttribute("dep",BA(DD,1));ldg.setDrawRange(0,0);
+const lsg=new T.BufferGeometry();lsg.setAttribute("position",BA(SP,3));lsg.setAttribute("col",BA(SC,3));lsg.setAttribute("dep",BA(SD,1));lsg.setDrawRange(0,0);
+const LU={uT:{value:0},uPx:{value:1600},uDist:{value:9},uMax:{value:130},uXe:{value:Xe},uLen:{value:.12},uInv:{value:1},uA:{value:.7},uDeep:{value:0}},LS={uXe:LU.uXe,uA:{value:0}};LS.uDeep=LU.uDeep;
 const mkL=(vs,fs,u)=>new T.ShaderMaterial({uniforms:u,vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,depthTest:false,blending:T.AdditiveBlending});
-const VS_O="attribute vec3 col;attribute float birth;attribute float rnd;uniform vec3 uXe;uniform float uT;uniform float uPx;uniform float uDist;uniform float uMax;varying vec3 vc;varying float va;"+
-"void main(){vec4 mv=modelViewMatrix*vec4(position-uXe,1.);gl_Position=projectionMatrix*mv;float z=max(-mv.z,1e-4);float age=max(uT-birth,0.);"+
+const VS_O="attribute vec3 col;attribute float birth;attribute float rnd;attribute float dep;uniform float uDeep;uniform vec3 uXe;uniform float uT;uniform float uPx;uniform float uDist;uniform float uMax;varying vec3 vc;varying float va;"+
+"void main(){vec4 mv=modelViewMatrix*vec4(position-uXe,1.);gl_Position=projectionMatrix*mv;float z=max(-mv.z,1e-4);float age=max(uT-birth,0.);float vis=dep>1.5?0.:(dep>.5?uDeep:1.);"+
 "float pop=smoothstep(0.,.5,age)*(1.+.6*exp(-age*2.2)*sin(age*9.));float wS=min(.14,.3*uDist)*pop*(1.+.12*sin(uT*1.6+rnd*30.));"+
-"gl_PointSize=clamp(uPx*wS/z,step(.001,age)*4.,uMax);va=smoothstep(.0015,.02,-mv.z)*(.9+.4*exp(-age*.8));vc=col;}";
+"gl_PointSize=clamp(uPx*wS/z,step(.001,age)*4.,uMax);va=smoothstep(.0015,.02,-mv.z)*(.9+.4*exp(-age*.8))*vis;vc=col;}";
 const FS_O="varying vec3 vc;varying float va;void main(){float d=length(gl_PointCoord-.5)*2.;if(d>1.)discard;float a=1.-d;float core=1.-smoothstep(0.,.35,d);"+
 "gl_FragColor=vec4(vc*(.5*a*a+1.2*core)+vec3(.6)*core*core,(a*a*.7+core)*va);}";
-const VS_D="attribute vec3 off;attribute vec3 col;attribute float tip;attribute float rnd;attribute float birth;uniform vec3 uXe;uniform float uT;uniform float uLen;uniform float uInv;uniform float uA;varying vec3 vc;varying float va;"+
-"void main(){float age=max(uT-birth,0.);float gr=smoothstep(.2,1.6,age);vec3 p=position-uXe+off*uLen*uInv*gr*(1.+.1*sin(uT*1.5+rnd*50.+tip*3.));"+
-"vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;va=uA*(1.-.6*tip)*smoothstep(.0015,.02,-mv.z)*step(.01,age);vc=col;}";
+const VS_D="attribute vec3 off;attribute vec3 col;attribute float tip;attribute float rnd;attribute float birth;attribute float dep;uniform float uDeep;uniform vec3 uXe;uniform float uT;uniform float uLen;uniform float uInv;uniform float uA;varying vec3 vc;varying float va;"+
+"void main(){float age=max(uT-birth,0.);float vis=dep>1.5?0.:(dep>.5?uDeep:1.);float gr=smoothstep(.2,1.6,age);vec3 p=position-uXe+off*uLen*uInv*gr*(1.+.1*sin(uT*1.5+rnd*50.+tip*3.));"+
+"vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;va=uA*(1.-.6*tip)*smoothstep(.0015,.02,-mv.z)*step(.01,age)*vis;vc=col;}";
 const FS_D="varying vec3 vc;varying float va;void main(){gl_FragColor=vec4(vc*va,va);}";
-const VS_S="attribute vec3 col;uniform vec3 uXe;varying vec3 vc;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position-uXe,1.);vc=col;}";
-const FS_S="uniform float uA;varying vec3 vc;void main(){gl_FragColor=vec4(vc*uA,uA);}";
+const VS_S="attribute vec3 col;attribute float dep;uniform vec3 uXe;uniform float uDeep;varying vec3 vc;varying float vv;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position-uXe,1.);vc=col;vv=dep>1.5?0.:(dep>.5?uDeep:1.);}";
+const FS_S="uniform float uA;varying vec3 vc;varying float vv;void main(){gl_FragColor=vec4(vc*uA*vv,uA*vv);}";
 const learnG=new T.Group();learnG.visible=false;sc.add(learnG);
 [new T.Points(lgp,mkL(VS_O,FS_O,LU)),new T.LineSegments(ldg,mkL(VS_D,FS_D,LU)),new T.LineSegments(lsg,mkL(VS_S,FS_S,LS))].forEach((o,i)=>{o.frustumCulled=false;o.renderOrder=20+i;learnG.add(o)});
 const mkI=(t,r,x,y,z,ts,b)=>({t,r,x,y,z,ts,b,sd:(hs(t)^(ts%2147483647))>>>0});
+/* ===== Umr ke hisaab se gehrai: pichle 24 ghante ki yaadein upar (core me), usse purani gehri chali jati hain (andar jaane par dikhti hain) =====
+   lv 0 = 24 ghante tak, 1 = 7 din tak, 2 = 30 din tak, 3 = usse purani.  dep: 0 upar, 1 gehri (zoom/dive par), 2 chhupi (kisi aur lobe par focus). */
+const DAY=864e5,DEEPF=[1,.68,.48,.32];
+function lvl(ts){ts=+ts||0;if(!ts)return 0;if(ts<1e11)ts*=1000;const a=Date.now()-ts;return a<=DAY?0:a<=7*DAY?1:a<=30*DAY?2:3}
+function depOf(it){if(focus>=0)return it.r===focus?0:2;return (it.lv|0)>0?1:0}
+function applyDep(){const n=learned.length;for(let k=0;k<n;k++){const d=depOf(learned[k]);LD[k]=d;DD.fill(d,k*20,k*20+20);SD.fill(d,k*6,k*6+6)}
+[lgp,ldg,lsg].forEach(g=>{if(g.attributes.dep)g.attributes.dep.needsUpdate=true})}
 function rebuild(){
 const n=learned.length;lcnt.fill(0);let q=0,s=0;
-const dv=(it,c,ox,oy,oz,tp,rn)=>{DP[q*3]=it.x;DP[q*3+1]=it.y;DP[q*3+2]=it.z;DF[q*3]=ox;DF[q*3+1]=oy;DF[q*3+2]=oz;DC[q*3]=c.r;DC[q*3+1]=c.g;DC[q*3+2]=c.b;DT[q]=tp;DR[q]=rn;DB[q]=it.b;q++};
-for(let k=0;k<n;k++){const it=learned[k],c=R[it.r].col,g=mb(it.sd);lcnt[it.r]++;
-LO[k*3]=it.x;LO[k*3+1]=it.y;LO[k*3+2]=it.z;LCl[k*3]=c.r;LCl[k*3+1]=c.g;LCl[k*3+2]=c.b;LB[k]=it.b;LRn[k]=g();
+const dv=(it,c,ox,oy,oz,tp,rn)=>{const f=DEEPF[it.lv|0]||1;DP[q*3]=it.x*f;DP[q*3+1]=it.y*f;DP[q*3+2]=it.z*f;DF[q*3]=ox;DF[q*3+1]=oy;DF[q*3+2]=oz;DC[q*3]=c.r;DC[q*3+1]=c.g;DC[q*3+2]=c.b;DT[q]=tp;DR[q]=rn;DB[q]=it.b;q++};
+for(let k=0;k<n;k++){const it=learned[k],c=R[it.r].col,g=mb(it.sd);lcnt[it.r]++;const f=DEEPF[it.lv|0]||1;
+LO[k*3]=it.x*f;LO[k*3+1]=it.y*f;LO[k*3+2]=it.z*f;LCl[k*3]=c.r;LCl[k*3+1]=c.g;LCl[k*3+2]=c.b;LB[k]=it.b;LRn[k]=g();
 for(let b=0;b<5;b++){const d1=V(g()-.5,g()-.5,g()-.5).normalize(),m=d1.clone().multiplyScalar(.5+.5*g()),
 e=m.clone().addScaledVector(d1.clone().add(V(g()-.5,g()-.5,g()-.5).multiplyScalar(1.1)).normalize(),.6+.6*g()),rn=g();
 dv(it,c,0,0,0,0,rn);dv(it,c,m.x,m.y,m.z,.5,rn);dv(it,c,m.x,m.y,m.z,.5,rn);dv(it,c,e.x,e.y,e.z,1,rn)}
 if(!it.s){const pv=V(it.x,it.y,it.z);it.s=P.map((p,i)=>[p.distanceToSquared(pv),i]).sort((a,b)=>a[0]-b[0]).slice(0,3).map(d=>d[1])}
-it.s.forEach(j=>{const cj=R[reg[j]].col;SP[s*3]=it.x;SP[s*3+1]=it.y;SP[s*3+2]=it.z;SC[s*3]=c.r;SC[s*3+1]=c.g;SC[s*3+2]=c.b;s++;
+it.s.forEach(j=>{const cj=R[reg[j]].col;SP[s*3]=it.x*f;SP[s*3+1]=it.y*f;SP[s*3+2]=it.z*f;SC[s*3]=c.r;SC[s*3+1]=c.g;SC[s*3+2]=c.b;s++;
 SP[s*3]=P[j].x;SP[s*3+1]=P[j].y;SP[s*3+2]=P[j].z;SC[s*3]=cj.r;SC[s*3+1]=cj.g;SC[s*3+2]=cj.b;s++})}
-[lgp,ldg,lsg].forEach(g=>Object.values(g.attributes).forEach(a=>a.needsUpdate=true));
+applyDep();[lgp,ldg,lsg].forEach(g=>Object.values(g.attributes).forEach(a=>a.needsUpdate=true));
 lgp.setDrawRange(0,n);ldg.setDrawRange(0,n*20);lsg.setDrawRange(0,n*6)}
 const updChips=()=>R.forEach((r,j)=>{const n=srvCnt[j]||lcnt[j];if(r.el)r.el.innerHTML="<i></i>"+r.n+(n?" <b>"+n+"</b>":"")});
 const RI=R.map((_,j)=>all.filter(i=>reg[i]===j));
@@ -232,23 +239,23 @@ if(!d||!Array.isArray(d.items))return;
 for(let j=0;j<7;j++)srvCnt[j]=Math.max(0,Math.min(1e9,+(d.counts&&d.counts[j])||0));
 const items=d.items.filter(o=>o&&typeof o.t==="string"&&o.r>=0&&o.r<7&&o.id).slice(0,CAP).sort((a,b)=>(a.ts||0)-(b.ts||0));
 const nsig=items.map(o=>o.id+":"+o.r).join("|");
-if(nsig===sig){updChips();return}
+if(nsig===sig){let ch=false;learned.forEach(it=>{const L=lvl(it.ts);if(L!==it.lv){it.lv=L;ch=true}});if(ch)rebuild();updChips();return}
 const old=new Map(learned.map(it=>[it.id,it])),now=clk.getElapsedTime();let fresh=0;
 learned.length=0;
 items.forEach(o=>{let it=old.get(o.id);
 if(!it||it.r!==o.r){const g=mb(hs(o.id)),ids=RI[o.r],base=ids.length?P[ids[g()*ids.length|0]]:R[o.r].v;
-it={id:o.id,t:String(o.t).slice(0,140),r:o.r|0,x:base.x+(g()-.5)*.4,y:base.y+(g()-.5)*.4,z:base.z+(g()-.5)*.4,ts:+o.ts||0,b:now+.2+Math.min(fresh*.03,2.5),sd:hs(o.id)};fresh++}
-else it.t=String(o.t).slice(0,140);
+it={id:o.id,t:String(o.t).slice(0,140),r:o.r|0,x:base.x+(g()-.5)*.4,y:base.y+(g()-.5)*.4,z:base.z+(g()-.5)*.4,ts:+o.ts||0,lv:lvl(+o.ts||0),b:now+.2+Math.min(fresh*.03,2.5),sd:hs(o.id)};fresh++}
+else{it.t=String(o.t).slice(0,140);it.lv=lvl(+o.ts||it.ts||0)}
 learned.push(it)});
 sig=nsig;rebuild();updChips();if(fresh&&old.size)burst()}
 const lpool=[];for(let i=0;i<4;i++){const d=document.createElement("div");d.className="lb";document.body.appendChild(d);lpool.push(d)}
 const lw=V(0,0,0),ln=V(0,0,0);
 /* har frame: uniforms, labels, aur screen ke beech wala seekha hua neuron (index ya -1) */
 function lStep(t,SS,bf,zf){
-LU.uT.value=t;LU.uDist.value=dist;LU.uLen.value=Math.min(.12,.3*dist);LU.uInv.value=1/SS;LS.uA.value=.5*bf;
+LU.uT.value=t;LU.uDist.value=dist;LU.uLen.value=Math.min(.12,.3*dist);LU.uInv.value=1/SS;LS.uA.value=.5*bf;const deepV=Math.max(Math.min(1,zf*1.4),Math.min(1,(XD-1)*1.2));LU.uDeep.value=deepV;
 learnG.visible=learned.length>0;learnG.rotation.copy(brain.rotation);learnG.scale.setScalar(SS);
 let best=-1,bd=.1;const cand=[];
-for(let k=0;k<learned.length;k++){const it=learned[k],age=t-it.b;if(age<.3)continue;
+for(let k=0;k<learned.length;k++){const it=learned[k],age=t-it.b;if(age<.3)continue;const dp=depOf(it);if(dp===2||(dp===1&&deepV<.35))continue;
 lw.set(it.x,it.y,it.z).sub(Xe).multiplyScalar(SS).applyEuler(brain.rotation);if(XD<1.5&&lw.z<-.3)continue;
 ln.copy(lw).project(cam);if(ln.z>1||ln.z<-1)continue;const ex=Math.hypot(ln.x,ln.y);
 if(ex<bd&&(zf>.4||XD>1.3||dist<2.5)){bd=ex;best=k}
@@ -267,10 +274,10 @@ const pool=[];for(let i=0;i<10;i++){const d=document.createElement("div");d.clas
 /* UI */
 const info=document.getElementById("info"),chips=document.getElementById("chips"),stat=document.getElementById("stat");
 let syn=lp.length/6;stat.textContent=N+" neurons · "+syn+" synapses";
-const HOME="<b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Niche box me kuch likho — Ava seekhegi aur uska ek naya chamakta neuron ban jayega.";
+const HOME="<b>Ava ka dimaag</b><br>Ghumane ke liye drag karo, zoom ke liye pinch ya scroll karo — andar jaoge to har neuron aur uski yaadein dikhengi, aur 1000× tak andar jaoge to naye neurons ka poora brahmand khulta jayega.<br>Pichle 24 ghante ki yaadein upar (core me) dikhti hain, usse purani gehri chali jati hain — andar jaoge to dikhengi. Neeche kisi lobe (jaise Yaadein) par dabao to sirf wahi lobe dikhega.";
 let dist=mob?12:9,td=dist,DMAX=dist+1,focus=-1,drag=false,ty=0,tX=0,tYr=0,tpos=V(0,0,0);
 R.forEach((r,j)=>{const b=document.createElement("button");b.className="chip";b.style.setProperty("--c",r.c);b.innerHTML="<i></i>"+r.n;b.onclick=()=>setF(focus===j?-1:j);chips.appendChild(b);r.el=b});
-function setF(j){focus=j;R.forEach((r,k)=>r.el.classList.toggle("on",k===j));if(j<0){td=DMAX-1;tpos.set(0,0,0);XTd=1;XLT=0;info.innerHTML=HOME;return}
+function setF(j){focus=j;applyDep();R.forEach((r,k)=>r.el.classList.toggle("on",k===j));if(j<0){td=DMAX-1;tpos.set(0,0,0);XTd=1;XLT=0;info.innerHTML=HOME;return}
 const r=R[j],c=r.v.clone();const yaw=Math.atan2(-c.x,c.z),h=Math.hypot(c.x,c.z),pit=Math.atan2(c.y,h);tY=yaw;tX=pit;
 const e=new T.Euler(pit,yaw,0,"XYZ");tpos=c.clone().applyEuler(e).negate();td=2.3;info.innerHTML="<b style='color:"+r.c+"'>"+r.n+"</b><br>"+r.d}
 let tY=0;
@@ -288,7 +295,7 @@ cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);pt.set(e
 cv.addEventListener("pointermove",e=>{if(!pt.has(e.pointerId))return;const o=pt.get(e.pointerId);
 if(pt.size===2){pt.set(e.pointerId,[e.clientX,e.clientY]);const[a,b]=[...pt.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd&&d>0)zoomBy(pd/d);pd=d;return}
 const dx=e.clientX-o[0],dy=e.clientY-o[1];pt.set(e.pointerId,[e.clientX,e.clientY]);
-if(focus>=0){focus=-1;R.forEach(r=>r.el.classList.remove("on"));tpos.set(0,0,0);if(XTd>1.05){pickI=nearTo(XC);dsh=-1;shown=-2}else info.innerHTML=HOME}
+if(focus>=0){focus=-1;applyDep();R.forEach(r=>r.el.classList.remove("on"));tpos.set(0,0,0);if(XTd>1.05){pickI=nearTo(XC);dsh=-1;shown=-2}else info.innerHTML=HOME}
 tY=brain.rotation.y+dx*.007;tX=Math.max(-1.4,Math.min(1.4,brain.rotation.x+dy*.007));brain.rotation.y=tY;brain.rotation.x=tX});
 const up=e=>{pt.delete(e.pointerId);pd=0;if(!pt.size)drag=false};
 cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",up);

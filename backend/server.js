@@ -1701,6 +1701,12 @@ app.post('/api/chat', verifyAuth, async (req, res) => {
       } catch (skillErr) { console.warn('Code mode context failed:', skillErr.message); }
     }
 
+    // Coding mode: same relevant installed-skills list as Code mode (skills that match are added by buildContext above in every mode).
+    if (model === 'coding') {
+      try { finalSystemPrompt += await skills.buildIndex({ db, uid, message: (() => { const lu = [...messages].reverse().find(m => m && m.role === 'user' && typeof m.content === 'string'); return lu ? lu.content : ''; })() }); }
+      catch (skillErr) { console.warn('Coding mode skills list failed:', skillErr.message); }
+    }
+
     const geminiAutoHealing = model === 'gemini' && watchdog.isDisabled('gemini_chat_fail');
     let provider = geminiAutoHealing ? PROVIDERS.groq : (PROVIDERS[model] || PROVIDERS.openai);
     if (model === 'claudecode') provider = (m, sp) => callSmart(m, sp, 8192);   // server ANTHROPIC_API_KEY

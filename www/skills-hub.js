@@ -202,11 +202,19 @@
     say('cs-msg', 'Code mode chalu — ab chat mein likho.');
   }
 
+  function useCodingMode() {
+    state.model = 'coding';
+    try { localStorage.setItem('aureon_model', 'coding'); } catch (e) { /* blocked */ }
+    var pill = $('model-pill'); if (pill && typeof MODEL_LABELS !== 'undefined') pill.textContent = MODEL_LABELS.coding;
+    say('cs-msg', 'Coding mode chalu — ab chat mein likho.');
+  }
+
   function wire() {
     if (!$('cs-install') || $('cs-install').dataset.wired) return;
     $('cs-install').dataset.wired = '1';
     $('cs-install').addEventListener('click', installSkill);
     $('cs-use').addEventListener('click', useCodeMode);
+    if ($('cs-use-coding')) $('cs-use-coding').addEventListener('click', useCodingMode);
     $('cs-url').addEventListener('keydown', function (e) { if (e.key === 'Enter') installSkill(); });
     document.querySelectorAll('.list-row[data-open="claudecode"]').forEach(function (b) { b.addEventListener('click', loadSkills); });
   }

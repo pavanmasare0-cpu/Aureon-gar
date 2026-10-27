@@ -234,6 +234,7 @@
     <div id="typing-indicator" class="typing-indicator hidden">
       <span></span><span></span><span></span>
     </div>
+    <button id="btn-stop" type="button" class="hidden" style="display:block;margin:6px auto 2px;padding:7px 20px;border-radius:999px;border:1px solid rgba(255,107,107,.65);background:rgba(229,72,77,.16);color:#ff8f8f;font-size:13px;font-weight:600">&#9632; Stop</button>
 
     <div class="composer-dock">
       <div id="image-preview-bar" class="image-preview-bar hidden">
@@ -419,7 +420,7 @@
         <section class="settings-card settings-pane hidden" data-pane="claudecode" data-title="Code mode">
           <p class="card-sub">Koi bhi <b>GitHub skill link</b> daalo (repo, folder ya SKILL.md ka link). Install hote hi neeche list mein dikhegi, aur <b>Code mode</b> usse apne aap use karega. Skill sirf text guidance hai, kuch chalta nahi.</p>
           <input id="cs-url" class="text-input" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://github.com/owner/repo/tree/main/skills/name">
-          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cs-install" style="flex:1">Skill install karo</button><button class="primary-btn" id="cs-use" style="flex:1">Code mode chalu</button></div>
+          <div style="display:flex;gap:8px;margin:12px 0"><button class="primary-btn" id="cs-install" style="flex:1">Skill install karo</button><button class="primary-btn" id="cs-use" style="flex:1">Code mode chalu</button><button class="primary-btn" id="cs-use-coding" style="flex:1">Coding mode chalu</button></div>
           <div id="cs-msg" class="card-sub"></div>
           <div class="section-label" style="margin-top:12px">Installed skills <span id="cs-count"></span></div>
           <div id="cs-list"></div>

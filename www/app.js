@@ -880,7 +880,11 @@ async function sendMessage() {
     await runAgentTurn(wantsPdf);
   } catch (err) {
     $('typing-indicator').classList.add('hidden');
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    if (err && err.name === 'AbortError') {   // the user pressed Stop
+      addMessage('ai', '⏹ Roka gaya.');
+      state.currentMessages.push({ role: 'assistant', content: '(Maine jawab beech me roka.)' });
+      saveChatSnapshot();
+    } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       addMessage('error', "You're offline — AI chat needs internet. Battery check, opening apps, and setting alarms still work without it though.");
     } else {
       const m = err.message || '';
@@ -966,9 +970,11 @@ async function callBackend(messages, model, tools) {
       useKnowledge: $('toggle-use-knowledge') ? $('toggle-use-knowledge').checked : false
     });
   let res;
+  state.chatAbort = new AbortController();   // the Stop button aborts this request
   try {
-    res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, { method: 'POST', headers: await authHeaders(), body: _payload });
+    res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/chat`, { method: 'POST', headers: await authHeaders(), body: _payload, signal: state.chatAbort.signal });
   } catch (e) {
+    if (e && e.name === 'AbortError') throw e;
     const mb = (_payload.length / 1048576).toFixed(1);
     throw new Error(`${e.message || 'Failed to fetch'} — request ${mb} MB${navigator.onLine === false ? ', phone offline hai' : ''}${_payload.length > 12 * 1048576 ? ' (bahut bada: purani photos/files hata ke naya chat try karo)' : ''}. Backend check: ${state.backendUrl.replace(/\/$/, '')}/health`);
   }
@@ -1725,19 +1731,20 @@ function pickRunnable(text, testsOnly) {
   return { lang: '', blocks: [] };
 }
 // One sandbox run. Returns { status: HTTP status, data }.
+const autoSignal = () => (state.autoTesting && state.autoAbort ? state.autoAbort.signal : undefined);
 async function sandboxRun(lang, blocks) {
-  const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, blocks }) });
+  const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, blocks }), signal: autoSignal() });
   const data = await res.json().catch(() => ({}));
   return { status: res.status, ok: res.ok, data };
 }
 // Fix & re-run: up to `max` rounds. Each round = real error -> AI fixes -> sandbox runs the new version. Shown live in `steps`.
 async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
   let answer = String(msgObj.content || ''), rep = report, success = false, line = '';
-  for (let round = 1; round <= max && !success; round++) {
+  for (let round = 1; round <= max && !success && !state.stopAuto; round++) {
     const live = { icon: 'sparkle', label: 'Fix round ' + round + '/' + max + ': AI sudhaar raha hai…', status: 'ok' };
     steps.push(live); redraw();
     try {
-      const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/fix-run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, answer, report: rep }) });
+      const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/fix-run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, answer, report: rep }), signal: autoSignal() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || ('Server returned ' + res.status));
       live.label = 'Fix round ' + round + '/' + max + (data.fixedLine ? ': ' + data.fixedLine : '');
@@ -1746,7 +1753,7 @@ async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
       answer = data.answer; rep = (data.result && (data.result.report || data.result.stdout || data.result.stderr)) || rep;
       success = !!data.success; line = data.fixedLine || line;
     } catch (e) {
-      live.label = 'Fix round ' + round + ' nahi hua'; live.status = 'error'; live.detail = String(e.message || e);
+      live.label = (e && e.name === 'AbortError') ? 'Fix round ' + round + ': roka gaya' : 'Fix round ' + round + ' nahi hua'; live.status = 'error'; live.detail = (e && e.name === 'AbortError') ? '' : String(e.message || e);
       redraw(); return { success: false, answer, line };
     }
     redraw();
@@ -1758,12 +1765,36 @@ async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
     attachSummaryChip(d, m2.steps, m2);
     state.currentMessages.push(m2);
     steps.push({ icon: 'check', label: 'Sudhaara hua jawab chat me add kar diya', status: 'ok' });
+  } else if (state.stopAuto) {
+    steps.push({ icon: 'alert', label: 'Aapne Stop dabaya — fix rounds ruk gaye', status: 'error' });
   } else {
     steps.push({ icon: 'alert', label: max + ' round me bhi theek nahi hua — error upar dekho', status: 'error' });
   }
   redraw();
   return { success, answer, line };
 }
+// Stop button: shows while the AI is answering or while auto test & fix is running.
+function updateStopBtn() {
+  const b = document.getElementById('btn-stop'); if (!b) return;
+  const typing = document.getElementById('typing-indicator');
+  const show = !!state.autoTesting || (typing && !typing.classList.contains('hidden'));
+  b.classList.toggle('hidden', !show);
+}
+(function initStopBtn() {
+  const go = () => {
+    const b = document.getElementById('btn-stop'), typing = document.getElementById('typing-indicator');
+    if (!b || b.dataset.wired) return; b.dataset.wired = '1';
+    b.addEventListener('click', () => {
+      state.stopAuto = true;
+      try { if (state.chatAbort) state.chatAbort.abort(); } catch (e) { /* already finished */ }
+      try { if (state.autoAbort) state.autoAbort.abort(); } catch (e) { /* already finished */ }
+      b.classList.add('hidden');
+    });
+    if (typing && typeof MutationObserver !== 'undefined') new MutationObserver(updateStopBtn).observe(typing, { attributes: true, attributeFilter: ['class'] });
+    updateStopBtn();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+})();
 const isAutoFix = () => { try { return !window.aureonAutoFix || window.aureonAutoFix(); } catch (e) { return true; } };
 // Automatic mode (owner): when a Code/Coding answer brings its own tests, run them right away and, if they fail, fix & re-run up to 3 times.
 async function maybeAutoTest(msgDiv, msgObj) {
@@ -1772,7 +1803,7 @@ async function maybeAutoTest(msgDiv, msgObj) {
   if (!pick.lang) return;
   const steps = msgObj.steps;
   const redraw = () => { const old = msgDiv.querySelector('.sum-chip'); if (old) old.remove(); attachSummaryChip(msgDiv, steps, msgObj); if (!$('sheet-summary').classList.contains('hidden') && state.summaryOpenFor === msgObj) renderSummaryList(steps); };
-  state.autoTesting = true;
+  state.autoTesting = true; state.stopAuto = false; state.autoAbort = new AbortController(); updateStopBtn();
   const marker = { icon: 'terminal', label: 'Auto test: tests chal rahe hain…', status: 'ok' };
   steps.push(marker); redraw();
   try {
@@ -1786,9 +1817,10 @@ async function maybeAutoTest(msgDiv, msgObj) {
       if (rep) await fixRounds({ lang: pick.lang, msgObj, steps, report: rep, redraw });
     }
   } catch (e) {
-    marker.label = 'Auto test nahi hua'; marker.status = 'error'; marker.detail = String(e.message || e);
+    if (e && e.name === 'AbortError') { marker.label = 'Auto test: roka gaya'; marker.status = 'error'; }
+    else { marker.label = 'Auto test nahi hua'; marker.status = 'error'; marker.detail = String(e.message || e); }
   } finally {
-    state.autoTesting = false; redraw(); saveChatSnapshot();
+    state.autoTesting = false; state.autoAbort = null; updateStopBtn(); redraw(); saveChatSnapshot();
   }
 }
 function openSummary(steps, msgObj) {

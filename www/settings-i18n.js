@@ -97,7 +97,7 @@
   var H = {
     'pg-intro': 'This sends the phone’s security settings (screen lock, root, USB debugging, patch level) and the list of installed apps to <b>your own backend</b> — nobody else. It changes nothing, it only reads. Result: Security dashboard → My Phone. This is not an antivirus.',
     'ap-intro': 'Connect any app — <b>MCP server</b>, <b>REST API</b> or <b>Webhook</b> (Slack, Discord, Zapier, Make, n8n...). Then tell Aureon what to do in plain language and it will run that app by itself. The token is stored encrypted on the server and is never sent back to the app.',
-    'cs-intro': 'Paste any <b>GitHub skill link</b> (repo, folder or SKILL.md link). Once installed it appears in the list below and <b>Code mode</b> will use it automatically. A skill is only text guidance — it doesn’t run anything.'
+    'cs-intro': 'Paste any <b>GitHub skill link</b> (repo, folder or SKILL.md link). Once installed it appears in the list below and <b>Code mode</b> and <b>Coding mode</b> will use it automatically (you can also install from any chat: <i>npx skills add owner/repo</i> or a GitHub link + “skill install karo”). A skill is only text guidance — it doesn’t run anything.'
   };
 
   /* ---------- strings with numbers / names in them ---------- */
