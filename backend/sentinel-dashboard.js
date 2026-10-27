@@ -139,7 +139,7 @@ function logEvent(type, server, text) {
   persist('events');
   try {   // brain: Sentinel, Ava Guard and Ava's upgrade proposals/approvals all become neurons
     if (global.__brain) {
-      const R = { down: 3, deploy_bad: 3, error: 3, rejected: 4, proposal: 0, approved: 6, up: 2, deploy_ok: 6, deploy_watch: 0 };
+      const R = { down: 3, deploy_bad: 3, error: 3, rejected: 4, proposal: 0, approved: 6, up: 0, deploy_ok: 6, deploy_watch: 0 };
       global.__brain.record(R[type] != null ? R[type] : 0, 'Sentinel ' + type + (server && server.name ? ' [' + server.name + ']' : '') + ': ' + String(text || ''), { kind: 'sentinel' });
     }
   } catch (e) { /* brain is optional */ }

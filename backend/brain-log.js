@@ -20,9 +20,18 @@ module.exports = function createBrainLog({ getDb, admin, ringSize = 1500 }) {
   const redact = (s) => SECRET_RES.reduce((t, re) => t.replace(re, '[hidden]'), String(s == null ? '' : s));
   const clean = (s, n) => redact(s).replace(/\s+/g, ' ').trim().slice(0, n);
 
+  // Events saved by earlier versions used other lobes (every chat went to Yaadein, skills to Yaadein ...). One rule decides the lobe for old and new events.
+  function normRegion(r, text) {
+    const t = String(text || '');
+    if (/^Chat \(|^Purani chat|^Keys:|^Sentinel up\b|^Owner action|^Server jaaga/.test(t)) return 0;
+    if (/^Skill seekhi|^\+\d+ aur skills seekhi|^Naya lesson|^Lesson:/.test(t)) return 1;
+    if (/^Nayi photo|^Photo edit/.test(t)) return 6;
+    if (/^Ava test pass/.test(t)) return 5;
+    return r;
+  }
   function record(region, text, meta) {
-    const r = Math.max(0, Math.min(REGIONS - 1, Number(region) | 0));
     const t = clean(text, 160); if (!t) return null;
+    const r = Math.max(0, Math.min(REGIONS - 1, normRegion(Number(region) | 0, t)));
     const ts = Date.now();
     const ev = { id: ts.toString(36) + Math.random().toString(36).slice(2, 6), r, t, ts, meta: meta && typeof meta === 'object' ? meta : undefined };
     ring.push(ev); if (ring.length > ringSize) ring.shift();
@@ -66,14 +75,22 @@ module.exports = function createBrainLog({ getDb, admin, ringSize = 1500 }) {
     const d = db(); if (!d) return false;
     try {
       const tdoc = await d.collection(META).doc('totals').get();
-      const t = tdoc.exists ? tdoc.data() : {};
+      let t = tdoc.exists ? tdoc.data() : {};
+      if (tdoc.exists && Number(t.schema) !== 2) {   // one-time: recount every stored event with the current lobe rules
+        const all = await d.collection(COL).limit(20000).get();
+        const cnt = new Array(REGIONS).fill(0);
+        all.docs.forEach((x) => { const e = x.data(); cnt[Math.max(0, Math.min(REGIONS - 1, normRegion(Number(e.r) | 0, e.t)))]++; });
+        const fresh = { schema: 2, updatedAt: Date.now() }; cnt.forEach((n, i) => { fresh['c' + i] = n; });
+        await d.collection(META).doc('totals').set(fresh);
+        t = fresh;
+      } else if (!tdoc.exists) { await d.collection(META).doc('totals').set({ schema: 2, updatedAt: Date.now() }, { merge: true }); }
       const fromDb = new Array(REGIONS).fill(0).map((_, i) => Number(t['c' + i]) || 0);
       const localNew = totals.slice();                       // events recorded before load finished
       storedTotals = fromDb.slice();
       totals = fromDb.map((n, i) => n + localNew[i]);
       const snap = await d.collection(COL).orderBy('ts', 'desc').limit(ringSize).get();
       const have = new Set(ring.map((e) => e.id));
-      const old = snap.docs.map((x) => ({ id: x.id, ...x.data() })).filter((e) => !have.has(e.id)).sort((a, b) => a.ts - b.ts);
+      const old = snap.docs.map((x) => { const e = { id: x.id, ...x.data() }; e.r = normRegion(Number(e.r) | 0, e.t); return e; }).filter((e) => !have.has(e.id)).sort((a, b) => a.ts - b.ts);
       ring.unshift(...old); while (ring.length > ringSize) ring.shift();
       loaded = true; return true;
     } catch (e) { return false; }
@@ -82,5 +99,5 @@ module.exports = function createBrainLog({ getDb, admin, ringSize = 1500 }) {
   function snapshot() {
     return { counts: totals.slice(), total: totals.reduce((a, b) => a + b, 0), items: ring.slice().sort((a, b) => b.ts - a.ts).map((e) => ({ id: 'b' + e.id, r: e.r, t: e.t, ts: e.ts })), loaded };
   }
-  return { record, recordOnce, recordFor, redact, flush, load, snapshot, isOwner, _t: { ring, get pending() { return pending; }, get totals() { return totals; } } };
+  return { record, recordOnce, recordFor, redact, normRegion, flush, load, snapshot, isOwner, _t: { ring, get pending() { return pending; }, get totals() { return totals; } } };
 };

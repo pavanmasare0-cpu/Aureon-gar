@@ -363,7 +363,7 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
       for (let round = 0; round < 3; round++) {
         say('Test chala rahi hai: ' + t + (round ? ' (repair ' + round + ')' : ''));
         const r = runTest(e.id, t);
-        if (r.ok) { e.notes.push('✅ test pass: ' + t + (r.sandboxed ? ' (isolated)' : '')); brainEv(1, 'Ava test pass: ' + t + (round ? ' (repair ke baad)' : '')); break; }
+        if (r.ok) { e.notes.push('✅ test pass: ' + t + (r.sandboxed ? ' (isolated)' : '')); brainEv(5, 'Ava test pass: ' + t + (round ? ' (repair ke baad)' : '')); break; }
         if (round === 2) { brainEv(3, 'Ava test fail: ' + t); e.notes.push('❌ test fail: ' + t + ' — ' + r.log.split('\n').filter(Boolean).slice(-2).join(' | ').slice(0, 160)); break; }
         // repair the first non-test project file named in the failure output, else the test itself
         const named = [...r.log.matchAll(/([A-Za-z0-9_./-]+\.js)(?::\d+)/g)].map((x) => x[1].replace(pdir(e.id) + '/', '')).filter((p) => !isTest(p) && getFile(e.id, p) != null)[0];

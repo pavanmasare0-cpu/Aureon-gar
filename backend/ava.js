@@ -278,13 +278,15 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
     // 0 Soch · 1 Tark · 2 Yaad · 3 Dar · 4 Bhavna · 5 Drishti · 6 Sapne.  Text only (memory text is already redacted).
     brain: () => {
       const FEAR = /\bdar\b|darr|fear|afraid|risk|danger|khatar|galat|error|fail|panic|threat|crash|blocked|denied|limit|can't|cannot|nahi kar/i;
-      const KIND = { conversation: 2, learning_feedback: 4, skill_evaluation: 1, consciousness_experiment: 1, task_plan: 0, goal: 0, reflection: 0,
+      // Lobes: Soch = chats/thoughts · Tark = what AUREON learned · Yaadein = real memories only · Dar = fears/failures · Bhavna = feelings/feedback
+      //        Drishti = what AVA learned (reflections, her rules, skill checks) and what she sees · Sapne = things built/created.
+      const KIND = { conversation: 0, learning_feedback: 4, skill_evaluation: 5, consciousness_experiment: 5, task_plan: 0, goal: 0, reflection: 5,
         observation: 5, environment_observation: 5, curiosity_question: 6 };
       const all = [];
       const push = (id, region, text, ts) => { text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 140); if (text) all.push({ id: String(id), r: region, t: text, ts: Number(ts) || 0 }); };
       try {
         (mind._t.getMemory() || []).forEach((m) => {
-          let r = KIND[m.kind]; if (r === undefined) r = 2;
+          let r = KIND[m.kind]; if (r === undefined) r = 0;
           if (m.kind === 'skill_evaluation' && m.meta && m.meta.passed === false) r = 3;
           else if (r !== 4 && FEAR.test(m.text)) r = 3;
           push('m' + m.id, r, m.text, m.t);
@@ -296,7 +298,7 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
       } catch (e) { /* mind off */ }
       try {
         const raw = extra.brainRaw();
-        raw.playbook.forEach((p, i) => push('p' + i + p.text.length, 1, p.text, p.t));       // rules she taught herself -> logic
+        raw.playbook.forEach((p, i) => push('p' + i + p.text.length, 5, p.text, p.t));       // rules she taught herself -> Drishti (what Ava learned)
         raw.gaps.forEach((g, i) => push('g' + i + g.text.length, 3, 'Nahi kar paayi: ' + g.text, g.t));   // things she could not do -> fear
         raw.discoveries.forEach((d, i) => push('s' + i + d.text.length, 6, d.text, d.t));    // scouted ideas -> dreams
       } catch (e) { /* extra off */ }

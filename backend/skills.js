@@ -157,8 +157,8 @@ async function installFromGithub({ db, uid, url, fetchImpl = fetch }) {
   cache.delete(uid);
   try {   // brain: skills learned (owner only; names, not contents)
     if (global.__brain) {
-      list.slice(0, 40).forEach(s => global.__brain.recordFor(uid, 2, 'Skill seekhi: ' + s.name, { kind: 'skill' }));
-      if (list.length > 40) global.__brain.recordFor(uid, 2, '+' + (list.length - 40) + ' aur skills seekhi (' + String(source).replace(/^https:\/\/github\.com\//i, '') + ')', { kind: 'skill' });
+      list.slice(0, 40).forEach(s => global.__brain.recordFor(uid, 1, 'Skill seekhi: ' + s.name, { kind: 'skill' }));
+      if (list.length > 40) global.__brain.recordFor(uid, 1, '+' + (list.length - 40) + ' aur skills seekhi (' + String(source).replace(/^https:\/\/github\.com\//i, '') + ')', { kind: 'skill' });
     }
   } catch (e) { /* brain is optional */ }
   return list.map(s => ({ name: s.name, description: s.description, source }));

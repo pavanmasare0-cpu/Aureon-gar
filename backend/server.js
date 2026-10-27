@@ -1493,7 +1493,7 @@ app.post('/api/generate-image', verifyAuth, async (req, res) => {
       const textPart = resultParts.find(p => p.text);
       throw new Error(textPart?.text || 'Model did not return an image for this prompt.');
     }
-    try { if (global.__brain) global.__brain.recordFor(req.verifiedUid, 5, sourceImage ? 'Photo edit ki' : 'Nayi photo banayi', { kind: 'image' }); } catch (e) { /* brain is optional */ }
+    try { if (global.__brain) global.__brain.recordFor(req.verifiedUid, 6, sourceImage ? 'Photo edit ki' : 'Nayi photo banayi', { kind: 'image' }); } catch (e) { /* brain is optional */ }
     res.json({ mimeType: imagePart.inlineData.mimeType || 'image/png', dataBase64: imagePart.inlineData.data });
   } catch (err) {
     console.error('Image generation failed:', err);
@@ -1863,7 +1863,7 @@ function brainChat(uid, model, userText, reply) {
     const q = String(userText || '').replace(/\s+/g, ' ').trim().slice(0, 80);
     const a = String(reply || '').replace(/```[\s\S]*?```/g, ' [code] ').replace(/\s+/g, ' ').trim().slice(0, 60);
     if (!q && !a) return;
-    const region = (model === 'coding' || model === 'claudecode') ? 1 : 2;
+    const region = 0;   // chats are thoughts (Soch), never memories
     global.__brain.recordFor(uid, region, 'Chat (' + (model || 'chat') + '): "' + q + '"' + (a ? ' → ' + a : ''), { kind: 'chat' });
   } catch (e) { /* brain is optional */ }
 }
@@ -1879,14 +1879,14 @@ async function brainBackfill(uid, force) {
     await metaRef.set({ startedAt: Date.now(), uid });
     const B = global.__brain, u = db.collection('users').doc(uid); const done = {};
     const rec = (k, r, t) => { B.record(r, t, { kind: 'backfill' }); done[k] = (done[k] || 0) + 1; };
-    try { (await u.collection('skills').limit(1000).get()).docs.forEach(d => rec('skills', 2, 'Skill seekhi: ' + (d.data().name || d.id))); } catch (e) { /* section optional */ }
+    try { (await u.collection('skills').limit(1000).get()).docs.forEach(d => rec('skills', 1, 'Skill seekhi: ' + (d.data().name || d.id))); } catch (e) { /* section optional */ }
     try { (await u.collection('lessons').limit(500).get()).docs.forEach(d => rec('lessons', 1, 'Lesson: ' + (d.data().text || ''))); } catch (e) { /* section optional */ }
     try { (await u.collection('knowledge').limit(300).get()).docs.forEach(d => rec('knowledge', 2, 'Knowledge doc: ' + (d.data().filename || d.id))); } catch (e) { /* section optional */ }
     try { const m = await u.collection('profile').doc('memory').get(); if (m.exists && m.data().text) rec('notes', 2, 'Memory notes: ' + String(m.data().text).slice(0, 110)); } catch (e) { /* section optional */ }
     try {
       (await u.collection('chats').limit(300).get()).docs.forEach(d => {
         const c = d.data() || {}; const first = Array.isArray(c.messages) ? c.messages.find(x => x && x.role === 'user' && typeof x.content === 'string') : null;
-        rec('chats', 2, 'Purani chat: ' + (c.title || '') + (first ? ' — "' + String(first.content).replace(/\s+/g, ' ').slice(0, 70) + '"' : ''));
+        rec('chats', 0, 'Purani chat: ' + (c.title || '') + (first ? ' — "' + String(first.content).replace(/\s+/g, ' ').slice(0, 70) + '"' : ''));
       });
     } catch (e) { /* section optional */ }
     await metaRef.set({ startedAt: Date.now(), uid, finishedAt: Date.now(), done });
@@ -2319,7 +2319,7 @@ try {
     }).catch(() => {});
   }, 6000);
   const keyTick = setInterval(() => {   // keys status for the brain: counts + which key last worked (no test calls, so no quota is used)
-    try { brainLog.record(2, 'Keys: Gemini ' + geminiKeys().length + ', Groq ' + groqKeys().length + ' (Gemini aakhri chalti #' + (geminiKeys().length ? (geminiKeyStart % geminiKeys().length) + 1 : 0) + ')', { kind: 'keys' }); } catch (e) { /* optional */ }
+    try { brainLog.record(0, 'Keys: Gemini ' + geminiKeys().length + ', Groq ' + groqKeys().length + ' (Gemini aakhri chalti #' + (geminiKeys().length ? (geminiKeyStart % geminiKeys().length) + 1 : 0) + ')', { kind: 'keys' }); } catch (e) { /* optional */ }
   }, 6 * 60 * 60 * 1000);
   if (keyTick.unref) keyTick.unref();
 } catch (e) { console.warn('Brain log not started:', e.message); }
