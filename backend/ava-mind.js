@@ -307,7 +307,7 @@ module.exports = function createMind({ router, auth, callGemini, helpers, kv, re
 
   router.get('/whoami', auth, (req, res) => res.json({ isOwner: !!req.avaIsOwner, email: req.avaEmail || null, uid: req.avaUid || null, who: req.avaWho }));
   router.get('/mind/self', gate, auth, (req, res) => res.json({ identity, state: { ...state, questions: undefined, discoveries: undefined }, selfModel: describeSelf(!!req.avaIsOwner), say: selfReport(!!req.avaIsOwner) }));
-  router.get('/mind/state', gate, auth, (req, res) => res.json({ state: { ...state, questions: state.questions.slice(-5), discoveries: state.discoveries.slice(-5) } }));
+  router.get('/mind/state', gate, auth, (req, res) => res.json({ state: { ...state, questions: (Array.isArray(state.questions) ? state.questions : []).slice(-5), discoveries: (Array.isArray(state.discoveries) ? state.discoveries : []).slice(-5) } }));
   router.get('/mind/memory', gate, auth, ownerOnly, (req, res) => res.json({ total: memory.length, items: memory.slice(-Math.max(1, Math.min(Number(req.query.limit) || 20, 100))).reverse() }));
   router.delete('/mind/memory', gate, auth, ownerOnly, async (req, res) => { memory = []; state = DEFAULT_STATE(); turnsSinceReflect = 0; await kv.set('mind_memory', memory); await kv.set('mind_state', state); res.json({ ok: true }); });
   router.post('/mind/recall', gate, auth, ownerOnly, wrap((req) => { const items = semanticSearch(String((req.body || {}).query || ''), Number((req.body || {}).limit) || 5); return { items, say: items.length ? items.map((i) => '• ' + i.text).join('\n') : 'Is baare me mujhe kuch yaad nahi.' }; }));
