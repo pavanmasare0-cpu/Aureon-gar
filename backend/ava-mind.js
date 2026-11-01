@@ -96,7 +96,7 @@ module.exports = function createMind({ router, auth, callGemini, helpers, kv, re
       if (overlap) out.push({ m, score: overlap / Math.sqrt(qs * Math.max(1, fs)) });
     }
     out.sort((a, b) => b.score - a.score || b.m.t - a.m.t);
-    return out.slice(0, Math.max(1, Math.min(limit, 20))).map((x) => ({ id: x.m.id, kind: x.m.kind, text: x.m.text, t: x.m.t, similarity: Math.round(x.score * 1e4) / 1e4 }));
+    return out.slice(0, Math.max(1, Math.min(limit, 50))).map((x) => ({ id: x.m.id, kind: x.m.kind, text: x.m.text, t: x.m.t, similarity: Math.round(x.score * 1e4) / 1e4 }));
   }
 
   // ---------------- learning from explicit feedback / tests (no weight training) ----------------
@@ -310,7 +310,7 @@ module.exports = function createMind({ router, auth, callGemini, helpers, kv, re
   router.get('/mind/state', gate, auth, (req, res) => res.json({ state: { ...state, questions: (Array.isArray(state.questions) ? state.questions : []).slice(-5), discoveries: (Array.isArray(state.discoveries) ? state.discoveries : []).slice(-5) } }));
   router.get('/mind/memory', gate, auth, ownerOnly, (req, res) => res.json({ total: memory.length, items: memory.slice(-Math.max(1, Math.min(Number(req.query.limit) || 20, 100))).reverse() }));
   router.delete('/mind/memory', gate, auth, ownerOnly, async (req, res) => { memory = []; state = DEFAULT_STATE(); turnsSinceReflect = 0; await kv.set('mind_memory', memory); await kv.set('mind_state', state); res.json({ ok: true }); });
-  router.post('/mind/recall', gate, auth, ownerOnly, wrap((req) => { const items = semanticSearch(String((req.body || {}).query || ''), Number((req.body || {}).limit) || 5); return { items, say: items.length ? items.map((i) => '• ' + i.text).join('\n') : 'Is baare me mujhe kuch yaad nahi.' }; }));
+  router.post('/mind/recall', gate, auth, ownerOnly, wrap((req) => { const rawLimit = Number((req.body || {}).limit); const limit = clamp(Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 5, 1, 50); const items = semanticSearch(String((req.body || {}).query || ''), limit); return { items, say: items.length ? items.map((i) => '• ' + i.text).join('\n') : 'Is baare me mujhe kuch yaad nahi.' }; }));
   router.post('/mind/reflect', gate, auth, ownerOnly, wrap(async (req) => { if (limited('mindreflect:' + req.avaWho, 3, 600000)) { const e = new Error('Abhi abhi soch chuki hu — thodi der baad.'); e.status = 429; throw e; } return await reflectOnce(String((req.body || {}).observation || '').slice(0, 600)); }));
   router.post('/mind/experiment', gate, auth, ownerOnly, wrap((req) => consciousnessExperiment((req.body || {}).observation)));
   router.post('/mind/feedback', gate, auth, ownerOnly, wrap((req) => { const b = req.body || {}; const r = recordFeedback(b.item, b.rating, b.note); return { ...r, say: `Thanks — ${r.rating}/5 yaad rakh liya. (${r.feedbackCount} ratings, average ${r.averageRating}/5)` }; }));
